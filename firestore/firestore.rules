@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isStaff() {
+      return request.auth != null;
+    }
+
+    function inRestaurant(restaurantId) {
+      return request.auth.token.restaurantId == restaurantId;
+    }
+
+    match /restaurants/{restaurantId} {
+      allow read: if isStaff() && inRestaurant(restaurantId);
+      allow write: if isStaff() && inRestaurant(restaurantId);
+    }
+
+    match /{collection}/{docId} {
+      allow read, write: if isStaff() && inRestaurant(request.resource.data.restaurantId);
+    }
+
+    match /tableSessions/{sessionId} {
+      allow read: if true;
+      allow create: if isStaff();
+      allow update: if isStaff();
+    }
+
+    match /orders/{orderId} {
+      allow create: if request.resource.data.sessionId is string
+        && request.resource.data.dedupeKey is string;
+      allow read, update: if isStaff();
+    }
+  }
+}
