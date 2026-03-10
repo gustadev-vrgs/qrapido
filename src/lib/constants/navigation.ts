@@ -1,18 +1,21 @@
 import type { Route } from "next";
-import { BarChart3, LayoutGrid, Settings, ShoppingCart, UtensilsCrossed, UsersRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { AppIcons } from "@/lib/icons";
 
-export interface DashboardNavItem {
+export interface NavigationItem {
   href: Route;
   label: string;
   icon: LucideIcon;
+  description?: string;
 }
 
-export const dashboardNavItems: DashboardNavItem[] = [
-  { href: "/dashboard", label: "Visão geral", icon: LayoutGrid },
-  { href: "/dashboard/pedidos", label: "Pedidos", icon: ShoppingCart },
-  { href: "/dashboard/mesas", label: "Mesas", icon: UsersRound },
-  { href: "/dashboard/cardapio", label: "Cardápio", icon: UtensilsCrossed },
-  { href: "/dashboard/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings }
+export const dashboardNavItems: NavigationItem[] = [
+  { href: "/dashboard", label: "Visão geral", icon: AppIcons.dashboard, description: "Resumo operacional" },
+  { href: "/dashboard/pedidos", label: "Pedidos", icon: AppIcons.orders, description: "Fila de pedidos" },
+  { href: "/dashboard/mesas", label: "Mesas", icon: AppIcons.tables, description: "Ocupação de mesas" },
+  { href: "/dashboard/cardapio", label: "Cardápio", icon: AppIcons.menu, description: "Itens e categorias" },
+  { href: "/dashboard/relatorios", label: "Relatórios", icon: AppIcons.reports, description: "Métricas e desempenho" },
+  { href: "/dashboard/configuracoes", label: "Configurações", icon: AppIcons.settings, description: "Preferências do sistema" }
 ];
+
+export const authNavItems: NavigationItem[] = [{ href: "/login", label: "Entrar", icon: AppIcons.settings }];
