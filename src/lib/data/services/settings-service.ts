@@ -15,12 +15,12 @@ export class SettingsService {
 
   async getById(id: string): Promise<RestaurantSettings> {
     const { db } = resolveContext(this.context);
-    return readOne(getDocumentRef(db, COLLECTIONS.settings, id), mapSettings, "restaurantSettings");
+    return readOne(getDocumentRef(db, COLLECTIONS.restaurantSettings, id), mapSettings, "restaurantSettings");
   }
 
   async listByRestaurant(restaurantId: string): Promise<RestaurantSettings[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.settings), byRestaurant(restaurantId), mapSettings);
+    return readMany(getCollection(db, COLLECTIONS.restaurantSettings), byRestaurant(restaurantId), mapSettings);
   }
 
   async create(payload: CreateRestaurantSettingsPayload): Promise<string> {
@@ -30,7 +30,7 @@ export class SettingsService {
     }
 
     const parsed = createRestaurantSettingsPayloadSchema.parse(payload);
-    return createOne<DocumentData>(getCollection(db, COLLECTIONS.settings), {
+    return createOne<DocumentData>(getCollection(db, COLLECTIONS.restaurantSettings), {
       ...parsed,
       createdAt: nowIsoString(),
       updatedAt: nowIsoString()
@@ -44,7 +44,7 @@ export class SettingsService {
     }
 
     const parsed = updateRestaurantSettingsPayloadSchema.parse(payload);
-    await patchOne(getDocumentRef(db, COLLECTIONS.settings, id), {
+    await patchOne(getDocumentRef(db, COLLECTIONS.restaurantSettings, id), {
       ...parsed,
       updatedAt: nowIsoString()
     });

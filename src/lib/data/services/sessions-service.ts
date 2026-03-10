@@ -14,23 +14,23 @@ export class SessionsService {
 
   async listActiveByRestaurant(restaurantId: string): Promise<TableSession[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.sessions), byRestaurantAndStatus(restaurantId, "active"), mapSession);
+    return readMany(getCollection(db, COLLECTIONS.tableSessions), byRestaurantAndStatus(restaurantId, "active"), mapSession);
   }
 
   async listByTable(restaurantId: string, tableId: string): Promise<TableSession[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.sessions), byRestaurantAndTable(restaurantId, tableId), mapSession);
+    return readMany(getCollection(db, COLLECTIONS.tableSessions), byRestaurantAndTable(restaurantId, tableId), mapSession);
   }
 
   async getById(id: string): Promise<TableSession> {
     const { db } = resolveContext(this.context);
-    return readOne(getDocumentRef(db, COLLECTIONS.sessions, id), mapSession, "tableSession");
+    return readOne(getDocumentRef(db, COLLECTIONS.tableSessions, id), mapSession, "tableSession");
   }
 
   async getByToken(restaurantId: string, sessionToken: string): Promise<TableSession | null> {
     const { db } = resolveContext(this.context);
     const sessions = await readMany(
-      getCollection(db, COLLECTIONS.sessions),
+      getCollection(db, COLLECTIONS.tableSessions),
       byRestaurantAndSessionToken(restaurantId, sessionToken),
       mapSession
     );
@@ -42,7 +42,7 @@ export class SessionsService {
     const { db } = resolveContext(this.context);
     const parsed = createTableSessionPayloadSchema.parse(payload);
 
-    return createOne<DocumentData>(getCollection(db, COLLECTIONS.sessions), {
+    return createOne<DocumentData>(getCollection(db, COLLECTIONS.tableSessions), {
       ...parsed,
       createdAt: nowIsoString(),
       updatedAt: nowIsoString()
@@ -53,7 +53,7 @@ export class SessionsService {
     const { db } = resolveContext(this.context);
     const parsed = updateTableSessionPayloadSchema.parse(payload);
 
-    await patchOne(getDocumentRef(db, COLLECTIONS.sessions, id), {
+    await patchOne(getDocumentRef(db, COLLECTIONS.tableSessions, id), {
       ...parsed,
       updatedAt: nowIsoString(),
       lastActivityAt: parsed.lastActivityAt ?? nowIsoString()

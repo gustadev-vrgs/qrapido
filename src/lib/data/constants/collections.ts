@@ -1,14 +1,5 @@
-export const COLLECTIONS = {
-  restaurants: "restaurants",
-  staffUsers: "staffUsers",
-  tables: "tables",
-  sessions: "sessions",
-  menuCategories: "menuCategories",
-  menuItems: "menuItems",
-  orders: "orders",
-  orderEvents: "orderEvents",
-  dailyMetrics: "dailyMetrics",
-  settings: "settings"
-} as const;
+import { COLLECTION_NAMES } from "@/lib/types/domain";
+
+export const COLLECTIONS = COLLECTION_NAMES;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
