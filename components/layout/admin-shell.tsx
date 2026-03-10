@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
+import type { Route } from "next";
 "use client";
 
 import Link from "next/link";
 import { BarChart3, LayoutGrid, QrCode, Settings, ShoppingCart, UtensilsCrossed, UsersRound } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const nav = [
+const nav: Array<{ href: Route; label: string; icon: LucideIcon }> = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutGrid },
   { href: "/admin/tables", label: "Mesas", icon: UsersRound },
   { href: "/admin/sessions", label: "Sessões", icon: UsersRound },
