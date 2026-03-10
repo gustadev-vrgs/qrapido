@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+body { @apply bg-graphite-950 text-graphite-50 antialiased; }
+.surface { @apply rounded-xl2 border border-white/10 bg-graphite-900/70 shadow-soft backdrop-blur; }
+.surface-light { @apply rounded-xl2 border border-graphite-800 bg-graphite-900 shadow-surface; }
