@@ -48,9 +48,17 @@ npm run build
 ```
 
 ## Firebase
-- Configuração cliente em `lib/firebase/client.ts`
-- Regras em `firestore/firestore.rules`
-- Índices em `firestore/firestore.indexes.json`
+1. Copie `env.example` para `.env.local`.
+2. Preencha as variáveis de Client SDK (`NEXT_PUBLIC_*`) para autenticação no front-end.
+3. Preencha as variáveis de Admin SDK (`FIREBASE_*`) apenas no ambiente servidor.
+4. Para `FIREBASE_PRIVATE_KEY`, mantenha quebras de linha escapadas como `\\n` (o parser converte em runtime).
+
+Arquivos base:
+- `src/lib/firebase/client.ts`: inicialização singleton do Firebase Client SDK (Auth + Firestore).
+- `src/lib/firebase/admin.ts`: inicialização singleton do Firebase Admin SDK com credenciais seguras.
+- `src/lib/firebase/auth.ts`: helpers de Auth admin e verificação de bearer token para Route Handlers.
+- `src/lib/firebase/firestore.ts`: helpers para obtenção de Firestore client/admin.
+- `firestore/firestore.rules` e `firestore/firestore.indexes.json`: regras e índices do Firestore.
 
 ## Deploy
 Projeto pronto para Vercel.
