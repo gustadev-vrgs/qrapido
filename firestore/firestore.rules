@@ -1,33 +1,83 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isStaff() {
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    function inRestaurant(restaurantId) {
-      return request.auth.token.restaurantId == restaurantId;
+    function hasRestaurantContext() {
+      return isAuthenticated()
+        && request.auth.token.restaurantId is string
+        && request.auth.token.role in ['admin', 'staff'];
+    }
+
+    function sameRestaurant(restaurantId) {
+      return hasRestaurantContext() && request.auth.token.restaurantId == restaurantId;
+    }
+
+    function isAdmin() {
+      return hasRestaurantContext() && request.auth.token.role == 'admin';
     }
 
     match /restaurants/{restaurantId} {
-      allow read: if isStaff() && inRestaurant(restaurantId);
-      allow write: if isStaff() && inRestaurant(restaurantId);
+      allow read: if sameRestaurant(restaurantId);
+      allow write: if isAdmin() && sameRestaurant(restaurantId);
     }
 
-    match /{collection}/{docId} {
-      allow read, write: if isStaff() && inRestaurant(request.resource.data.restaurantId);
+    match /staffUsers/{docId} {
+      allow read: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+      allow create, update, delete: if isAdmin() && request.resource.data.restaurantId == request.auth.token.restaurantId;
     }
 
-    match /tableSessions/{sessionId} {
+    match /tables/{docId} {
+      allow read: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+      allow create, update, delete: if hasRestaurantContext() && request.resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    match /tableSessions/{docId} {
+      allow read: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+      allow create, update: if hasRestaurantContext() && request.resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    match /menuCategories/{docId} {
       allow read: if true;
-      allow create: if isStaff();
-      allow update: if isStaff();
+      allow create, update, delete: if hasRestaurantContext() && request.resource.data.restaurantId == request.auth.token.restaurantId;
     }
 
-    match /orders/{orderId} {
-      allow create: if request.resource.data.sessionId is string
+    match /menuItems/{docId} {
+      allow read: if true;
+      allow create, update, delete: if hasRestaurantContext() && request.resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    // Cliente não possui auth: pode criar pedido somente com payload mínimo válido.
+    match /orders/{docId} {
+      allow create: if request.auth == null
+        && request.resource.data.restaurantId is string
+        && request.resource.data.sessionId is string
+        && request.resource.data.tableId is string
+        && request.resource.data.status == 'pending'
         && request.resource.data.dedupeKey is string;
-      allow read, update: if isStaff();
+
+      allow read, update: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    match /orderEvents/{docId} {
+      allow create: if request.auth == null
+        && request.resource.data.restaurantId is string
+        && request.resource.data.sessionId is string
+        && request.resource.data.eventType in ['call_waiter', 'request_bill'];
+
+      allow read, update: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    match /restaurantSettings/{docId} {
+      allow read: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+      allow create, update, delete: if isAdmin() && request.resource.data.restaurantId == request.auth.token.restaurantId;
+    }
+
+    match /dailyMetrics/{docId} {
+      allow read: if hasRestaurantContext() && resource.data.restaurantId == request.auth.token.restaurantId;
+      allow write: if isAdmin() && request.resource.data.restaurantId == request.auth.token.restaurantId;
     }
   }
 }

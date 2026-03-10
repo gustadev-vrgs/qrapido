@@ -7,9 +7,9 @@ export function useAuthGuard(): void {
   const router = useRouter();
 
   useEffect(() => {
-    const hasSession = typeof window !== "undefined" && window.localStorage.getItem("qrapido_staff_session") === "ok";
-    if (!hasSession) {
-      router.replace("/login");
+    const sessionHint = window.sessionStorage.getItem("qrapido_staff_session_hint");
+    if (sessionHint !== "ok") {
+      router.refresh();
     }
   }, [router]);
 }

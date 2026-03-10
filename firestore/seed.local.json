@@ -1,0 +1,23 @@
+{
+  "restaurants/rest_demo_qrapido": {
+    "restaurantId": "rest_demo_qrapido",
+    "name": "QRápido Demo Bistrô",
+    "slug": "qrapido-demo-bistro",
+    "isActive": true
+  },
+  "staffUsers/staff_admin_1": {
+    "restaurantId": "rest_demo_qrapido",
+    "uid": "firebase_uid_admin_1",
+    "email": "admin@qrapido.demo",
+    "role": "admin",
+    "displayName": "Ana Admin",
+    "isActive": true
+  },
+  "tables/t1": {
+    "restaurantId": "rest_demo_qrapido",
+    "number": "Mesa 01",
+    "capacity": 4,
+    "status": "occupied",
+    "activeSessionCount": 1
+  }
+}

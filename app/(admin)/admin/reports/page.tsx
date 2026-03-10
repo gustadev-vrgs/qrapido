@@ -11,7 +11,7 @@ export default async function ReportsPage(): Promise<JSX.Element> {
         <ul className="space-y-2 text-sm">
           {data.map((item) => (
             <li key={item.id} className="flex justify-between border-b border-white/10 pb-2">
-              <span>{item.day}</span>
+              <span>{item.date}</span>
               <span>{formatCurrency(item.revenueInCents)} · {item.orderCount} pedidos · {item.occupancyRate}% ocupação</span>
             </li>
           ))}
