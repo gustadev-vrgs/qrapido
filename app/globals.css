@@ -2,7 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-body { @apply bg-graphite-950 text-graphite-50 antialiased; }
-.surface { @apply rounded-xl2 border border-white/10 bg-graphite-900/70 shadow-soft backdrop-blur; }
-.surface-light { @apply rounded-xl2 border border-graphite-800 bg-graphite-900 shadow-surface; }
+:root {
+  --background: 224 36% 8%;
+  --foreground: 210 40% 98%;
+  --card: 222 35% 11%;
+  --card-foreground: 214 36% 96%;
+  --border: 221 24% 20%;
+  --primary: 251 84% 67%;
+  --primary-foreground: 220 39% 97%;
+  --secondary: 198 88% 56%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 221 24% 16%;
+  --muted-foreground: 217 15% 64%;
+  --accent: 167 85% 43%;
+  --accent-foreground: 220 30% 12%;
+  --success: 148 68% 45%;
+  --success-foreground: 144 80% 10%;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply min-h-screen bg-background bg-aurora text-foreground antialiased;
+}
+
+@layer utilities {
+  .glass {
+    @apply border border-white/10 bg-white/5 backdrop-blur-xl;
+  }
+
+  .surface {
+    @apply glass rounded-2xl shadow-soft;
+  }
+}

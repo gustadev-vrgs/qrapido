@@ -1,46 +1,51 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: [
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./lib/**/*.{js,ts,jsx,tsx,mdx}"
-  ],
+  darkMode: ["class"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"]
+      },
       colors: {
-        graphite: {
-          50: "#f4f5f6",
-          100: "#e6e8ea",
-          200: "#cfd3d6",
-          300: "#acb3b9",
-          400: "#7c8790",
-          500: "#5d6870",
-          600: "#49545c",
-          700: "#3a4349",
-          800: "#2b3136",
-          900: "#1c2125",
-          950: "#121518"
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: "hsl(var(--card))",
+        "card-foreground": "hsl(var(--card-foreground))",
+        border: "hsl(var(--border))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))"
         },
-        emeraldAccent: {
-          50: "#f0fdf8",
-          100: "#dcfce9",
-          200: "#bbf7d5",
-          300: "#86efb2",
-          400: "#4ade87",
-          500: "#22c55f",
-          600: "#16a34a",
-          700: "#15803d",
-          800: "#166534",
-          900: "#14532d"
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))"
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))"
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))"
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))"
         }
       },
-      boxShadow: {
-        soft: "0 10px 30px -12px rgba(0,0,0,0.25)",
-        surface: "0 2px 20px rgba(8,10,12,0.08)"
-      },
       borderRadius: {
-        xl2: "1.25rem"
+        xl: "1rem",
+        '2xl': "1.5rem"
+      },
+      boxShadow: {
+        glow: "0 20px 50px -25px rgba(77, 123, 255, 0.65)",
+        soft: "0 15px 35px -20px rgba(2, 6, 23, 0.75)"
+      },
+      backgroundImage: {
+        aurora:
+          "radial-gradient(1000px circle at 0% 0%, rgba(124,92,255,0.25), transparent 45%), radial-gradient(1000px circle at 100% 100%, rgba(14,165,233,0.16), transparent 45%)"
       }
     }
   },

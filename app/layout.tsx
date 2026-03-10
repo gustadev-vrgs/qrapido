@@ -1,19 +1,17 @@
-import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
-import { Toaster } from "sonner";
+import { AppProviders } from "@/components/providers/app-providers";
 
 export const metadata: Metadata = {
   title: "QRápido",
-  description: "Sistema de atendimento presencial por QR Code para restaurantes"
+  description: "Plataforma premium para gestão de pedidos e cardápio via QR Code."
 };
 
-export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>): JSX.Element {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <body>
-        {children}
-        <Toaster richColors position="top-right" />
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

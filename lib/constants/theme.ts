@@ -1,4 +1,4 @@
 export const brand = {
   name: "QRápido",
-  accent: "#22c55f"
-};
+  tagline: "Experiência de atendimento impecável"
+} as const;
