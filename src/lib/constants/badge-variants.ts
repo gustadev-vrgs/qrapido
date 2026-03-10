@@ -21,6 +21,7 @@ export const tableStatusToneMap: Record<TableStatus, BadgeTone> = {
 
 export const sessionStatusToneMap: Record<SessionStatus, BadgeTone> = {
   active: "info",
+  idle: "warning",
   expired: "warning",
   closed: "neutral",
   blocked: "danger"
@@ -28,6 +29,7 @@ export const sessionStatusToneMap: Record<SessionStatus, BadgeTone> = {
 
 export const orderStatusToneMap: Record<OrderStatus, BadgeTone> = {
   received: "info",
+  confirmed: "info",
   in_preparation: "warning",
   ready: "success",
   delivered: "neutral",
