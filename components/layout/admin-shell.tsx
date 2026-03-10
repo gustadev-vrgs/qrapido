@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 "use client";
 
 import Link from "next/link";
@@ -16,7 +17,7 @@ const nav = [
   { href: "/admin/settings", label: "Configurações", icon: Settings }
 ];
 
-export function AdminShell({ children }: { children: React.ReactNode }): JSX.Element {
+export function AdminShell({ children }: { children: ReactNode }): JSX.Element {
   const pathname = usePathname();
 
   return (

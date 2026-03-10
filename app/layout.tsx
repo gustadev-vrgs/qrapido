@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
@@ -7,7 +8,7 @@ export const metadata: Metadata = {
   description: "Sistema de atendimento presencial por QR Code para restaurantes"
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }): JSX.Element {
+export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <html lang="pt-BR">
       <body>
