@@ -1,52 +1,297 @@
-import type { DailyMetric, Order, Table } from "@/lib/types/domain";
+import type {
+  DailyMetric,
+  MenuCategory,
+  MenuItem,
+  Order,
+  OrderEvent,
+  Restaurant,
+  RestaurantSettings,
+  StaffUser,
+  Table,
+  TableSession
+} from "@/lib/types/domain";
+
+const now = "2026-01-10T18:30:00.000Z";
+const restaurantId = "rest_demo_bela_vista";
+
+export const mockRestaurant: Restaurant = {
+  id: restaurantId,
+  restaurantId,
+  name: "Bistrô Bela Vista",
+  slug: "bistro-bela-vista",
+  description: "Cozinha contemporânea brasileira com atendimento rápido por QR.",
+  address: "Rua das Palmeiras, 120 - Centro, São Paulo - SP",
+  phone: "+55 11 95555-4400",
+  logoUrl: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=300",
+  isActive: true,
+  createdAt: "2026-01-01T12:00:00.000Z",
+  updatedAt: now
+};
+
+export const mockStaffUsers: StaffUser[] = [
+  {
+    id: "staff_admin_1",
+    uid: "uid_admin_demo",
+    restaurantId,
+    name: "Ana Rodrigues",
+    email: "admin@belavista.demo",
+    role: "admin",
+    isActive: true,
+    createdAt: "2026-01-01T12:10:00.000Z",
+    updatedAt: now
+  },
+  {
+    id: "staff_manager_1",
+    uid: "uid_manager_demo",
+    restaurantId,
+    name: "Carlos Menezes",
+    email: "manager@belavista.demo",
+    role: "manager",
+    isActive: true,
+    createdAt: "2026-01-01T12:10:00.000Z",
+    updatedAt: now
+  }
+];
 
 export const mockTables: Table[] = [
   {
-    id: "table-1",
-    restaurantId: "rest-1",
-    createdAt: "2026-01-01T10:00:00.000Z",
-    updatedAt: "2026-01-01T10:00:00.000Z",
-    code: "A1",
+    id: "table_01",
+    restaurantId,
     number: 1,
+    label: "Salão - 01",
     status: "active",
-    seats: 4
+    capacity: 4,
+    currentPeopleCount: 3,
+    activeSessionLimit: 1,
+    activeSessionCount: 1,
+    currentSessionGroupId: "group_table_01",
+    pinCode: "4821",
+    qrCodeValue: "qrapido://bistro-bela-vista/table/01",
+    openedAt: "2026-01-10T18:05:00.000Z",
+    closedAt: null,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
   },
   {
-    id: "table-2",
-    restaurantId: "rest-1",
-    createdAt: "2026-01-01T10:00:00.000Z",
-    updatedAt: "2026-01-01T10:00:00.000Z",
-    code: "A2",
+    id: "table_02",
+    restaurantId,
     number: 2,
+    label: "Salão - 02",
     status: "free",
-    seats: 2
+    capacity: 2,
+    currentPeopleCount: 0,
+    activeSessionLimit: 1,
+    activeSessionCount: 0,
+    currentSessionGroupId: null,
+    pinCode: null,
+    qrCodeValue: "qrapido://bistro-bela-vista/table/02",
+    openedAt: null,
+    closedAt: "2026-01-10T17:32:00.000Z",
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
+  },
+  {
+    id: "table_03",
+    restaurantId,
+    number: 3,
+    label: "Varanda - 03",
+    status: "awaiting_payment",
+    capacity: 4,
+    currentPeopleCount: 4,
+    activeSessionLimit: 1,
+    activeSessionCount: 1,
+    currentSessionGroupId: "group_table_03",
+    pinCode: "9102",
+    qrCodeValue: "qrapido://bistro-bela-vista/table/03",
+    openedAt: "2026-01-10T17:40:00.000Z",
+    closedAt: null,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
+  }
+];
+
+export const mockTableSessions: TableSession[] = [
+  {
+    id: "session_01",
+    restaurantId,
+    tableId: "table_01",
+    tableNumber: 1,
+    sessionToken: "sess_01_demo_token_abcdefghijkl",
+    sessionLabel: "Mesa 1 - Jantar",
+    customerName: "Marina",
+    status: "active",
+    deviceFingerprint: "fp_device_001",
+    startedAt: "2026-01-10T18:05:00.000Z",
+    expiresAt: "2026-01-10T20:05:00.000Z",
+    closedAt: null,
+    lastActivityAt: "2026-01-10T18:28:00.000Z",
+    requestCountWindow: 2,
+    createdAt: "2026-01-10T18:05:00.000Z",
+    updatedAt: now
+  }
+];
+
+export const mockMenuCategories: MenuCategory[] = [
+  {
+    id: "cat_entradas",
+    restaurantId,
+    name: "Entradas",
+    slug: "entradas",
+    description: "Para começar a experiência.",
+    sortOrder: 1,
+    isActive: true,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
+  },
+  {
+    id: "cat_principais",
+    restaurantId,
+    name: "Pratos principais",
+    slug: "pratos-principais",
+    description: "Seleção da casa para almoço e jantar.",
+    sortOrder: 2,
+    isActive: true,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
+  }
+];
+
+export const mockMenuItems: MenuItem[] = [
+  {
+    id: "item_bruschetta",
+    restaurantId,
+    categoryId: "cat_entradas",
+    name: "Bruschetta artesanal",
+    slug: "bruschetta-artesanal",
+    description: "Pão italiano, tomate confit e manjericão fresco.",
+    price: 24.9,
+    imageUrl: null,
+    preparationTimeMinutes: 10,
+    isActive: true,
+    isAvailable: true,
+    isFeatured: true,
+    sortOrder: 1,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
+  },
+  {
+    id: "item_risoto",
+    restaurantId,
+    categoryId: "cat_principais",
+    name: "Risoto de cogumelos",
+    slug: "risoto-de-cogumelos",
+    description: "Arroz arbóreo, mix de cogumelos e parmesão.",
+    price: 58,
+    imageUrl: null,
+    preparationTimeMinutes: 22,
+    isActive: true,
+    isAvailable: true,
+    isFeatured: false,
+    sortOrder: 1,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: now
   }
 ];
 
 export const mockOrders: Order[] = [
   {
-    id: "order-1",
-    restaurantId: "rest-1",
-    createdAt: "2026-01-02T15:20:00.000Z",
-    updatedAt: "2026-01-02T15:24:00.000Z",
-    tableId: "table-1",
-    tableSessionId: "session-1",
+    id: "order_1001",
+    restaurantId,
+    tableId: "table_01",
+    tableNumber: 1,
+    sessionId: "session_01",
+    sessionToken: "sess_01_demo_token_abcdefghijkl",
+    customerName: "Marina",
+    items: [
+      {
+        menuItemId: "item_bruschetta",
+        nameSnapshot: "Bruschetta artesanal",
+        priceSnapshot: 24.9,
+        quantity: 1,
+        notes: "Sem cebola",
+        total: 24.9
+      },
+      {
+        menuItemId: "item_risoto",
+        nameSnapshot: "Risoto de cogumelos",
+        priceSnapshot: 58,
+        quantity: 1,
+        notes: null,
+        total: 58
+      }
+    ],
+    subtotal: 82.9,
+    serviceFee: 8.29,
+    total: 91.19,
+    paymentMethod: "pix",
     status: "in_preparation",
-    items: [{ menuItemId: "item-1", nameSnapshot: "Hambúrguer da Casa", quantity: 2, unitPriceInCents: 3590 }],
-    totalInCents: 7180,
-    idempotencyKey: "demo-key-1"
+    notes: "Cliente com alergia leve a nozes.",
+    duplicateGuardHash: "dup_order_1001_token",
+    receivedAt: "2026-01-10T18:15:00.000Z",
+    deliveredAt: null,
+    cancelledAt: null,
+    createdAt: "2026-01-10T18:15:00.000Z",
+    updatedAt: now
   }
 ];
 
+export const mockOrderEvents: OrderEvent[] = [
+  {
+    id: "event_01",
+    restaurantId,
+    orderId: "order_1001",
+    tableId: "table_01",
+    sessionId: "session_01",
+    type: "order_created",
+    actorType: "customer",
+    actorId: null,
+    message: "Pedido enviado pela mesa 1.",
+    metadata: { channel: "mobile" },
+    createdAt: "2026-01-10T18:15:05.000Z"
+  }
+];
+
+export const mockRestaurantSettings: RestaurantSettings = {
+  id: "settings_main",
+  restaurantId,
+  acceptedPaymentMethods: ["pix", "cash", "credit_card", "debit_card"],
+  pixKey: "belavista@pix.demo",
+  businessHours: {
+    monday: { isOpen: true, open: "11:00", close: "23:00" },
+    tuesday: { isOpen: true, open: "11:00", close: "23:00" },
+    wednesday: { isOpen: true, open: "11:00", close: "23:00" },
+    thursday: { isOpen: true, open: "11:00", close: "23:00" },
+    friday: { isOpen: true, open: "11:00", close: "00:00" },
+    saturday: { isOpen: true, open: "11:00", close: "00:00" },
+    sunday: { isOpen: true, open: "12:00", close: "22:00" }
+  },
+  antiSpamWindowSeconds: 120,
+  maxOrdersPerWindow: 4,
+  defaultSessionDurationMinutes: 120,
+  allowSessionPin: true,
+  requireCustomerName: false,
+  waiterCallEnabled: true,
+  billRequestEnabled: true,
+  createdAt: "2026-01-01T12:00:00.000Z",
+  updatedAt: now
+};
+
 export const mockDailyMetrics: DailyMetric[] = [
   {
-    id: "metric-1",
-    restaurantId: "rest-1",
-    createdAt: "2026-01-03T00:00:00.000Z",
-    updatedAt: "2026-01-03T00:00:00.000Z",
-    date: "2026-01-03",
-    grossRevenueInCents: 184500,
-    completedOrdersCount: 32,
-    avgTicketInCents: 5765
+    id: "metric_2026_01_10",
+    restaurantId,
+    dateKey: "2026-01-10",
+    totalRevenue: 6340.5,
+    totalOrders: 94,
+    cancelledOrders: 3,
+    averageTicket: 67.45,
+    averagePreparationMinutes: 18.2,
+    occupiedTablesPeak: 17,
+    topItems: [
+      { menuItemId: "item_risoto", nameSnapshot: "Risoto de cogumelos", quantity: 21, revenue: 1218 },
+      { menuItemId: "item_bruschetta", nameSnapshot: "Bruschetta artesanal", quantity: 35, revenue: 871.5 }
+    ],
+    createdAt: "2026-01-11T00:02:00.000Z",
+    updatedAt: "2026-01-11T00:02:00.000Z"
   }
 ];
