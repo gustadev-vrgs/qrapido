@@ -32,8 +32,9 @@ const config: Config = {
         }
       },
       boxShadow: {
-        soft: "0 10px 30px -12px rgba(0,0,0,0.25)",
-        surface: "0 2px 20px rgba(8,10,12,0.08)"
+        soft: "0 16px 40px -24px rgba(0, 0, 0, 0.55)",
+        surface: "0 20px 50px -32px rgba(5, 8, 12, 0.5)",
+        inset: "inset 0 1px 0 rgba(255,255,255,0.08)"
       }
     }
   },
