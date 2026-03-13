@@ -54,6 +54,19 @@ npm run build
 4. Para `FIREBASE_PRIVATE_KEY`, mantenha quebras de linha escapadas como `\\n` (o parser converte em runtime).
 
 
+
+### Bootstrap de admin em `staffUsers`
+Use o script abaixo para criar/atualizar o staff admin sem depender do Firebase Console:
+
+```bash
+npm run seed:staff-admin -- --uid <UID_FIREBASE_AUTH> --email <EMAIL> --name "<NOME>" --restaurantId <RESTAURANT_ID>
+```
+
+O script:
+- valida se o UID existe no Firebase Auth;
+- faz upsert em `staffUsers/{uid}` com `role: "admin"` e `isActive: true`;
+- usa credenciais via `FIREBASE_*` (service account) ou ADC (`GOOGLE_APPLICATION_CREDENTIALS`).
+
 ### staffUsers para login administrativo
 Para o login admin funcionar, o usuário precisa existir no Firebase Auth **e** ter documento ativo em `staffUsers` com estes campos mínimos:
 - `uid` (igual ao UID do Firebase Auth)
