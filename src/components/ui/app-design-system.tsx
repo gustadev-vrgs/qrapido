@@ -1,4 +1,4 @@
-import type { ComponentProps, HTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import { forwardRef, type ComponentProps, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -200,17 +200,17 @@ export function AppFormField({ label, hint, error, children }: AppFormFieldProps
   );
 }
 
-export function AppTextInput(props: InputHTMLAttributes<HTMLInputElement>): JSX.Element {
-  return <input className="app-field" {...props} />;
-}
+export const AppTextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function AppTextInput({ className, ...props }, ref): JSX.Element {
+  return <input ref={ref} className={cn("app-field", className)} {...props} />;
+});
 
-export function AppTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>): JSX.Element {
-  return <textarea className="app-field min-h-24 resize-y py-2.5" {...props} />;
-}
+export const AppTextarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function AppTextarea({ className, ...props }, ref): JSX.Element {
+  return <textarea ref={ref} className={cn("app-field min-h-24 resize-y py-2.5", className)} {...props} />;
+});
 
-export function AppSelect(props: ComponentProps<"select">): JSX.Element {
-  return <select className="app-field" {...props} />;
-}
+export const AppSelect = forwardRef<HTMLSelectElement, ComponentProps<"select">>(function AppSelect({ className, ...props }, ref): JSX.Element {
+  return <select ref={ref} className={cn("app-field", className)} {...props} />;
+});
 
 export function MobileStickyBar({ className, children, ...props }: HTMLAttributes<HTMLDivElement>): JSX.Element {
   return (
