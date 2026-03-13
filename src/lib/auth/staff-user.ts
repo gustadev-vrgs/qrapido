@@ -1,0 +1,39 @@
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
+import type { Firestore } from "firebase/firestore";
+
+import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
+
+async function getActiveStaffUserByField(db: Firestore, field: "uid" | "email", value: string): Promise<StaffUser | null> {
+  const staffQuery = query(
+    collection(db, COLLECTION_NAMES.staffUsers),
+    where(field, "==", value),
+    where("isActive", "==", true),
+    limit(1)
+  );
+
+  const snapshot = await getDocs(staffQuery);
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  const document = snapshot.docs[0];
+  return {
+    id: document.id,
+    ...(document.data() as Omit<StaffUser, "id">)
+  };
+}
+
+export async function getActiveStaffUser(db: Firestore, user: { uid: string; email: string | null }): Promise<StaffUser | null> {
+  const byUid = await getActiveStaffUserByField(db, "uid", user.uid);
+
+  if (byUid) {
+    return byUid;
+  }
+
+  if (!user.email) {
+    return null;
+  }
+
+  return getActiveStaffUserByField(db, "email", user.email.toLowerCase());
+}

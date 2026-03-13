@@ -2,12 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { browserLocalPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 
+import { getActiveStaffUser } from "@/lib/auth/staff-user";
 import { canAccessDashboard } from "@/lib/auth/roles";
 import type { AdminAuthState } from "@/lib/auth/types";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
-import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
+import { type StaffUser } from "@/lib/types/domain";
 
 interface AuthContextValue extends AdminAuthState {
   firebaseUser: User | null;
@@ -19,18 +19,10 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function readStaffUser(firebaseUser: User): Promise<StaffUser | null> {
   const db = getFirebaseClientFirestore();
-  const staffQuery = query(collection(db, COLLECTION_NAMES.staffUsers), where("uid", "==", firebaseUser.uid), where("isActive", "==", true), limit(1));
-  const snapshot = await getDocs(staffQuery);
-
-  if (snapshot.empty) {
-    return null;
-  }
-
-  const document = snapshot.docs[0];
-  return {
-    id: document.id,
-    ...(document.data() as Omit<StaffUser, "id">)
-  };
+  return getActiveStaffUser(db, {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email
+  });
 }
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {

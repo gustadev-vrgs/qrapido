@@ -5,20 +5,23 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { LogIn, ShieldCheck } from "lucide-react";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 
 import { useRouter } from "next/navigation";
 
 import { AppActionButton, AppFormField, AppTextInput } from "@/components/ui/app-design-system";
 import { canAccessDashboard } from "@/lib/auth/roles";
+import { getActiveStaffUser } from "@/lib/auth/staff-user";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
 import { adminLoginSchema, type AdminLoginInput } from "@/lib/schemas";
-import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
 
 const firebaseErrorMap: Record<string, string> = {
   "auth/invalid-credential": "Credenciais inválidas. Revise e-mail e senha.",
+  "auth/invalid-email": "O formato do e-mail é inválido.",
+  "auth/invalid-login-credentials": "Credenciais inválidas. Revise e-mail e senha.",
+  "auth/operation-not-allowed": "Login por e-mail/senha não está habilitado no Firebase Auth.",
   "auth/user-disabled": "Este usuário está desativado.",
+  "auth/network-request-failed": "Falha de rede. Verifique sua conexão e tente novamente.",
   "auth/too-many-requests": "Muitas tentativas. Aguarde alguns instantes antes de tentar novamente."
 };
 
@@ -48,20 +51,21 @@ export function AdminLoginForm(): JSX.Element {
 
   const onSubmit = handleSubmit(async ({ email, password }) => {
     setSubmitError(null);
+    const normalizedEmail = email.trim().toLowerCase();
 
     try {
       const auth = getFirebaseClientAuth();
-      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
       const db = getFirebaseClientFirestore();
-      const staffQuery = query(collection(db, COLLECTION_NAMES.staffUsers), where("uid", "==", credential.user.uid), where("isActive", "==", true), limit(1));
-      const staffSnapshot = await getDocs(staffQuery);
+      const staff = await getActiveStaffUser(db, {
+        uid: credential.user.uid,
+        email: credential.user.email
+      });
 
-      if (staffSnapshot.empty) {
+      if (!staff) {
         await auth.signOut();
-        throw new Error("Sua conta não possui vínculo com a equipe ativa.");
+        throw new Error("Usuário autenticado, mas sem registro ativo em staffUsers (por uid/email). Verifique o cadastro no Firestore.");
       }
-
-      const staff = staffSnapshot.docs[0].data() as Omit<StaffUser, "id">;
 
       if (!canAccessDashboard(staff.role)) {
         await auth.signOut();
