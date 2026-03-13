@@ -1,4 +1,4 @@
-import { DocumentData } from "firebase/firestore";
+import { DocumentData, where } from "firebase/firestore";
 
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany, readOne } from "@/lib/data/helpers/firestore-io";
@@ -34,6 +34,13 @@ export class SessionsService {
       byRestaurantAndSessionToken(restaurantId, sessionToken),
       mapSession
     );
+
+    return sessions[0] ?? null;
+  }
+
+  async getByTokenGlobal(sessionToken: string): Promise<TableSession | null> {
+    const { db } = resolveContext(this.context);
+    const sessions = await readMany(getCollection(db, COLLECTIONS.tableSessions), [where("sessionToken", "==", sessionToken)], mapSession);
 
     return sessions[0] ?? null;
   }

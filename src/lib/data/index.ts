@@ -9,6 +9,7 @@ export * from "@/lib/data/services/base-service";
 export * from "@/lib/data/services/auth-service";
 export * from "@/lib/data/services/menu-service";
 export * from "@/lib/data/services/orders-service";
+export * from "@/lib/data/services/restaurants-service";
 export * from "@/lib/data/services/reports-service";
 export * from "@/lib/data/services/settings-service";
 export * from "@/lib/data/services/sessions-service";

@@ -4,18 +4,23 @@ import {
   dailyMetricSchema,
   menuCategorySchema,
   menuItemSchema,
+  restaurantSchema,
   orderSchema,
   restaurantSettingsSchema,
   staffUserSchema,
   tableSchema,
   tableSessionSchema
 } from "@/lib/schemas";
-import type { DailyMetric, MenuCategory, MenuItem, Order, RestaurantSettings, StaffUser, Table, TableSession } from "@/lib/types/domain";
+import type { DailyMetric, MenuCategory, MenuItem, Order, Restaurant, RestaurantSettings, StaffUser, Table, TableSession } from "@/lib/types/domain";
 import { ensureIsoTimestamp } from "@/lib/data/helpers/serialization";
 import { parseWithSchema } from "@/lib/data/mappers/common";
 
 export function mapStaffUser(id: string, data: DocumentData): StaffUser {
   return parseWithSchema(staffUserSchema, id, data, "staffUser");
+}
+
+export function mapRestaurant(id: string, data: DocumentData): Restaurant {
+  return parseWithSchema(restaurantSchema, id, data, "restaurant");
 }
 
 export function mapTable(id: string, data: DocumentData): Table {
