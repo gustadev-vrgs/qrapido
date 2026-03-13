@@ -14,4 +14,5 @@ export interface AdminAuthState {
   staffUser: StaffUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  authError: string | null;
 }
