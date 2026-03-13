@@ -3,6 +3,10 @@ import type { Firestore } from "firebase/firestore";
 
 import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 async function getActiveStaffUserByField(db: Firestore, field: "uid" | "email", value: string): Promise<StaffUser | null> {
   const staffQuery = query(
     collection(db, COLLECTION_NAMES.staffUsers),
@@ -35,5 +39,17 @@ export async function getActiveStaffUser(db: Firestore, user: { uid: string; ema
     return null;
   }
 
-  return getActiveStaffUserByField(db, "email", user.email.toLowerCase());
+  const trimmedEmail = user.email.trim();
+  const normalizedEmail = normalizeEmail(user.email);
+  const candidateEmails = Array.from(new Set([trimmedEmail, normalizedEmail])).filter(Boolean);
+
+  for (const email of candidateEmails) {
+    const byEmail = await getActiveStaffUserByField(db, "email", email);
+
+    if (byEmail) {
+      return byEmail;
+    }
+  }
+
+  return null;
 }

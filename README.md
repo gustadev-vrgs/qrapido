@@ -53,6 +53,18 @@ npm run build
 3. Preencha as variáveis de Admin SDK (`FIREBASE_*`) apenas no ambiente servidor.
 4. Para `FIREBASE_PRIVATE_KEY`, mantenha quebras de linha escapadas como `\\n` (o parser converte em runtime).
 
+
+### staffUsers para login administrativo
+Para o login admin funcionar, o usuário precisa existir no Firebase Auth **e** ter documento ativo em `staffUsers` com estes campos mínimos:
+- `uid` (igual ao UID do Firebase Auth)
+- `email` (recomendado em minúsculas)
+- `name`
+- `role`
+- `restaurantId`
+- `isActive` (`true`)
+
+A validação tenta primeiro por `uid` e usa fallback por e-mail normalizado (`trim().toLowerCase()`).
+
 Arquivos base:
 - `src/lib/firebase/client.ts`: inicialização singleton do Firebase Client SDK (Auth + Firestore).
 - `src/lib/firebase/admin.ts`: inicialização singleton do Firebase Admin SDK com credenciais seguras.

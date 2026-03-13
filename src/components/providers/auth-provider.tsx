@@ -27,22 +27,40 @@ async function readStaffUser(firebaseUser: User): Promise<StaffUser | null> {
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [state, setState] = useState<AdminAuthState>({ user: null, staffUser: null, isAuthenticated: false, isLoading: true });
+  const [state, setState] = useState<AdminAuthState>({ user: null, staffUser: null, isAuthenticated: false, isLoading: true, authError: null });
 
   const refreshSession = useCallback(async () => {
     const auth = getFirebaseClientAuth();
     const currentUser = auth.currentUser;
 
     if (!currentUser) {
-      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false });
+      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: null });
       return;
     }
 
     const staffUser = await readStaffUser(currentUser);
 
-    if (!staffUser || !canAccessDashboard(staffUser.role)) {
+    if (!staffUser) {
       await signOut(auth);
-      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false });
+      setState({
+        user: null,
+        staffUser: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authError: "Usuário autenticado no Firebase, mas sem cadastro ativo em staffUsers."
+      });
+      return;
+    }
+
+    if (!canAccessDashboard(staffUser.role)) {
+      await signOut(auth);
+      setState({
+        user: null,
+        staffUser: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authError: "Seu usuário não possui permissão para acessar o dashboard."
+      });
       return;
     }
 
@@ -57,7 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       },
       staffUser,
       isAuthenticated: true,
-      isLoading: false
+      isLoading: false,
+      authError: null
     });
   }, []);
 
@@ -74,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const logout = useCallback(async () => {
     const auth = getFirebaseClientAuth();
     await signOut(auth);
-    setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false });
+    setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: null });
   }, []);
 
   const value = useMemo(
