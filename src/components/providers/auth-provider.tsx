@@ -3,64 +3,58 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { browserLocalPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
 
-import { getActiveStaffUser } from "@/lib/auth/staff-user";
-import { canAccessDashboard } from "@/lib/auth/roles";
+import { getStaffValidationMessage, validateAdminStaffUser } from "@/lib/auth/staff-user";
 import type { AdminAuthState } from "@/lib/auth/types";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
-import { type StaffUser } from "@/lib/types/domain";
 
 interface AuthContextValue extends AdminAuthState {
   firebaseUser: User | null;
-  refreshSession: () => Promise<void>;
+  refreshSession: (userOverride?: User | null) => Promise<void>;
+  clearAuthError: () => void;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function readStaffUser(firebaseUser: User): Promise<StaffUser | null> {
-  const db = getFirebaseClientFirestore();
-  return getActiveStaffUser(db, {
-    uid: firebaseUser.uid,
-    email: firebaseUser.email
-  });
-}
-
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [state, setState] = useState<AdminAuthState>({ user: null, staffUser: null, isAuthenticated: false, isLoading: true, authError: null });
 
-  const refreshSession = useCallback(async () => {
+  const clearAuthError = useCallback(() => {
+    setState((current) => ({ ...current, authError: null }));
+  }, []);
+
+  const refreshSession = useCallback(async (userOverride?: User | null) => {
     const auth = getFirebaseClientAuth();
-    const currentUser = auth.currentUser;
+    const currentUser = userOverride === undefined ? auth.currentUser : userOverride;
 
     if (!currentUser) {
-      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: null });
+      setState((current) => ({ ...current, user: null, staffUser: null, isAuthenticated: false, isLoading: false }));
       return;
     }
 
-    const staffUser = await readStaffUser(currentUser);
+    const db = getFirebaseClientFirestore();
+    const validation = await validateAdminStaffUser(db, {
+      uid: currentUser.uid,
+      email: currentUser.email
+    });
+
+    if (validation.error) {
+      await signOut(auth);
+      setState({
+        user: null,
+        staffUser: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authError: getStaffValidationMessage(validation.error)
+      });
+      return;
+    }
+
+    const staffUser = validation.staffUser;
 
     if (!staffUser) {
-      await signOut(auth);
-      setState({
-        user: null,
-        staffUser: null,
-        isAuthenticated: false,
-        isLoading: false,
-        authError: "Usuário autenticado no Firebase, mas sem cadastro ativo em staffUsers."
-      });
-      return;
-    }
-
-    if (!canAccessDashboard(staffUser.role)) {
-      await signOut(auth);
-      setState({
-        user: null,
-        staffUser: null,
-        isAuthenticated: false,
-        isLoading: false,
-        authError: "Seu usuário não possui permissão para acessar o dashboard."
-      });
+      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: "Não foi possível validar sua conta administrativa." });
       return;
     }
 
@@ -86,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
     return onAuthStateChanged(auth, async (nextUser) => {
       setFirebaseUser(nextUser);
-      await refreshSession();
+      await refreshSession(nextUser);
     });
   }, [refreshSession]);
 
@@ -101,9 +95,10 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       ...state,
       firebaseUser,
       refreshSession,
+      clearAuthError,
       logout
     }),
-    [firebaseUser, refreshSession, state, logout]
+    [clearAuthError, firebaseUser, refreshSession, state, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

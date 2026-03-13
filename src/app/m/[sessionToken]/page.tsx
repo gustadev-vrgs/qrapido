@@ -202,6 +202,7 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
       return;
     }
 
+    const restaurantId = session.restaurantId;
     let active = true;
 
     async function loadMenu(): Promise<void> {
@@ -209,7 +210,7 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
       setMenuError(null);
       try {
         const menuService = new MenuService();
-        const [categoriesResponse, itemsResponse] = await Promise.all([menuService.listCategories(session.restaurantId), menuService.listItems(session.restaurantId)]);
+        const [categoriesResponse, itemsResponse] = await Promise.all([menuService.listCategories(restaurantId), menuService.listItems(restaurantId)]);
 
         if (!active) {
           return;
