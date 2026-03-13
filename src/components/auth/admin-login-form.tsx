@@ -9,8 +9,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { useRouter } from "next/navigation";
 
 import { AppActionButton, AppFormField, AppTextInput } from "@/components/ui/app-design-system";
-import { canAccessDashboard } from "@/lib/auth/roles";
-import { getActiveStaffUser } from "@/lib/auth/staff-user";
+import { getStaffValidationMessage, validateAdminStaffUser } from "@/lib/auth/staff-user";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
 import { adminLoginSchema, type AdminLoginInput } from "@/lib/schemas";
@@ -19,6 +18,8 @@ const firebaseErrorMap: Record<string, string> = {
   "auth/invalid-credential": "E-mail ou senha inválidos. Confira os dados e tente novamente.",
   "auth/invalid-email": "Informe um e-mail válido.",
   "auth/invalid-login-credentials": "E-mail ou senha inválidos. Confira os dados e tente novamente.",
+  "auth/wrong-password": "Senha incorreta. Tente novamente.",
+  "auth/user-not-found": "E-mail ou senha inválidos. Confira os dados e tente novamente.",
   "auth/operation-not-allowed": "Login por e-mail e senha está desabilitado no Firebase Auth.",
   "auth/user-disabled": "Este usuário está desativado.",
   "auth/network-request-failed": "Falha de rede. Verifique sua conexão e tente novamente.",
@@ -28,7 +29,7 @@ const firebaseErrorMap: Record<string, string> = {
 export function AdminLoginForm(): JSX.Element {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const { isAuthenticated, isLoading, authError } = useAdminAuth();
+  const { isAuthenticated, isLoading, authError, clearAuthError } = useAdminAuth();
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -45,6 +46,7 @@ export function AdminLoginForm(): JSX.Element {
   const {
     register,
     handleSubmit,
+    clearErrors,
     formState: { errors, isSubmitting }
   } = useForm<AdminLoginInput>({
     resolver: zodResolver(adminLoginSchema),
@@ -52,31 +54,28 @@ export function AdminLoginForm(): JSX.Element {
       email: "",
       password: ""
     },
-    mode: "onBlur"
+    mode: "onChange",
+    reValidateMode: "onChange"
   });
 
   const onSubmit = handleSubmit(async ({ email, password }) => {
     setSubmitError(null);
+    clearAuthError();
+
     const normalizedEmail = email.trim().toLowerCase();
 
     try {
       const auth = getFirebaseClientAuth();
       const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
       const db = getFirebaseClientFirestore();
-      const staff = await getActiveStaffUser(db, {
+      const validation = await validateAdminStaffUser(db, {
         uid: credential.user.uid,
-        email: credential.user.email
+        email: credential.user.email ?? normalizedEmail
       });
 
-      if (!staff) {
+      if (validation.error) {
         await auth.signOut();
-        setSubmitError("Usuário autenticado no Firebase, mas sem cadastro ativo em staffUsers.");
-        return;
-      }
-
-      if (!canAccessDashboard(staff.role)) {
-        await auth.signOut();
-        setSubmitError("Seu usuário existe, mas não possui permissão para acessar o painel.");
+        setSubmitError(getStaffValidationMessage(validation.error));
         return;
       }
 
@@ -89,6 +88,15 @@ export function AdminLoginForm(): JSX.Element {
     }
   });
 
+  function handleFieldEdit(): void {
+    if (submitError) {
+      setSubmitError(null);
+    }
+    if (authError) {
+      clearAuthError();
+    }
+  }
+
   return (
     <form className="space-y-5" onSubmit={onSubmit} noValidate>
       <AppFormField label="E-mail corporativo" error={errors.email?.message}>
@@ -98,9 +106,8 @@ export function AdminLoginForm(): JSX.Element {
           placeholder="equipe@restaurante.com"
           {...register("email", {
             onChange: () => {
-              if (submitError) {
-                setSubmitError(null);
-              }
+              handleFieldEdit();
+              clearErrors("email");
             }
           })}
         />
@@ -113,9 +120,8 @@ export function AdminLoginForm(): JSX.Element {
           placeholder="Digite sua senha"
           {...register("password", {
             onChange: () => {
-              if (submitError) {
-                setSubmitError(null);
-              }
+              handleFieldEdit();
+              clearErrors("password");
             }
           })}
         />
@@ -123,8 +129,8 @@ export function AdminLoginForm(): JSX.Element {
 
       {submitError ? <p className="rounded-xl border border-[hsl(var(--danger)/0.35)] bg-[hsl(var(--danger)/0.1)] px-3 py-2 text-sm text-[hsl(var(--danger))]">{submitError}</p> : null}
 
-      <AppActionButton type="submit" className="h-11 w-full gap-2" disabled={isSubmitting || isLoading} aria-busy={isSubmitting}>
-        {isSubmitting ? (
+      <AppActionButton type="submit" className="h-11 w-full gap-2" disabled={isSubmitting || isLoading} aria-busy={isSubmitting || isLoading}>
+        {isSubmitting || isLoading ? (
           <>
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
             Verificando acesso...
