@@ -1,25 +1,8 @@
-import {
-  AppActionButton,
-  AppDataCard,
-  AppEmptyState,
-  AppFilterBar,
-  AppPageHeader,
-  AppSectionCard,
-  AppSkeleton,
-  AppStatCard,
-  AppStatusBadge
-} from "@/components/ui/app-design-system";
+import { AppActionButton, AppDataCard, AppEmptyState, AppFilterBar, AppSectionCard, AppSkeleton, AppStatCard, AppStatusBadge } from "@/components/ui/app-design-system";
 
 export default function DashboardPage(): JSX.Element {
   return (
     <section className="space-y-4">
-      <AppPageHeader
-        eyebrow="Painel"
-        title="Visão geral operacional"
-        description="Base visual premium para acompanhar saúde da operação, ritmo de atendimento e capacidade do salão."
-        actions={<AppActionButton>Nova ação</AppActionButton>}
-      />
-
       <div className="grid gap-3 md:grid-cols-3">
         <AppStatCard label="Pedidos hoje" value="142" trend="+12% vs. ontem" />
         <AppStatCard label="Ticket médio" value="R$ 68,40" trend="Estável na semana" />
@@ -29,6 +12,9 @@ export default function DashboardPage(): JSX.Element {
       <AppFilterBar>
         <AppStatusBadge tone="info">Turno atual</AppStatusBadge>
         <AppStatusBadge tone="success">Operação estável</AppStatusBadge>
+        <AppActionButton variant="secondary" className="md:ml-auto">
+          Nova ação
+        </AppActionButton>
       </AppFilterBar>
 
       <div className="grid gap-4 xl:grid-cols-2">

@@ -10,7 +10,7 @@ export interface NavigationItem {
 }
 
 export const dashboardNavItems: NavigationItem[] = [
-  { href: "/dashboard", label: "Visão geral", icon: AppIcons.dashboard, description: "Resumo operacional" },
+  { href: "/dashboard", label: "Dashboard", icon: AppIcons.dashboard, description: "Resumo operacional" },
   { href: "/dashboard/pedidos", label: "Pedidos", icon: AppIcons.orders, description: "Fila de pedidos" },
   { href: "/dashboard/mesas", label: "Mesas", icon: AppIcons.tables, description: "Ocupação de mesas" },
   { href: "/dashboard/cardapio", label: "Cardápio", icon: AppIcons.menu, description: "Itens e categorias" },
