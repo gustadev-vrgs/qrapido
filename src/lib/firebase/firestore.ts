@@ -1,9 +1,9 @@
-import { Firestore } from 'firebase/firestore';
+import { Firestore } from "firebase/firestore";
 
-import { getFirebaseAdminFirestore } from './admin';
-import { getFirebaseClientFirestore } from './client';
+import { getFirebaseClientFirestore } from "./client";
 
 export function getAdminFirestore() {
+  const { getFirebaseAdminFirestore } = require("./admin") as typeof import("./admin");
   return getFirebaseAdminFirestore();
 }
 
