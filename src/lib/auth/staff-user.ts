@@ -1,4 +1,4 @@
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
 
 import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
@@ -6,6 +6,25 @@ import { canAccessDashboard } from "@/lib/auth/roles";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+async function getActiveStaffUserByDocId(db: Firestore, uid: string): Promise<StaffUser | null> {
+  const snapshot = await getDoc(doc(db, COLLECTION_NAMES.staffUsers, uid));
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  const data = snapshot.data() as Omit<StaffUser, "id">;
+
+  if (!data.isActive) {
+    return null;
+  }
+
+  return {
+    id: snapshot.id,
+    ...data
+  };
 }
 
 async function getActiveStaffUserByField(db: Firestore, field: "uid" | "email", value: string): Promise<StaffUser | null> {
@@ -30,6 +49,12 @@ async function getActiveStaffUserByField(db: Firestore, field: "uid" | "email", 
 }
 
 export async function getActiveStaffUser(db: Firestore, user: { uid: string; email: string | null }): Promise<StaffUser | null> {
+  const byDocId = await getActiveStaffUserByDocId(db, user.uid);
+
+  if (byDocId) {
+    return byDocId;
+  }
+
   const byUid = await getActiveStaffUserByField(db, "uid", user.uid);
 
   if (byUid) {

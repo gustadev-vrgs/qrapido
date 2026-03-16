@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { browserLocalPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
+import { browserSessionPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
 
 import { getStaffValidationMessage, validateAdminStaffUser } from "@/lib/auth/staff-user";
 import type { AdminAuthState } from "@/lib/auth/types";
@@ -87,12 +87,28 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
   useEffect(() => {
     const auth = getFirebaseClientAuth();
-    void setPersistence(auth, browserLocalPersistence);
+    let unsubscribe: (() => void) | undefined;
+    let isMounted = true;
 
-    return onAuthStateChanged(auth, async (nextUser) => {
-      setFirebaseUser(nextUser);
-      await refreshSession(nextUser);
-    });
+    const initializeAuth = async () => {
+      await setPersistence(auth, browserSessionPersistence);
+
+      if (!isMounted) {
+        return;
+      }
+
+      unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+        setFirebaseUser(nextUser);
+        await refreshSession(nextUser);
+      });
+    };
+
+    void initializeAuth();
+
+    return () => {
+      isMounted = false;
+      unsubscribe?.();
+    };
   }, [refreshSession]);
 
   const logout = useCallback(async () => {
