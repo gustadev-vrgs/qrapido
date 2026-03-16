@@ -78,6 +78,14 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
     router.replace("/login");
   };
 
+  const isNavItemActive = (href: string): boolean => {
+    if (href === "/dashboard") {
+      return pathname === href;
+    }
+
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
   return (
     <div className="min-h-screen bg-[hsl(var(--background))] p-3 md:p-5">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 lg:grid lg:grid-cols-[290px_1fr]">
@@ -89,7 +97,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
           aria-label="Fechar menu"
         />
 
-        <aside className="app-surface-strong fixed inset-y-3 left-3 z-40 flex w-[85vw] max-w-[320px] -translate-x-[120%] flex-col p-5 transition-transform duration-300 peer-checked:translate-x-0 lg:sticky lg:top-5 lg:z-10 lg:h-[calc(100vh-2.5rem)] lg:w-auto lg:max-w-none lg:translate-x-0">
+        <aside className="app-surface-strong fixed inset-y-3 left-3 z-40 flex w-[85vw] max-w-[320px] -translate-x-[120%] flex-col bg-[linear-gradient(180deg,hsl(var(--background-elevated)),hsl(var(--surface)))] p-5 transition-transform duration-300 peer-checked:translate-x-0 lg:sticky lg:top-5 lg:z-10 lg:h-[calc(100vh-2.5rem)] lg:w-auto lg:max-w-none lg:translate-x-0">
           <div className="mb-6 flex items-start justify-between border-b border-[hsl(var(--border))] pb-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">QRápido</p>
@@ -106,7 +114,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
 
           <nav className="space-y-2">
             {dashboardNavItems.map(({ href, icon: Icon, label, description }) => {
-              const active = pathname === href || pathname.startsWith(`${href}/`);
+              const active = isNavItemActive(href);
 
               return (
                 <Link
@@ -115,16 +123,16 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
                   className={cn(
                     "group relative flex items-start gap-3 rounded-2xl border px-3 py-3 transition-all duration-200",
                     active
-                      ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.18)] text-[hsl(var(--foreground))] shadow-sm"
-                      : "border-transparent text-[hsl(var(--foreground-muted))] hover:border-[hsl(var(--border-strong))] hover:bg-[hsl(var(--surface-muted))] hover:text-[hsl(var(--foreground))]"
+                      ? "border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--foreground))] shadow-[0_6px_18px_hsl(var(--primary)/0.12)]"
+                      : "border-transparent text-[hsl(var(--foreground-muted))] hover:border-[hsl(var(--border-strong))] hover:bg-[hsl(var(--surface-muted)/0.7)] hover:text-[hsl(var(--foreground))]"
                   )}
                 >
                   <span
                     className={cn(
                       "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
                       active
-                        ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)]"
-                        : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))] group-hover:border-[hsl(var(--border-strong))]"
+                        ? "border-[hsl(var(--primary)/0.32)] bg-[hsl(var(--primary)/0.18)] text-[hsl(var(--primary))]"
+                        : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))] group-hover:border-[hsl(var(--primary)/0.32)]"
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -180,7 +188,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
             </div>
           </AppSurface>
 
-          <section className="space-y-4 rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--background-elevated)/0.55)] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] md:p-5">
+          <section className="space-y-4 rounded-3xl border border-[hsl(var(--border))] bg-[linear-gradient(180deg,hsl(var(--background-elevated)/0.84),hsl(var(--surface)/0.95))] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] md:p-5">
             {children}
           </section>
         </main>
