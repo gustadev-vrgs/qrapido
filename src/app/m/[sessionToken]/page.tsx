@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronRight,
@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 
 import { AppActionButton, AppDataCard, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
-import { MenuService, OrdersService, RestaurantsService, SessionsService, createOne, getCollection } from "@/lib/data";
+import { MenuService, OrdersService, RestaurantsService, SessionsService } from "@/lib/data";
 import { COLLECTIONS } from "@/lib/data/constants/collections";
+import { createOne, getCollection } from "@/lib/data/helpers/firestore-io";
 import { resolveContext } from "@/lib/data/services/base-service";
 import { orderStatusLabels } from "@/lib/constants/status-labels";
 import { appToast } from "@/lib/utils/toast";
@@ -177,6 +178,27 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
 
   const normalizedToken = useMemo(() => decodeURIComponent(params.sessionToken ?? "").trim(), [params.sessionToken]);
 
+  const loadLatestOrder = useCallback(async (currentSession: SessionViewModel): Promise<void> => {
+    setLatestOrderLoading(true);
+
+    try {
+      const ordersService = new OrdersService();
+      const orders = await ordersService.listBySessionToken(currentSession.restaurantId, normalizedToken);
+      if (orders.length === 0) {
+        setLatestOrder(null);
+        return;
+      }
+
+      const activeOrder = orders.find((order) => ["received", "confirmed", "in_preparation", "ready"].includes(order.status));
+      const candidate = activeOrder ?? orders[0];
+      setLatestOrder(candidate);
+    } catch {
+      setLatestOrder(null);
+    } finally {
+      setLatestOrderLoading(false);
+    }
+  }, [normalizedToken]);
+
   useEffect(() => {
     let active = true;
 
@@ -321,7 +343,7 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     }
 
     void loadLatestOrder(session);
-  }, [session, state]);
+  }, [loadLatestOrder, session, state]);
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -386,27 +408,6 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
 
   function removeFromCart(itemKey: string): void {
     setCartItems((currentItems) => currentItems.filter((item) => `${item.menuItemId}::${item.notes}` !== itemKey));
-  }
-
-  async function loadLatestOrder(currentSession: SessionViewModel): Promise<void> {
-    setLatestOrderLoading(true);
-
-    try {
-      const ordersService = new OrdersService();
-      const orders = await ordersService.listBySessionToken(currentSession.restaurantId, normalizedToken);
-      if (orders.length === 0) {
-        setLatestOrder(null);
-        return;
-      }
-
-      const activeOrder = orders.find((order) => ["received", "confirmed", "in_preparation", "ready"].includes(order.status));
-      const candidate = activeOrder ?? orders[0];
-      setLatestOrder(candidate);
-    } catch {
-      setLatestOrder(null);
-    } finally {
-      setLatestOrderLoading(false);
-    }
   }
 
   async function sendOrder(): Promise<void> {
