@@ -24,7 +24,7 @@ export function AppPageHeader({ eyebrow, title, description, actions }: AppPageH
     <AppSurface variant="strong" className="mb-4 flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between md:p-7">
       <div className="space-y-2">
         {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">{eyebrow}</p> : null}
-        <h1>{title}</h1>
+        <h1 className="text-[clamp(1.85rem,1.7rem+0.35vw,2.2rem)] leading-tight">{title}</h1>
         {description ? <p className="max-w-2xl text-sm text-[hsl(var(--foreground-muted))] md:text-base">{description}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
@@ -63,7 +63,7 @@ export function AppStatCard({ label, value, trend }: AppStatCardProps): JSX.Elem
   return (
     <AppSurface className="p-4 md:p-5">
       <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">{label}</p>
-      <p className="mt-3 text-2xl font-semibold md:text-3xl">{value}</p>
+      <p className="mt-3 text-2xl font-semibold leading-none md:text-3xl">{value}</p>
       {trend ? <p className="mt-2 text-xs text-[hsl(var(--foreground-muted))]">{trend}</p> : null}
     </AppSurface>
   );
@@ -77,8 +77,8 @@ interface AppEmptyStateProps {
 
 export function AppEmptyState({ title, description, action }: AppEmptyStateProps): JSX.Element {
   return (
-    <AppSurface className="flex flex-col items-start gap-3 border-dashed p-6 md:p-8">
-      <span className="rounded-full border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] px-3 py-1 text-xs uppercase tracking-[0.16em] text-[hsl(var(--foreground-muted))]">
+    <AppSurface className="flex flex-col items-start gap-3 border-dashed bg-[linear-gradient(145deg,hsl(var(--surface)),hsl(var(--background-elevated)))] p-6 md:p-8">
+      <span className="rounded-full border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted)/0.75)] px-3 py-1 text-xs uppercase tracking-[0.16em] text-[hsl(var(--foreground-muted))]">
         Sem dados
       </span>
       <h3>{title}</h3>
@@ -93,7 +93,7 @@ interface AppSkeletonProps {
 }
 
 export function AppSkeleton({ className }: AppSkeletonProps): JSX.Element {
-  return <div className={cn("animate-pulse rounded-xl bg-[hsl(var(--surface-muted))]", className)} aria-hidden="true" />;
+  return <div className={cn("animate-pulse rounded-xl border border-[hsl(var(--border)/0.55)] bg-[hsl(var(--surface-muted)/0.72)]", className)} aria-hidden="true" />;
 }
 
 const badgeMap = {
@@ -101,7 +101,7 @@ const badgeMap = {
   warning: "border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.16)] text-[hsl(var(--warning))]",
   danger: "border-[hsl(var(--danger)/0.35)] bg-[hsl(var(--danger)/0.16)] text-[hsl(var(--danger))]",
   info: "border-[hsl(var(--info)/0.35)] bg-[hsl(var(--info)/0.16)] text-[hsl(var(--info))]",
-  neutral: "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"
+  neutral: "border-[hsl(var(--border-strong)/0.75)] bg-[hsl(var(--surface-muted)/0.8)] text-[hsl(var(--foreground-muted))]"
 } as const;
 
 type BadgeTone = keyof typeof badgeMap;
@@ -113,7 +113,7 @@ interface AppStatusBadgeProps extends HTMLAttributes<HTMLSpanElement> {
 export function AppStatusBadge({ tone = "neutral", className, ...props }: AppStatusBadgeProps): JSX.Element {
   return (
     <span
-      className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium uppercase tracking-[0.12em]", badgeMap[tone], className)}
+      className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em]", badgeMap[tone], className)}
       {...props}
     />
   );
@@ -157,8 +157,8 @@ export function AppDataCard({ title, metadata, status, className, children, ...p
 
 const buttonStyles = {
   primary:
-    "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:brightness-105 active:brightness-95 border border-transparent",
-  secondary: "border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface))]",
+    "border border-[hsl(var(--primary)/0.85)] bg-[linear-gradient(180deg,hsl(var(--primary)/0.96),hsl(var(--primary)))] text-[hsl(var(--primary-foreground))] shadow-[0_6px_18px_hsl(var(--primary)/0.22)] hover:brightness-105 active:translate-y-px",
+  secondary: "border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted)/0.72)] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface))]",
   ghost: "border border-transparent bg-transparent text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))] hover:text-[hsl(var(--foreground))]",
   destructive: "border border-[hsl(var(--danger)/0.45)] bg-[hsl(var(--danger)/0.14)] text-[hsl(var(--danger))] hover:bg-[hsl(var(--danger)/0.22)]"
 } as const;

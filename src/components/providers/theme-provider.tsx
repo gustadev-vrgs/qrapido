@@ -21,7 +21,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function getSystemTheme(): ResolvedTheme {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -29,7 +29,7 @@ function resolveTheme(theme: Theme): ResolvedTheme {
   return theme === "system" ? getSystemTheme() : theme;
 }
 
-export function ThemeProvider({ children, defaultTheme = "dark", storageKey = "qrapido-theme" }: ThemeProviderProps) {
+export function ThemeProvider({ children, defaultTheme = "light", storageKey = "qrapido-theme" }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(resolveTheme(defaultTheme));
 

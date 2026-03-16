@@ -3,48 +3,48 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
-  --background: 222 30% 7%;
-  --background-elevated: 220 26% 10%;
-  --surface: 220 23% 13%;
-  --surface-muted: 220 20% 16%;
-  --foreground: 210 33% 96%;
-  --foreground-muted: 215 20% 72%;
-  --border: 220 20% 24%;
-  --border-strong: 219 21% 32%;
-  --primary: 166 76% 43%;
-  --primary-foreground: 166 100% 8%;
-  --focus-ring: 166 75% 45%;
-  --success: 156 70% 45%;
-  --warning: 38 92% 57%;
-  --danger: 355 80% 61%;
-  --info: 205 92% 61%;
+  color-scheme: light;
+  --background: 215 38% 97%;
+  --background-elevated: 210 28% 99%;
+  --surface: 210 24% 99%;
+  --surface-muted: 214 26% 95%;
+  --foreground: 220 30% 18%;
+  --foreground-muted: 218 15% 45%;
+  --border: 216 22% 87%;
+  --border-strong: 216 21% 79%;
+  --primary: 217 82% 46%;
+  --primary-foreground: 210 40% 99%;
+  --focus-ring: 217 86% 54%;
+  --success: 165 65% 34%;
+  --warning: 34 92% 48%;
+  --danger: 355 74% 52%;
+  --info: 211 89% 48%;
 }
 
-html[data-theme="light"] {
-  color-scheme: light;
-  --background: 210 33% 98%;
-  --background-elevated: 210 25% 100%;
-  --surface: 210 24% 97%;
-  --surface-muted: 210 19% 93%;
-  --foreground: 222 22% 14%;
-  --foreground-muted: 220 10% 41%;
-  --border: 220 20% 84%;
-  --border-strong: 220 18% 74%;
-  --primary: 166 78% 36%;
-  --primary-foreground: 160 50% 96%;
-  --focus-ring: 166 80% 36%;
-  --success: 156 75% 37%;
-  --warning: 38 84% 46%;
-  --danger: 355 72% 48%;
-  --info: 205 75% 47%;
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --background: 224 26% 11%;
+  --background-elevated: 223 23% 13%;
+  --surface: 222 22% 16%;
+  --surface-muted: 222 18% 21%;
+  --foreground: 214 32% 94%;
+  --foreground-muted: 217 14% 70%;
+  --border: 220 16% 29%;
+  --border-strong: 219 18% 37%;
+  --primary: 214 86% 60%;
+  --primary-foreground: 223 34% 12%;
+  --focus-ring: 214 90% 66%;
+  --success: 161 68% 48%;
+  --warning: 38 92% 57%;
+  --danger: 357 79% 65%;
+  --info: 205 92% 61%;
 }
 
 @layer base {
   body {
     @apply antialiased;
     background-color: hsl(var(--background));
-    background-image: radial-gradient(circle at top, rgba(17, 217, 164, 0.08), transparent 30%);
+    background-image: radial-gradient(circle at top, hsl(var(--primary) / 0.08), transparent 38%);
     color: hsl(var(--foreground));
   }
 
@@ -64,19 +64,19 @@ html[data-theme="light"] {
 @layer components {
   .app-surface {
     @apply rounded-2xl border shadow-soft;
-    background-color: hsl(var(--surface) / 0.9);
+    background-color: hsl(var(--surface) / 0.96);
     border-color: hsl(var(--border));
   }
 
   .app-surface-strong {
     @apply rounded-2xl border shadow-surface;
-    background-color: hsl(var(--background-elevated) / 0.94);
+    background-color: hsl(var(--background-elevated) / 0.98);
     border-color: hsl(var(--border-strong));
   }
 
   .app-field {
     @apply h-11 w-full rounded-xl border px-3 text-sm transition-all placeholder:text-[hsl(var(--foreground-muted))] focus-visible:outline-none;
-    background-color: hsl(var(--surface-muted) / 0.8);
+    background-color: hsl(var(--surface) / 0.92);
     border-color: hsl(var(--border));
   }
 
