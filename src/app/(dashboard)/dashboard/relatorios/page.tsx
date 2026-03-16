@@ -8,21 +8,10 @@ import { OrdersService } from "@/lib/data/services/orders-service";
 import { ReportsService } from "@/lib/data/services/reports-service";
 import { TablesService } from "@/lib/data/services/tables-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { mockDailyMetrics, mockOrders, mockTables } from "@/lib/mocks/basic";
 import type { DailyMetric, Order, Table } from "@/lib/types/domain";
 import { formatCurrency } from "@/lib/utils/formatters";
 
 type PeriodFilter = "7d" | "30d";
-
-const HOURS_PEAK_DATA = [
-  { hour: "11h", pedidos: 6 },
-  { hour: "12h", pedidos: 19 },
-  { hour: "13h", pedidos: 24 },
-  { hour: "14h", pedidos: 12 },
-  { hour: "19h", pedidos: 28 },
-  { hour: "20h", pedidos: 21 },
-  { hour: "21h", pedidos: 13 }
-];
 
 export default function RelatoriosPage(): JSX.Element {
   const { user } = useAdminAuth();
@@ -48,9 +37,9 @@ export default function RelatoriosPage(): JSX.Element {
         setOrders(ordersData);
         setTables(tablesData);
       } catch {
-        setMetrics(mockDailyMetrics);
-        setOrders(mockOrders);
-        setTables(mockTables);
+        setMetrics([]);
+        setOrders([]);
+        setTables([]);
       }
     };
 
@@ -99,6 +88,7 @@ export default function RelatoriosPage(): JSX.Element {
 
   const cancellationRate = orders.length ? (orders.filter((order) => order.status === "cancelled").length / orders.length) * 100 : 0;
   const occupiedRate = tables.length ? (tables.filter((table) => ["active", "awaiting_payment"].includes(table.status)).length / tables.length) * 100 : 0;
+  const hasReportData = filteredMetrics.length > 0 || orders.length > 0;
 
   return (
     <section className="space-y-4">
@@ -111,81 +101,74 @@ export default function RelatoriosPage(): JSX.Element {
         </AppDataCard>
       </AppFilterBar>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <AppStatCard label="Faturamento no período" value={formatCurrency(filteredMetrics.reduce((acc, metric) => acc + metric.totalRevenue, 0))} />
-        <AppStatCard label="Pedidos por status" value={`${orders.length} pedidos`} trend="Distribuição abaixo" />
-        <AppStatCard label="Taxa de cancelamento" value={`${cancellationRate.toFixed(1)}%`} trend="Meta < 5%" />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <AppSectionCard title="Faturamento por período" description="Evolução diária de pedidos e receita.">
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={revenueByPeriod}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="faturamento" stroke="#0ea5e9" strokeWidth={2} />
-                <Line type="monotone" dataKey="pedidos" stroke="#22c55e" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+      {!hasReportData ? (
+        <AppEmptyState
+          title="Ainda não há métricas suficientes para exibir relatórios"
+          description="Os gráficos e comparativos serão preenchidos automaticamente quando pedidos e métricas reais forem registrados no Firestore."
+        />
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-3">
+            <AppStatCard label="Faturamento no período" value={formatCurrency(filteredMetrics.reduce((acc, metric) => acc + metric.totalRevenue, 0))} />
+            <AppStatCard label="Pedidos por status" value={`${orders.length} pedidos`} trend="Distribuição abaixo" />
+            <AppStatCard label="Taxa de cancelamento" value={`${cancellationRate.toFixed(1)}%`} trend="Meta < 5%" />
           </div>
-        </AppSectionCard>
 
-        <AppSectionCard title="Itens mais vendidos" description="Top produtos em volume e receita.">
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topItems}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="item" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="quantidade" fill="#6366f1" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <AppSectionCard title="Faturamento por período" description="Evolução diária de pedidos e receita.">
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={revenueByPeriod}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="faturamento" stroke="#0ea5e9" strokeWidth={2} />
+                    <Line type="monotone" dataKey="pedidos" stroke="#22c55e" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </AppSectionCard>
+
+            <AppSectionCard title="Itens mais vendidos" description="Top produtos em volume e receita.">
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topItems}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="item" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="quantidade" fill="#6366f1" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </AppSectionCard>
           </div>
-        </AppSectionCard>
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <AppSectionCard title="Horários de pico" description="Janela de maior volume de atendimento.">
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={HOURS_PEAK_DATA}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="hour" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="pedidos" fill="#f59e0b" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <AppSectionCard title="Pedidos por status" description="Distribuição da fila de produção.">
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={statusData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="status" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="pedidos" fill="#14b8a6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </AppSectionCard>
+
+            <div className="grid gap-4 md:grid-cols-1">
+              <AppDataCard title="Taxa de cancelamento" metadata={`${cancellationRate.toFixed(1)}%`}>Meta recomendada: até 5%.</AppDataCard>
+              <AppDataCard title="Ocupação de mesas" metadata={`${occupiedRate.toFixed(1)}%`}>Considera mesas ativas e aguardando pagamento.</AppDataCard>
+            </div>
           </div>
-        </AppSectionCard>
-
-        <AppSectionCard title="Pedidos por status" description="Distribuição da fila de produção.">
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="status" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="pedidos" fill="#14b8a6" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </AppSectionCard>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <AppDataCard title="Taxa de cancelamento" metadata={`${cancellationRate.toFixed(1)}%`}>Meta recomendada: até 5%.</AppDataCard>
-        <AppDataCard title="Ocupação de mesas" metadata={`${occupiedRate.toFixed(1)}%`}>Considera mesas ativas e aguardando pagamento.</AppDataCard>
-      </div>
-
-      {orders.length === 0 ? <AppEmptyState title="Sem dados suficientes" description="Assim que os pedidos forem registrados, os relatórios ficarão disponíveis com filtros e comparativos." /> : null}
+        </>
+      )}
     </section>
   );
 }
