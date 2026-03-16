@@ -353,8 +353,12 @@ export default function PedidosPage(): JSX.Element {
           </div>
         ) : filteredOrders.length === 0 ? (
           <AppEmptyState
-            title="Nenhum pedido encontrado"
-            description="Ajuste os filtros ou aguarde novos pedidos. O painel está pronto para operar em tempo real nas próximas etapas."
+            title={orders.length === 0 ? "Nenhum pedido registrado ainda" : "Nenhum pedido encontrado"}
+            description={
+              orders.length === 0
+                ? "Quando os clientes iniciarem pedidos, eles aparecerão aqui em tempo real."
+                : "Ajuste os filtros para visualizar os pedidos existentes."
+            }
           />
         ) : (
           <div className="space-y-3">

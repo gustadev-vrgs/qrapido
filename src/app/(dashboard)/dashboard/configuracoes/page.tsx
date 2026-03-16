@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { AppActionButton, AppFormField, AppSectionCard, AppSelect, AppTextInput } from "@/components/ui/app-design-system";
+import { AppActionButton, AppEmptyState, AppFormField, AppSectionCard, AppSelect, AppTextInput } from "@/components/ui/app-design-system";
+import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { SettingsService } from "@/lib/data/services/settings-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { mockRestaurantSettings } from "@/lib/mocks/basic";
 import type { BusinessHours, PaymentMethod, RestaurantSettings, WeekdayKey } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
 
@@ -28,26 +28,71 @@ const paymentLabels: Record<PaymentMethod, string> = {
   card_on_table: "Cartão na mesa"
 };
 
+const defaultBusinessHours: BusinessHours = {
+  monday: { isOpen: true, open: "09:00", close: "18:00" },
+  tuesday: { isOpen: true, open: "09:00", close: "18:00" },
+  wednesday: { isOpen: true, open: "09:00", close: "18:00" },
+  thursday: { isOpen: true, open: "09:00", close: "18:00" },
+  friday: { isOpen: true, open: "09:00", close: "18:00" },
+  saturday: { isOpen: false, open: "09:00", close: "18:00" },
+  sunday: { isOpen: false, open: "09:00", close: "18:00" }
+};
+
 export default function ConfiguracoesPage(): JSX.Element {
   const { user } = useAdminAuth();
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
+  const [restaurantName, setRestaurantName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const settingsService = useMemo(() => new SettingsService({ scope: "admin" }), []);
+  const restaurantsService = useMemo(() => new RestaurantsService({ scope: "admin" }), []);
 
   useEffect(() => {
     const load = async () => {
       if (!user?.restaurantId) return;
       try {
         const [found] = await settingsService.listByRestaurant(user.restaurantId);
-        setSettings(found ?? mockRestaurantSettings);
+        setSettings(found ?? null);
+
+        const restaurant = await restaurantsService.getByRestaurantId(user.restaurantId);
+        setRestaurantName(restaurant?.name ?? "");
       } catch {
-        setSettings(mockRestaurantSettings);
+        setSettings(null);
       }
     };
 
     void load();
-  }, [settingsService, user?.restaurantId]);
+  }, [restaurantsService, settingsService, user?.restaurantId]);
+
+  const createInitialSettings = async () => {
+    if (!user?.restaurantId) return;
+
+    setIsBootstrapping(true);
+    try {
+      await settingsService.create({
+        restaurantId: user.restaurantId,
+        acceptedPaymentMethods: [],
+        pixKey: null,
+        businessHours: defaultBusinessHours,
+        antiSpamWindowSeconds: 60,
+        maxOrdersPerWindow: 3,
+        defaultSessionDurationMinutes: 90,
+        allowSessionPin: false,
+        requireCustomerName: false,
+        waiterCallEnabled: true,
+        billRequestEnabled: true
+      });
+
+      const [created] = await settingsService.listByRestaurant(user.restaurantId);
+      setSettings(created ?? null);
+      appToast.success("Configurações criadas", "Agora você pode editar e salvar as preferências reais do restaurante.");
+    } catch {
+      appToast.error("Falha ao criar configurações", "Não foi possível inicializar as configurações no Firestore.");
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
 
   const togglePaymentMethod = (method: PaymentMethod) => {
     if (!settings) return;
@@ -82,16 +127,28 @@ export default function ConfiguracoesPage(): JSX.Element {
         billRequestEnabled: settings.billRequestEnabled,
         businessHours: settings.businessHours
       });
-      appToast.success("Configurações salvas", "Preferências operacionais atualizadas com sucesso.");
+      appToast.success("Configurações salvas", "Preferências operacionais atualizadas com sucesso no Firestore.");
     } catch {
-      appToast.error("Falha ao salvar", "Não foi possível persistir no Firebase. Mantido localmente para demonstração.");
+      appToast.error("Falha ao salvar", "Não foi possível persistir as alterações no Firebase/Firestore.");
     } finally {
       setIsSaving(false);
     }
   };
 
   if (!settings) {
-    return <section className="space-y-4">Carregando configurações...</section>;
+    return (
+      <section className="space-y-4">
+        <AppEmptyState
+          title="Nenhuma configuração cadastrada"
+          description="Crie o documento inicial de configurações para começar a operar com dados reais no Firestore."
+          action={
+            <AppActionButton onClick={createInitialSettings} disabled={isBootstrapping}>
+              {isBootstrapping ? "Criando..." : "Criar configurações"}
+            </AppActionButton>
+          }
+        />
+      </section>
+    );
   }
 
   return (
@@ -99,7 +156,7 @@ export default function ConfiguracoesPage(): JSX.Element {
       <AppSectionCard title="Dados do restaurante" description="Base operacional para atendimento e cobrança.">
         <div className="grid gap-4 md:grid-cols-2">
           <AppFormField label="Nome do restaurante">
-            <AppTextInput value="Bistrô Bela Vista" readOnly />
+            <AppTextInput value={restaurantName} readOnly placeholder="Nome será exibido quando cadastrado" />
           </AppFormField>
           <AppFormField label="Chave Pix">
             <AppTextInput value={settings.pixKey ?? ""} onChange={(event) => setSettings({ ...settings, pixKey: event.target.value })} placeholder="contato@restaurante.com" />

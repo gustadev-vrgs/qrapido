@@ -438,8 +438,12 @@ export default function MesasPage(): JSX.Element {
           </div>
         ) : filteredTables.length === 0 ? (
           <AppEmptyState
-            title="Nenhuma mesa encontrada para este filtro"
-            description="Ajuste status e busca para visualizar as mesas do salão."
+            title={tables.length === 0 ? "Nenhuma mesa cadastrada" : "Nenhuma mesa encontrada para este filtro"}
+            description={
+              tables.length === 0
+                ? "Cadastre mesas para iniciar a operação. Assim que forem criadas, aparecerão neste mapa em tempo real."
+                : "Ajuste status e busca para visualizar as mesas do salão."
+            }
             action={
               <AppActionButton
                 variant="secondary"
