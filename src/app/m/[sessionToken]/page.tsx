@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronRight,
   Clock3,
+  ConciergeBell,
   Lock,
+  Loader2,
   MenuSquare,
   Minus,
   Plus,
+  ReceiptText,
   Search,
   ShoppingBag,
   Sparkles,
@@ -16,8 +19,14 @@ import {
 } from "lucide-react";
 
 import { AppActionButton, AppDataCard, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
-import { MenuService, RestaurantsService, SessionsService } from "@/lib/data";
-import type { MenuCategory, MenuItem, TableSession } from "@/lib/types/domain";
+import { MenuService, OrdersService, RestaurantsService, SessionsService } from "@/lib/data";
+import { COLLECTIONS } from "@/lib/data/constants/collections";
+import { createOne, getCollection } from "@/lib/data/helpers/firestore-io";
+import { resolveContext } from "@/lib/data/services/base-service";
+import { orderStatusLabels } from "@/lib/constants/status-labels";
+import { appToast } from "@/lib/utils/toast";
+import { nowIsoString } from "@/lib/data/helpers/timestamps";
+import type { MenuCategory, MenuItem, Order, OrderStatus, TableSession } from "@/lib/types/domain";
 import { formatCurrency } from "@/lib/utils/formatters";
 
 interface MobileSessionPageProps {
@@ -29,8 +38,10 @@ interface MobileSessionPageProps {
 type MobileSessionState = "loading" | "valid" | "invalid" | "expired" | "blocked" | "error";
 
 interface SessionViewModel {
+  id: string;
   restaurantId: string;
   restaurantName: string;
+  tableId: string;
   tableNumber: number;
   customerName: string | null;
   sessionLabel: string;
@@ -45,6 +56,11 @@ interface CartItem {
   quantity: number;
   notes: string;
   imageUrl: string | null;
+}
+
+interface ActionFeedback {
+  tone: "success" | "danger" | "info";
+  message: string;
 }
 
 const SESSION_TOKEN_PATTERN = /^[a-zA-Z0-9_-]{16,128}$/;
@@ -72,6 +88,27 @@ function mapSessionState(session: TableSession): MobileSessionState {
   }
 
   return "invalid";
+}
+
+const ORDER_STATUS_TONE: Record<OrderStatus, "info" | "warning" | "success" | "neutral" | "danger"> = {
+  received: "info",
+  confirmed: "info",
+  in_preparation: "warning",
+  ready: "success",
+  delivered: "neutral",
+  cancelled: "danger"
+};
+
+function customerStatusLabel(status: OrderStatus): string {
+  if (status === "confirmed") {
+    return "Recebido";
+  }
+
+  return orderStatusLabels[status];
+}
+
+function buildDuplicateGuardHash(sessionToken: string, items: CartItem[], subtotal: number): string {
+  return `${sessionToken.slice(0, 8)}-${items.length}-${Math.round(subtotal * 100)}-${Date.now().toString(36)}`;
 }
 
 function SessionMessageCard({
@@ -130,9 +167,37 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
   const [detailNotes, setDetailNotes] = useState("");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [preparedMessage, setPreparedMessage] = useState<string | null>(null);
+  const [submitState, setSubmitState] = useState<"idle" | "sending">("idle");
+  const [submitFeedback, setSubmitFeedback] = useState<ActionFeedback | null>(null);
+  const [latestOrder, setLatestOrder] = useState<Order | null>(null);
+  const [latestOrderLoading, setLatestOrderLoading] = useState(false);
+  const [waiterActionLoading, setWaiterActionLoading] = useState(false);
+  const [billActionLoading, setBillActionLoading] = useState(false);
+  const [waiterFeedback, setWaiterFeedback] = useState<ActionFeedback | null>(null);
+  const [billFeedback, setBillFeedback] = useState<ActionFeedback | null>(null);
 
   const normalizedToken = useMemo(() => decodeURIComponent(params.sessionToken ?? "").trim(), [params.sessionToken]);
+
+  const loadLatestOrder = useCallback(async (currentSession: SessionViewModel): Promise<void> => {
+    setLatestOrderLoading(true);
+
+    try {
+      const ordersService = new OrdersService();
+      const orders = await ordersService.listBySessionToken(currentSession.restaurantId, normalizedToken);
+      if (orders.length === 0) {
+        setLatestOrder(null);
+        return;
+      }
+
+      const activeOrder = orders.find((order) => ["received", "confirmed", "in_preparation", "ready"].includes(order.status));
+      const candidate = activeOrder ?? orders[0];
+      setLatestOrder(candidate);
+    } catch {
+      setLatestOrder(null);
+    } finally {
+      setLatestOrderLoading(false);
+    }
+  }, [normalizedToken]);
 
   useEffect(() => {
     let active = true;
@@ -173,8 +238,10 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
         const nextState = mapSessionState(currentSession);
 
         setSession({
+          id: currentSession.id,
           restaurantId: currentSession.restaurantId,
           restaurantName: restaurant.name,
+          tableId: currentSession.tableId,
           tableNumber: currentSession.tableNumber,
           customerName: currentSession.customerName,
           sessionLabel: currentSession.sessionLabel,
@@ -270,6 +337,14 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     window.sessionStorage.setItem(storageKey, JSON.stringify(cartItems));
   }, [cartItems, normalizedToken, state]);
 
+  useEffect(() => {
+    if (!session || state !== "valid") {
+      return;
+    }
+
+    void loadLatestOrder(session);
+  }, [loadLatestOrder, session, state]);
+
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     return items.filter((item) => {
@@ -295,7 +370,6 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
       return;
     }
 
-    setPreparedMessage(null);
     setCartItems((currentItems) => {
       const existing = currentItems.find((item) => item.menuItemId === selectedItem.id && item.notes === detailNotes.trim());
 
@@ -325,7 +399,6 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
   }
 
   function changeCartQuantity(itemKey: string, delta: number): void {
-    setPreparedMessage(null);
     setCartItems((currentItems) =>
       currentItems
         .map((item) => (itemKey === `${item.menuItemId}::${item.notes}` ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))
@@ -334,30 +407,124 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
   }
 
   function removeFromCart(itemKey: string): void {
-    setPreparedMessage(null);
     setCartItems((currentItems) => currentItems.filter((item) => `${item.menuItemId}::${item.notes}` !== itemKey));
   }
 
-  function prepareOrder(): void {
-    if (!session || cartItems.length === 0) {
+  async function sendOrder(): Promise<void> {
+    if (submitState === "sending") {
       return;
     }
 
-    const payload = {
-      sessionToken: normalizedToken,
-      sessionLabel: session.sessionLabel,
-      tableNumber: session.tableNumber,
-      items: cartItems.map((item) => ({
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        notes: item.notes || null
-      })),
-      subtotal,
-      total: subtotal
-    };
+    if (!session || state !== "valid") {
+      setSubmitFeedback({ tone: "danger", message: "Sessão inválida. Escaneie novamente o QR da mesa para continuar." });
+      return;
+    }
 
-    setPreparedMessage(`Pedido pronto para envio com ${payload.items.length} itens.`);
+    if (cartItems.length === 0) {
+      setSubmitFeedback({ tone: "danger", message: "Seu pedido está vazio. Adicione pelo menos um item para enviar." });
+      return;
+    }
+
+    try {
+      setSubmitState("sending");
+      setSubmitFeedback({ tone: "info", message: "Enviando pedido para a cozinha..." });
+
+      const receivedAt = nowIsoString();
+      const ordersService = new OrdersService();
+      const payload = {
+        restaurantId: session.restaurantId,
+        tableId: session.tableId,
+        tableNumber: session.tableNumber,
+        sessionId: session.id,
+        sessionToken: normalizedToken,
+        customerName: session.customerName,
+        items: cartItems.map((item) => ({
+          menuItemId: item.menuItemId,
+          nameSnapshot: item.name,
+          priceSnapshot: item.price,
+          quantity: item.quantity,
+          notes: item.notes || null,
+          total: Number((item.price * item.quantity).toFixed(2))
+        })),
+        subtotal: Number(subtotal.toFixed(2)),
+        serviceFee: 0,
+        total: Number(subtotal.toFixed(2)),
+        paymentMethod: "card_on_table" as const,
+        status: "received" as const,
+        notes: null,
+        duplicateGuardHash: buildDuplicateGuardHash(normalizedToken, cartItems, subtotal),
+        receivedAt
+      };
+
+      const orderId = await ordersService.create(payload);
+      const createdOrder = await ordersService.getById(orderId);
+      setLatestOrder(createdOrder);
+
+      setCartItems([]);
+      window.sessionStorage.removeItem(`qrapido-cart-${normalizedToken}`);
+      setCartOpen(false);
+      setSubmitFeedback({ tone: "success", message: "Pedido enviado com sucesso. Agora é só acompanhar o status." });
+      appToast.success("Pedido enviado", "Recebemos seu pedido e ele já entrou na fila da cozinha.");
+    } catch {
+      setSubmitFeedback({ tone: "danger", message: "Não foi possível enviar o pedido agora. Tente novamente em instantes." });
+      appToast.error("Falha ao enviar pedido", "Confirme sua conexão e tente novamente.");
+    } finally {
+      setSubmitState("idle");
+    }
   }
+
+  async function createCustomerIntent(type: "waiter_called" | "bill_requested", message: string): Promise<void> {
+    if (!session || !latestOrder) {
+      throw new Error("missing_context");
+    }
+
+    const { db } = resolveContext();
+    await createOne(getCollection(db, COLLECTIONS.orderEvents), {
+      restaurantId: session.restaurantId,
+      orderId: latestOrder.id,
+      tableId: session.tableId,
+      sessionId: session.id,
+      type,
+      actorType: "customer",
+      actorId: null,
+      message,
+      metadata: {
+        sessionToken: normalizedToken,
+        tableNumber: session.tableNumber,
+        customerName: session.customerName
+      },
+      createdAt: nowIsoString()
+    });
+  }
+
+  async function handleCallWaiter(): Promise<void> {
+    if (waiterActionLoading) return;
+    try {
+      setWaiterActionLoading(true);
+      await createCustomerIntent("waiter_called", "Cliente chamou garçom pela área mobile.");
+      setWaiterFeedback({ tone: "success", message: "Garçom chamado. Nossa equipe foi avisada." });
+      appToast.success("Garçom chamado", "A equipe recebeu sua solicitação.");
+    } catch {
+      setWaiterFeedback({ tone: "danger", message: "Não foi possível chamar o garçom agora. Tente novamente." });
+    } finally {
+      setWaiterActionLoading(false);
+    }
+  }
+
+  async function handleRequestBill(): Promise<void> {
+    if (billActionLoading) return;
+    try {
+      setBillActionLoading(true);
+      await createCustomerIntent("bill_requested", "Cliente solicitou conta pela área mobile.");
+      setBillFeedback({ tone: "success", message: "Conta solicitada com sucesso. Em breve passamos na mesa." });
+      appToast.success("Conta solicitada", "Seu pedido de conta foi registrado.");
+    } catch {
+      setBillFeedback({ tone: "danger", message: "Não foi possível pedir a conta agora. Tente novamente." });
+    } finally {
+      setBillActionLoading(false);
+    }
+  }
+
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--surface-muted)),_hsl(var(--background))_58%)] px-4 pb-32 pt-5 text-[hsl(var(--foreground))]">
@@ -392,6 +559,65 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
             >
               <p className="text-sm text-[hsl(var(--foreground-muted))]">{session.customerName ? `Sessão de ${session.customerName}` : "Sessão sem identificação de nome."}</p>
             </AppDataCard>
+
+            <AppSurface className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base">Acompanhar pedido</h2>
+                {latestOrderLoading ? <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--foreground-muted))]" /> : null}
+              </div>
+
+              {latestOrder ? (
+                <div className="space-y-3 rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Pedido #{latestOrder.id.slice(-6).toUpperCase()}</p>
+                    <AppStatusBadge tone={ORDER_STATUS_TONE[latestOrder.status]}>{customerStatusLabel(latestOrder.status)}</AppStatusBadge>
+                  </div>
+                  <p className="text-xs text-[hsl(var(--foreground-muted))]">
+                    Mesa {latestOrder.tableNumber} {latestOrder.customerName ? `• ${latestOrder.customerName}` : ""} • {formatDateTime(latestOrder.receivedAt)}
+                  </p>
+                  <ul className="space-y-1 text-xs text-[hsl(var(--foreground-muted))]">
+                    {latestOrder.items.slice(0, 3).map((item) => (
+                      <li key={`${latestOrder.id}-${item.menuItemId}-${item.nameSnapshot}`}>{item.quantity}x {item.nameSnapshot}{item.notes ? ` • ${item.notes}` : ""}</li>
+                    ))}
+                    {latestOrder.items.length > 3 ? <li>+{latestOrder.items.length - 3} itens</li> : null}
+                  </ul>
+                  <p className="text-sm font-semibold">Total: {formatCurrency(latestOrder.total)}</p>
+                  {latestOrder.notes ? <p className="rounded-xl border border-[hsl(var(--border))] px-2 py-1 text-xs">Obs: {latestOrder.notes}</p> : null}
+                </div>
+              ) : (
+                <p className="text-sm text-[hsl(var(--foreground-muted))]">Você ainda não enviou um pedido nesta sessão.</p>
+              )}
+            </AppSurface>
+
+            <AppSurface className="space-y-3 p-4">
+              <h2 className="text-base">Solicitações rápidas</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <AppActionButton
+                  variant="secondary"
+                  className="h-11 gap-2 border-[hsl(var(--info)/0.4)] bg-[hsl(var(--info)/0.08)] text-[hsl(var(--foreground))]"
+                  onClick={() => void handleCallWaiter()}
+                  disabled={!latestOrder || waiterActionLoading}
+                >
+                  {waiterActionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ConciergeBell className="h-4 w-4" />} Chamar garçom
+                </AppActionButton>
+
+                <AppActionButton
+                  variant="secondary"
+                  className="h-11 gap-2 border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--foreground))]"
+                  onClick={() => void handleRequestBill()}
+                  disabled={!latestOrder || billActionLoading}
+                >
+                  {billActionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Pedir conta
+                </AppActionButton>
+              </div>
+              {waiterFeedback ? (
+                <p className={`text-xs ${waiterFeedback.tone === "danger" ? "text-[hsl(var(--danger))]" : "text-[hsl(var(--success))]"}`}>{waiterFeedback.message}</p>
+              ) : null}
+              {billFeedback ? (
+                <p className={`text-xs ${billFeedback.tone === "danger" ? "text-[hsl(var(--danger))]" : "text-[hsl(var(--success))]"}`}>{billFeedback.message}</p>
+              ) : null}
+              {!latestOrder ? <p className="text-xs text-[hsl(var(--foreground-muted))]">Envie um pedido antes para habilitar essas solicitações.</p> : null}
+            </AppSurface>
 
             <AppSurface className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -657,11 +883,15 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
                 <span>Total</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
-              <AppActionButton className="h-12 w-full justify-between" disabled={cartItems.length === 0} onClick={prepareOrder}>
-                <span>Enviar pedido</span>
-                <ChevronRight className="h-4 w-4" />
+              <AppActionButton className="h-12 w-full justify-between" disabled={cartItems.length === 0 || submitState === "sending"} onClick={() => void sendOrder()}>
+                <span>{submitState === "sending" ? "Enviando..." : "Enviar pedido"}</span>
+                {submitState === "sending" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
               </AppActionButton>
-              {preparedMessage ? <p className="text-xs text-[hsl(var(--success))]">{preparedMessage}</p> : null}
+              {submitFeedback ? (
+                <p className={`text-xs ${submitFeedback.tone === "danger" ? "text-[hsl(var(--danger))]" : submitFeedback.tone === "success" ? "text-[hsl(var(--success))]" : "text-[hsl(var(--info))]"}`}>
+                  {submitFeedback.message}
+                </p>
+              ) : null}
             </AppSurface>
 
             <p className="mt-3 text-center text-xs text-[hsl(var(--foreground-muted))]">
