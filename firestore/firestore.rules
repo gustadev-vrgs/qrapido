@@ -17,8 +17,19 @@ service cloud.firestore {
       return data.restaurantId is string && data.restaurantId == restaurantId;
     }
 
+    function staffUserDoc() {
+      return get(/databases/$(database)/documents/staffUsers/$(request.auth.uid));
+    }
+
+    function hasActiveStaffForRestaurant(restaurantId) {
+      return isSignedIn()
+        && staffUserDoc().data.uid == request.auth.uid
+        && staffUserDoc().data.isActive == true
+        && staffUserDoc().data.restaurantId == restaurantId;
+    }
+
     match /restaurants/{restaurantId} {
-      allow read: if isRestaurantUser(restaurantId);
+      allow read: if isRestaurantUser(restaurantId) || hasActiveStaffForRestaurant(restaurantId);
       allow create, update: if isRestaurantUser(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId);
       allow delete: if false;
     }
@@ -26,33 +37,59 @@ service cloud.firestore {
     match /staffUsers/{staffId} {
       allow read: if isSignedIn() && (
         request.auth.uid == staffId ||
-        (resource.data.restaurantId is string && isRestaurantUser(resource.data.restaurantId))
+        resource.data.uid == request.auth.uid ||
+        (resource.data.restaurantId is string && (isRestaurantUser(resource.data.restaurantId) || hasActiveStaffForRestaurant(resource.data.restaurantId)))
       );
-      allow create, update: if hasRestaurantClaim()
-        && request.resource.data.uid is string
+      allow create, update: if request.resource.data.uid is string
         && request.resource.data.restaurantId is string
-        && isRestaurantUser(request.resource.data.restaurantId);
+        && (
+          (hasRestaurantClaim() && isRestaurantUser(request.resource.data.restaurantId))
+          || hasActiveStaffForRestaurant(request.resource.data.restaurantId)
+        );
       allow delete: if false;
     }
 
     match /{collection}/{docId} {
-      allow read: if isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-        && hasRestaurantClaim();
-      allow create: if hasRestaurantClaim()
-        && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId);
-      allow update: if hasRestaurantClaim()
-        && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-        && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId);
+      allow read: if (
+          hasRestaurantClaim() && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
+        ) || (
+          resource.data.restaurantId is string && hasActiveStaffForRestaurant(resource.data.restaurantId)
+        );
+      allow create: if (
+          hasRestaurantClaim() && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
+        ) || (
+          request.resource.data.restaurantId is string && hasActiveStaffForRestaurant(request.resource.data.restaurantId)
+        );
+      allow update: if (
+          hasRestaurantClaim()
+          && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
+          && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
+        ) || (
+          resource.data.restaurantId is string
+          && request.resource.data.restaurantId is string
+          && hasActiveStaffForRestaurant(resource.data.restaurantId)
+          && resource.data.restaurantId == request.resource.data.restaurantId
+        );
       allow delete: if false;
     }
 
     match /tableSessions/{sessionId} {
       allow read: if true;
-      allow create: if hasRestaurantClaim()
-        && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId);
-      allow update: if hasRestaurantClaim()
-        && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-        && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId);
+      allow create: if (
+          hasRestaurantClaim() && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
+        ) || (
+          request.resource.data.restaurantId is string && hasActiveStaffForRestaurant(request.resource.data.restaurantId)
+        );
+      allow update: if (
+          hasRestaurantClaim()
+          && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
+          && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
+        ) || (
+          resource.data.restaurantId is string
+          && request.resource.data.restaurantId is string
+          && hasActiveStaffForRestaurant(resource.data.restaurantId)
+          && resource.data.restaurantId == request.resource.data.restaurantId
+        );
       allow delete: if false;
     }
 

@@ -1,4 +1,4 @@
-import { DocumentData, where } from "firebase/firestore";
+import { DocumentData } from "firebase/firestore";
 
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { DataLayerError } from "@/lib/data/errors";
@@ -25,13 +25,13 @@ export class AuthService {
 
   async getStaffByUid(uid: string, restaurantId: string): Promise<StaffUser | null> {
     const { db } = resolveContext(this.context);
-    const users = await readMany(
-      getCollection(db, COLLECTIONS.staffUsers),
-      [where("uid", "==", uid), where("restaurantId", "==", restaurantId)],
-      mapStaffUser
-    );
+    const staffUser = await readOne(getDocumentRef(db, COLLECTIONS.staffUsers, uid), mapStaffUser, "staffUser").catch(() => null);
 
-    return users[0] ?? null;
+    if (!staffUser || staffUser.restaurantId !== restaurantId) {
+      return null;
+    }
+
+    return staffUser;
   }
 
   async createStaff(payload: CreateStaffUserPayload): Promise<string> {
@@ -41,11 +41,15 @@ export class AuthService {
     }
 
     const parsed = createStaffUserPayloadSchema.parse(payload);
-    return createOne<DocumentData>(getCollection(db, COLLECTIONS.staffUsers), {
-      ...parsed,
-      createdAt: nowIsoString(),
-      updatedAt: nowIsoString()
-    });
+    return createOne<DocumentData>(
+      getCollection(db, COLLECTIONS.staffUsers),
+      {
+        ...parsed,
+        createdAt: nowIsoString(),
+        updatedAt: nowIsoString()
+      },
+      parsed.uid
+    );
   }
 
   async updateStaff(id: string, payload: UpdateStaffUserPayload): Promise<void> {
