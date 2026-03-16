@@ -85,3 +85,23 @@ html[data-theme="light"] {
     box-shadow: 0 0 0 3px hsl(var(--focus-ring) / 0.25);
   }
 }
+
+@media print {
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  nav,
+  aside,
+  header {
+    display: none !important;
+  }
+
+  .app-surface,
+  .app-surface-strong {
+    box-shadow: none !important;
+    border-color: #ddd !important;
+    background: #fff !important;
+  }
+}

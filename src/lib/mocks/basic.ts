@@ -232,6 +232,68 @@ export const mockOrders: Order[] = [
     cancelledAt: null,
     createdAt: "2026-01-10T18:15:00.000Z",
     updatedAt: now
+  },
+  {
+    id: "order_1002",
+    restaurantId,
+    tableId: "table_03",
+    tableNumber: 3,
+    sessionId: "session_03",
+    sessionToken: "sess_03_demo_token_lmnopqrstuv",
+    customerName: "Ricardo",
+    items: [
+      {
+        menuItemId: "item_risoto",
+        nameSnapshot: "Risoto de cogumelos",
+        priceSnapshot: 58,
+        quantity: 2,
+        notes: null,
+        total: 116
+      }
+    ],
+    subtotal: 116,
+    serviceFee: 11.6,
+    total: 127.6,
+    paymentMethod: "credit_card",
+    status: "ready",
+    notes: null,
+    duplicateGuardHash: "dup_order_1002_token",
+    receivedAt: "2026-01-10T17:46:00.000Z",
+    deliveredAt: null,
+    cancelledAt: null,
+    createdAt: "2026-01-10T17:46:00.000Z",
+    updatedAt: now
+  },
+  {
+    id: "order_1003",
+    restaurantId,
+    tableId: "table_02",
+    tableNumber: 2,
+    sessionId: "session_02",
+    sessionToken: "sess_02_demo_token_qwertyuio",
+    customerName: "Camila",
+    items: [
+      {
+        menuItemId: "item_bruschetta",
+        nameSnapshot: "Bruschetta artesanal",
+        priceSnapshot: 24.9,
+        quantity: 2,
+        notes: null,
+        total: 49.8
+      }
+    ],
+    subtotal: 49.8,
+    serviceFee: 4.98,
+    total: 54.78,
+    paymentMethod: "debit_card",
+    status: "cancelled",
+    notes: "Cliente cancelou antes do preparo.",
+    duplicateGuardHash: "dup_order_1003_token",
+    receivedAt: "2026-01-10T16:40:00.000Z",
+    deliveredAt: null,
+    cancelledAt: "2026-01-10T16:44:00.000Z",
+    createdAt: "2026-01-10T16:40:00.000Z",
+    updatedAt: now
   }
 ];
 
@@ -277,6 +339,40 @@ export const mockRestaurantSettings: RestaurantSettings = {
 };
 
 export const mockDailyMetrics: DailyMetric[] = [
+  {
+    id: "metric_2026_01_04",
+    restaurantId,
+    dateKey: "2026-01-04",
+    totalRevenue: 4988.2,
+    totalOrders: 81,
+    cancelledOrders: 4,
+    averageTicket: 61.58,
+    averagePreparationMinutes: 20.4,
+    occupiedTablesPeak: 14,
+    topItems: [
+      { menuItemId: "item_risoto", nameSnapshot: "Risoto de cogumelos", quantity: 18, revenue: 1044 },
+      { menuItemId: "item_bruschetta", nameSnapshot: "Bruschetta artesanal", quantity: 31, revenue: 771.9 }
+    ],
+    createdAt: "2026-01-05T00:02:00.000Z",
+    updatedAt: "2026-01-05T00:02:00.000Z"
+  },
+  {
+    id: "metric_2026_01_07",
+    restaurantId,
+    dateKey: "2026-01-07",
+    totalRevenue: 5720.4,
+    totalOrders: 86,
+    cancelledOrders: 3,
+    averageTicket: 66.51,
+    averagePreparationMinutes: 19,
+    occupiedTablesPeak: 15,
+    topItems: [
+      { menuItemId: "item_risoto", nameSnapshot: "Risoto de cogumelos", quantity: 20, revenue: 1160 },
+      { menuItemId: "item_bruschetta", nameSnapshot: "Bruschetta artesanal", quantity: 33, revenue: 821.7 }
+    ],
+    createdAt: "2026-01-08T00:02:00.000Z",
+    updatedAt: "2026-01-08T00:02:00.000Z"
+  },
   {
     id: "metric_2026_01_10",
     restaurantId,

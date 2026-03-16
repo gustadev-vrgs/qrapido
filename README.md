@@ -1,89 +1,104 @@
 # QRápido
 
-Sistema web completo para atendimento presencial via QR Code em restaurantes.
+Plataforma web de atendimento em restaurante via QR Code, com fluxo completo para cliente (mesa) e painel administrativo (operação).
 
 ## Stack
 - Next.js 14 (App Router)
-- TypeScript estrito
-- Tailwind CSS
-- Firebase (Auth + Firestore)
-- Deploy Vercel
+- React + TypeScript estrito
+- Tailwind CSS + design system próprio
+- Firebase Auth + Firestore
+- Recharts para relatórios
 
-## Módulos entregues
-- Login de staff/admin
-- Dashboard operacional
-- Gestão de mesas, sessões, pedidos, cardápio
-- Relatórios e configurações
-- Geração de QR por mesa
-- Fluxo mobile para cliente sem login
-- Ações de chamar garçom e pedir conta
-- Proteções iniciais: expiração de sessão, rate limit e dedupe
+## Funcionalidades principais
+- **Admin**: dashboard, pedidos, mesas, cardápio, relatórios, configurações.
+- **Cliente**: sessão por QR, criação de pedidos, estado da sessão em tempo real.
+- **Operação**: abrir/fechar mesa, acompanhar produção, gerar QR e imprimir.
+- **Qualidade**: loading/empty/error states, tipagem forte, layout responsivo.
 
-## Entidades previstas
-- restaurants
-- staffUsers
-- tables
-- tableSessions
-- menuCategories
-- menuItems
-- orders
-- orderEvents
-- restaurantSettings
-- dailyMetrics
+## Rotas da aplicação
+### Públicas
+- `/` landing inicial
+- `/login` autenticação de staff/admin
+- `/m/[sessionToken]` experiência do cliente na mesa
 
-## Executar localmente
+### APIs
+- `GET /api/health`
+- `POST /api/public/session/access`
+- `POST /api/public/order`
+- `POST /api/public/session/action`
+- `GET /api/public/session/state/[sessionToken]`
+- `POST /api/admin/table/open`
+- `POST /api/admin/table/close`
+
+### Dashboard (protegido)
+- `/dashboard`
+- `/dashboard/pedidos`
+- `/dashboard/mesas`
+- `/dashboard/cardapio`
+- `/dashboard/relatorios`
+- `/dashboard/configuracoes`
+
+## Setup local
 ```bash
 npm install
+cp env.example .env.local
 npm run dev
 ```
 
-Acesso staff: `/login`.
-Fluxo cliente: `/m/[sessionId]`.
+Aplicação:
+- Admin: `http://localhost:3000/login`
+- Cliente (exemplo): `http://localhost:3000/m/<sessionToken>`
 
-## Qualidade
+## Variáveis de ambiente
+Preencha `.env.local` com:
+
+### Front-end (Firebase Client SDK)
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
+
+### Servidor (Firebase Admin SDK)
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY` (com `\n` escapado)
+- `GOOGLE_APPLICATION_CREDENTIALS` (opcional, via ADC)
+
+## Firebase
+### Regras
+- Arquivo: `firestore/firestore.rules`
+- Estratégia inicial:
+  - isolamento por `restaurantId`
+  - leitura/escrita de staff autenticado no restaurante
+  - sessão pública com restrições
+  - criação pública de pedidos com validações mínimas
+
+### Índices
+- Arquivo: `firestore/firestore.indexes.json`
+- Inclui índices para:
+  - pedidos por restaurante/status/data
+  - sessões por mesa/status
+  - métricas diárias por período
+  - mesas por status
+
+## Dados demo e bootstrap
+O projeto possui mocks para apresentação local em:
+- `src/lib/mocks/basic.ts`
+
+Bootstrap de admin (opcional):
+```bash
+npm run seed:staff-admin -- --uid <UID_FIREBASE_AUTH> --email <EMAIL> --name "<NOME>" --restaurantId <RESTAURANT_ID>
+```
+
+## Qualidade e validação
 ```bash
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-## Firebase
-1. Copie `env.example` para `.env.local`.
-2. Preencha as variáveis de Client SDK (`NEXT_PUBLIC_*`) para autenticação no front-end.
-3. Preencha as variáveis de Admin SDK (`FIREBASE_*`) apenas no ambiente servidor.
-4. Para `FIREBASE_PRIVATE_KEY`, mantenha quebras de linha escapadas como `\\n` (o parser converte em runtime).
-
-
-
-### Bootstrap de admin em `staffUsers`
-Use o script abaixo para criar/atualizar o staff admin sem depender do Firebase Console:
-
-```bash
-npm run seed:staff-admin -- --uid <UID_FIREBASE_AUTH> --email <EMAIL> --name "<NOME>" --restaurantId <RESTAURANT_ID>
-```
-
-O script:
-- valida se o UID existe no Firebase Auth;
-- faz upsert em `staffUsers/{uid}` com `role: "admin"` e `isActive: true`;
-- usa credenciais via `FIREBASE_*` (service account) ou ADC (`GOOGLE_APPLICATION_CREDENTIALS`).
-
-### staffUsers para login administrativo
-Para o login admin funcionar, o usuário precisa existir no Firebase Auth **e** ter documento ativo em `staffUsers` com estes campos mínimos:
-- `uid` (igual ao UID do Firebase Auth)
-- `email` (recomendado em minúsculas)
-- `name`
-- `role`
-- `restaurantId`
-- `isActive` (`true`)
-
-A validação tenta primeiro por `uid` e usa fallback por e-mail normalizado (`trim().toLowerCase()`).
-
-Arquivos base:
-- `src/lib/firebase/client.ts`: inicialização singleton do Firebase Client SDK (Auth + Firestore).
-- `src/lib/firebase/admin.ts`: inicialização singleton do Firebase Admin SDK com credenciais seguras.
-- `src/lib/firebase/auth.ts`: helpers de Auth admin e verificação de bearer token para Route Handlers.
-- `src/lib/firebase/firestore.ts`: helpers para obtenção de Firestore client/admin.
-- `firestore/firestore.rules` e `firestore/firestore.indexes.json`: regras e índices do Firestore.
-
-## Deploy
-Projeto pronto para Vercel.
+## Observações
+- O painel usa dados reais do Firebase quando disponíveis.
+- Em falha de acesso, módulos críticos usam fallback de dados demo para apresentação.
