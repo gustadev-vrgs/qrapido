@@ -622,9 +622,20 @@ export default function MesasPage(): JSX.Element {
             </div>
 
             {qrPreview ? (
-              <AppSurface className="flex flex-col items-center gap-2 p-4">
-                <img src={qrPreview} alt={`QR ${detailsTable.label}`} className="h-44 w-44 rounded-xl border border-[hsl(var(--border-strong))] bg-white p-2" />
+              <AppSurface className="flex flex-col items-center gap-3 bg-[radial-gradient(circle_at_top,#ffffff,#f7f7fb)] p-4">
+                <div className="rounded-2xl border border-[hsl(var(--border-strong))] bg-white p-3 shadow-sm">
+                  <img src={qrPreview} alt={`QR ${detailsTable.label}`} className="h-44 w-44 rounded-xl border border-[hsl(var(--border-strong))] bg-white p-2" />
+                </div>
+                <p className="text-sm font-medium">{detailsTable.label} · Mesa {detailsTable.number}</p>
                 <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
+                <AppActionButton
+                  variant="secondary"
+                  className="h-9"
+                  onClick={() => window.print()}
+                  aria-label="Imprimir QR da mesa"
+                >
+                  Imprimir QR
+                </AppActionButton>
               </AppSurface>
             ) : null}
 
