@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { AlertTriangle, ChevronRight, CircleDashed, ClipboardList, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import {
@@ -18,6 +19,7 @@ import {
 import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
 import { OrdersService } from "@/lib/data/services/orders-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
+import { getClientFirestore } from "@/lib/firebase/firestore";
 import type { Order, OrderStatus } from "@/lib/types/domain";
 import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
@@ -198,6 +200,19 @@ export default function PedidosPage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.restaurantId]);
 
+  useEffect(() => {
+    if (!user?.restaurantId) return;
+
+    const db = getClientFirestore();
+    const ordersQuery = query(collection(db, "orders"), where("restaurantId", "==", user.restaurantId), orderBy("receivedAt", "desc"));
+    const unsubscribe = onSnapshot(ordersQuery, () => {
+      void loadOrders(true);
+    });
+
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.restaurantId]);
+
   const filteredOrders = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();
 
@@ -256,9 +271,7 @@ export default function PedidosPage(): JSX.Element {
             : item
         )
       );
-
       appToast.success("Status atualizado", `Pedido movido para ${orderStatusLabels[nextStatus]}.`);
-      appToast.info("Evento operacional", "Alteração preparada para integração de log em tempo real nas próximas etapas.");
       if (selectedOrder?.id === order.id) {
         setSelectedOrder((current) => (current ? { ...current, status: nextStatus } : null));
       }

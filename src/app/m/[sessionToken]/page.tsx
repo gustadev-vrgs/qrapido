@@ -19,13 +19,11 @@ import {
 } from "lucide-react";
 
 import { AppActionButton, AppDataCard, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
-import { MenuService, OrdersService, RestaurantsService, SessionsService } from "@/lib/data";
-import { COLLECTIONS } from "@/lib/data/constants/collections";
-import { createOne, getCollection } from "@/lib/data/helpers/firestore-io";
-import { resolveContext } from "@/lib/data/services/base-service";
+import { MenuService, OrdersService } from "@/lib/data";
+import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { getClientFirestore } from "@/lib/firebase/firestore";
 import { orderStatusLabels } from "@/lib/constants/status-labels";
 import { appToast } from "@/lib/utils/toast";
-import { nowIsoString } from "@/lib/data/helpers/timestamps";
 import type { MenuCategory, MenuItem, Order, OrderStatus, TableSession } from "@/lib/types/domain";
 import { formatCurrency } from "@/lib/utils/formatters";
 
@@ -107,8 +105,11 @@ function customerStatusLabel(status: OrderStatus): string {
   return orderStatusLabels[status];
 }
 
-function buildDuplicateGuardHash(sessionToken: string, items: CartItem[], subtotal: number): string {
-  return `${sessionToken.slice(0, 8)}-${items.length}-${Math.round(subtotal * 100)}-${Date.now().toString(36)}`;
+function buildDuplicateFingerprint(items: CartItem[]): string {
+  return items
+    .map((item) => `${item.menuItemId}:${item.quantity}:${item.notes.trim().toLowerCase()}`)
+    .sort()
+    .join("|");
 }
 
 function SessionMessageCard({
@@ -175,6 +176,9 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
   const [billActionLoading, setBillActionLoading] = useState(false);
   const [waiterFeedback, setWaiterFeedback] = useState<ActionFeedback | null>(null);
   const [billFeedback, setBillFeedback] = useState<ActionFeedback | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [pinCode, setPinCode] = useState("");
+  const [pinRequired, setPinRequired] = useState(false);
 
   const normalizedToken = useMemo(() => decodeURIComponent(params.sessionToken ?? "").trim(), [params.sessionToken]);
 
@@ -214,41 +218,47 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
       }
 
       try {
-        const sessionsService = new SessionsService();
-        const restaurantsService = new RestaurantsService();
+        const response = await fetch("/api/public/session/access", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionToken: normalizedToken, pinCode: pinCode || undefined })
+        });
 
-        const currentSession = await sessionsService.getByTokenGlobal(normalizedToken);
-
-        if (!active) {
-          return;
-        }
-
-        if (!currentSession) {
-          setSession(null);
+        if (!response.ok) {
+          if (response.status === 401) {
+            setPinRequired(true);
+            setState("invalid");
+            return;
+          }
+          if (response.status === 410) {
+            setState("expired");
+            return;
+          }
           setState("invalid");
           return;
         }
 
-        const restaurant = await restaurantsService.getById(currentSession.restaurantId);
-
+        const payload = await response.json();
         if (!active) {
           return;
         }
 
-        const nextState = mapSessionState(currentSession);
+        setAccessToken(payload.accessToken);
+        setPinRequired(Boolean(payload.requiresPin));
 
+        const currentSession = payload.session;
         setSession({
           id: currentSession.id,
           restaurantId: currentSession.restaurantId,
-          restaurantName: restaurant.name,
+          restaurantName: "QRápido",
           tableId: currentSession.tableId,
           tableNumber: currentSession.tableNumber,
           customerName: currentSession.customerName,
-          sessionLabel: currentSession.sessionLabel,
+          sessionLabel: `Mesa ${currentSession.tableNumber}`,
           status: currentSession.status,
           expiresAtLabel: formatDateTime(currentSession.expiresAt)
         });
-        setState(nextState);
+        setState(mapSessionState(currentSession));
       } catch {
         if (active) {
           setSession(null);
@@ -345,6 +355,29 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     void loadLatestOrder(session);
   }, [loadLatestOrder, session, state]);
 
+  useEffect(() => {
+    if (!session) return;
+    const db = getClientFirestore();
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("restaurantId", "==", session.restaurantId),
+      where("sessionToken", "==", normalizedToken),
+      orderBy("receivedAt", "desc"),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+      if (snapshot.empty) {
+        setLatestOrder(null);
+        return;
+      }
+      const data = snapshot.docs[0].data() as Order;
+      setLatestOrder({ ...data, id: snapshot.docs[0].id });
+    });
+
+    return () => unsubscribe();
+  }, [normalizedToken, session]);
+
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     return items.filter((item) => {
@@ -429,36 +462,35 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
       setSubmitState("sending");
       setSubmitFeedback({ tone: "info", message: "Enviando pedido para a cozinha..." });
 
-      const receivedAt = nowIsoString();
-      const ordersService = new OrdersService();
-      const payload = {
-        restaurantId: session.restaurantId,
-        tableId: session.tableId,
-        tableNumber: session.tableNumber,
-        sessionId: session.id,
-        sessionToken: normalizedToken,
-        customerName: session.customerName,
-        items: cartItems.map((item) => ({
-          menuItemId: item.menuItemId,
-          nameSnapshot: item.name,
-          priceSnapshot: item.price,
-          quantity: item.quantity,
-          notes: item.notes || null,
-          total: Number((item.price * item.quantity).toFixed(2))
-        })),
-        subtotal: Number(subtotal.toFixed(2)),
-        serviceFee: 0,
-        total: Number(subtotal.toFixed(2)),
-        paymentMethod: "card_on_table" as const,
-        status: "received" as const,
-        notes: null,
-        duplicateGuardHash: buildDuplicateGuardHash(normalizedToken, cartItems, subtotal),
-        receivedAt
-      };
+      const response = await fetch("/api/public/order", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-access-token": accessToken ?? ""
+        },
+        body: JSON.stringify({
+          sessionToken: normalizedToken,
+          items: cartItems.map((item) => ({
+            menuItemId: item.menuItemId,
+            nameSnapshot: item.name,
+            priceSnapshot: item.price,
+            quantity: item.quantity,
+            notes: item.notes || null,
+            total: Number((item.price * item.quantity).toFixed(2))
+          })),
+          subtotal: Number(subtotal.toFixed(2)),
+          duplicateFingerprint: buildDuplicateFingerprint(cartItems),
+          notes: null
+        })
+      });
 
-      const orderId = await ordersService.create(payload);
-      const createdOrder = await ordersService.getById(orderId);
-      setLatestOrder(createdOrder);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "Falha no envio" }));
+        throw new Error(payload.error);
+      }
+
+      const ordersService = new OrdersService();
+      await loadLatestOrder(session);
 
       setCartItems([]);
       window.sessionStorage.removeItem(`qrapido-cart-${normalizedToken}`);
@@ -473,35 +505,30 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     }
   }
 
-  async function createCustomerIntent(type: "waiter_called" | "bill_requested", message: string): Promise<void> {
-    if (!session || !latestOrder) {
+  async function createCustomerIntent(type: "waiter_called" | "bill_requested"): Promise<void> {
+    if (!session) {
       throw new Error("missing_context");
     }
 
-    const { db } = resolveContext();
-    await createOne(getCollection(db, COLLECTIONS.orderEvents), {
-      restaurantId: session.restaurantId,
-      orderId: latestOrder.id,
-      tableId: session.tableId,
-      sessionId: session.id,
-      type,
-      actorType: "customer",
-      actorId: null,
-      message,
-      metadata: {
-        sessionToken: normalizedToken,
-        tableNumber: session.tableNumber,
-        customerName: session.customerName
+    const response = await fetch("/api/public/session/action", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-access-token": accessToken ?? ""
       },
-      createdAt: nowIsoString()
+      body: JSON.stringify({ sessionToken: normalizedToken, action: type })
     });
+
+    if (!response.ok) {
+      throw new Error("action_failed");
+    }
   }
 
   async function handleCallWaiter(): Promise<void> {
     if (waiterActionLoading) return;
     try {
       setWaiterActionLoading(true);
-      await createCustomerIntent("waiter_called", "Cliente chamou garçom pela área mobile.");
+      await createCustomerIntent("waiter_called");
       setWaiterFeedback({ tone: "success", message: "Garçom chamado. Nossa equipe foi avisada." });
       appToast.success("Garçom chamado", "A equipe recebeu sua solicitação.");
     } catch {
@@ -515,7 +542,7 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     if (billActionLoading) return;
     try {
       setBillActionLoading(true);
-      await createCustomerIntent("bill_requested", "Cliente solicitou conta pela área mobile.");
+      await createCustomerIntent("bill_requested");
       setBillFeedback({ tone: "success", message: "Conta solicitada com sucesso. Em breve passamos na mesa." });
       appToast.success("Conta solicitada", "Seu pedido de conta foi registrado.");
     } catch {
@@ -550,7 +577,15 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
           </>
         ) : null}
 
-        {state === "valid" && session ? (
+                {state === "invalid" && pinRequired ? (
+          <AppSurface className="space-y-3 p-4">
+            <p className="text-sm">Esta mesa exige PIN para continuar.</p>
+            <AppSearchInput value={pinCode} onChange={(event) => setPinCode(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="Digite PIN de 4 dígitos" />
+            <AppActionButton onClick={() => window.location.reload()}>Validar PIN</AppActionButton>
+          </AppSurface>
+        ) : null}
+
+{state === "valid" && session ? (
           <>
             <AppDataCard
               title={session.restaurantName}

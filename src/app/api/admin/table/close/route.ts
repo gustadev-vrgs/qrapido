@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+
+import { createOperationalEvent, resolveTable } from "@/lib/server/public-session";
+import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+
+const payloadSchema = z.object({
+  tableId: z.string().min(1)
+});
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const parsed = payloadSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
+  }
+
+  const table = await resolveTable(parsed.data.tableId);
+  if (!table) {
+    return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
+  }
+
+  const db = getAdminFirestore() as any;
+  const closedAt = new Date().toISOString();
+  const sessionSnapshot = await db
+    .collection("tableSessions")
+    .where("tableId", "==", table.id)
+    .where("status", "in", ["active", "idle"])
+    .get();
+
+  for (const doc of sessionSnapshot.docs) {
+    await db.collection("tableSessions").doc(doc.id).set({ status: "closed", closedAt, updatedAt: closedAt }, { merge: true });
+    await createOperationalEvent({
+      restaurantId: table.restaurantId,
+      tableId: table.id,
+      sessionId: doc.id,
+      type: "session_closed",
+      message: "Sessão encerrada por fechamento da mesa",
+      metadata: { reason: "table_closed" }
+    });
+  }
+
+  await db.collection("tables").doc(table.id).set(
+    {
+      status: "closed",
+      closedAt,
+      currentPeopleCount: 0,
+      activeSessionCount: 0,
+      currentSessionGroupId: null,
+      updatedAt: closedAt
+    },
+    { merge: true }
+  );
+
+  await createOperationalEvent({
+    restaurantId: table.restaurantId,
+    tableId: table.id,
+    sessionId: table.currentSessionGroupId ?? "system",
+    type: "table_closed",
+    message: "Mesa encerrada no painel"
+  });
+
+  return NextResponse.json({ ok: true });
+}

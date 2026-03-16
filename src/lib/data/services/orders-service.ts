@@ -47,9 +47,29 @@ export class OrdersService {
     const { db } = resolveContext(this.context);
     const parsed = updateOrderPayloadSchema.parse(payload);
 
+    const currentOrder = await this.getById(id);
+
     await patchOne(getDocumentRef(db, COLLECTIONS.orders, id), {
       ...parsed,
       updatedAt: nowIsoString()
     });
+
+    if (parsed.status && parsed.status !== currentOrder.status) {
+      await createOne<DocumentData>(getCollection(db, COLLECTIONS.orderEvents), {
+        restaurantId: currentOrder.restaurantId,
+        orderId: currentOrder.id,
+        tableId: currentOrder.tableId,
+        sessionId: currentOrder.sessionId,
+        type: parsed.status === "cancelled" ? "order_cancelled" : "order_updated",
+        actorType: "staff",
+        actorId: null,
+        message: parsed.status === "cancelled" ? "Pedido cancelado pelo painel operacional" : "Pedido atualizado no painel operacional",
+        metadata: {
+          previousStatus: currentOrder.status,
+          nextStatus: parsed.status
+        },
+        createdAt: nowIsoString()
+      });
+    }
   }
 }

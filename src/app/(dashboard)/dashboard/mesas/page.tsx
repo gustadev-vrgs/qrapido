@@ -39,6 +39,7 @@ import { TablesService } from "@/lib/data/services/tables-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { Order, Table, TableSession, TableStatus } from "@/lib/types/domain";
 import { formatDateTime } from "@/lib/utils/formatters";
+import { createQrDataUrl } from "@/lib/utils/qr";
 import { appToast } from "@/lib/utils/toast";
 
 const TABLE_STATUS_FILTERS: Array<{ value: "all" | TableStatus; label: string }> = [
@@ -121,6 +122,7 @@ export default function MesasPage(): JSX.Element {
 
   const [openModalVisible, setOpenModalVisible] = useState(false);
   const [detailsModalTableId, setDetailsModalTableId] = useState<string | null>(null);
+  const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [openingTableId, setOpeningTableId] = useState<string | null>(null);
   const [closingTableId, setClosingTableId] = useState<string | null>(null);
   const [openTableForm, setOpenTableForm] = useState<OpenTableFormState>(defaultFormState);
@@ -232,12 +234,10 @@ export default function MesasPage(): JSX.Element {
 
     try {
       setClosingTableId(table.id);
-      await tablesService.update(table.id, {
-        status: "closed",
-        closedAt: new Date().toISOString(),
-        currentPeopleCount: 0,
-        activeSessionCount: 0,
-        currentSessionGroupId: null
+      await fetch("/api/admin/table/close", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tableId: table.id })
       });
       appToast.success("Mesa encerrada", "A mesa foi movida para status encerrada.");
       await loadData(true);
@@ -290,17 +290,23 @@ export default function MesasPage(): JSX.Element {
 
     try {
       setOpeningTableId(table.id);
-      await tablesService.update(table.id, {
-        label: openTableForm.label.trim() || table.label,
-        number: Number(openTableForm.number) || table.number,
-        capacity,
-        currentPeopleCount,
-        activeSessionLimit,
-        pinCode,
-        status: "active",
-        openedAt: table.openedAt ?? new Date().toISOString(),
-        closedAt: null
+      const response = await fetch("/api/admin/table/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tableId: table.id,
+          label: openTableForm.label.trim() || table.label,
+          number: Number(openTableForm.number) || table.number,
+          capacity,
+          currentPeopleCount,
+          activeSessionLimit,
+          pinCode
+        })
       });
+
+      if (!response.ok) {
+        throw new Error("Falha ao abrir mesa");
+      }
 
       appToast.success("Mesa aberta com sucesso", "Mesa pronta para receber sessões e pedidos.");
       if (openTableForm.operationalNotes.trim()) {
@@ -316,6 +322,17 @@ export default function MesasPage(): JSX.Element {
       setOpeningTableId(null);
     }
   };
+
+  useEffect(() => {
+    if (!detailsTable?.qrCodeValue) {
+      setQrPreview(null);
+      return;
+    }
+
+    void createQrDataUrl(detailsTable.qrCodeValue)
+      .then(setQrPreview)
+      .catch(() => setQrPreview(null));
+  }, [detailsTable?.id, detailsTable?.qrCodeValue]);
 
   const renderTableCardActions = (table: Table) => {
     const isOpening = openingTableId === table.id;
@@ -603,6 +620,13 @@ export default function MesasPage(): JSX.Element {
               <AppDataCard title="QR vinculado" metadata={detailsTable.qrCodeValue} />
               <AppDataCard title="Limite de sessões" metadata={`${detailsTable.activeSessionLimit} simultânea(s)`} />
             </div>
+
+            {qrPreview ? (
+              <AppSurface className="flex flex-col items-center gap-2 p-4">
+                <img src={qrPreview} alt={`QR ${detailsTable.label}`} className="h-44 w-44 rounded-xl border border-[hsl(var(--border-strong))] bg-white p-2" />
+                <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
+              </AppSurface>
+            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               <AppSurface className="space-y-3 p-4">
