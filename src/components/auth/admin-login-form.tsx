@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { LogIn, ShieldCheck } from "lucide-react";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 
 import { useRouter } from "next/navigation";
 
@@ -24,6 +25,14 @@ const firebaseErrorMap: Record<string, string> = {
   "auth/user-disabled": "Este usuário está desativado.",
   "auth/network-request-failed": "Falha de rede. Verifique sua conexão e tente novamente.",
   "auth/too-many-requests": "Muitas tentativas seguidas. Aguarde um momento antes de tentar novamente."
+};
+
+
+const firestoreErrorMap: Record<string, string> = {
+  "permission-denied": "Sem permissão para validar seu acesso administrativo.",
+  "unavailable": "Falha de rede. Verifique sua conexão e tente novamente.",
+  "deadline-exceeded": "A validação demorou mais que o esperado. Tente novamente.",
+  "failed-precondition": "Não foi possível validar seu cadastro administrativo no momento."
 };
 
 export function AdminLoginForm(): JSX.Element {
@@ -83,6 +92,16 @@ export function AdminLoginForm(): JSX.Element {
       router.refresh();
     } catch (error) {
       const firebaseCode = (error as { code?: string }).code;
+
+      if (error instanceof FirebaseError && error.code.startsWith("firestore/")) {
+        const firestoreCode = error.code.replace("firestore/", "");
+        setSubmitError(
+          firestoreErrorMap[firestoreCode] ??
+            "Não foi possível validar seu cadastro administrativo no momento. Tente novamente."
+        );
+        return;
+      }
+
       const message = (error as Error).message;
       setSubmitError(firebaseErrorMap[firebaseCode ?? ""] ?? message ?? "Não foi possível autenticar agora. Tente novamente em instantes.");
     }
@@ -129,8 +148,8 @@ export function AdminLoginForm(): JSX.Element {
 
       {submitError ? <p className="rounded-xl border border-[hsl(var(--danger)/0.35)] bg-[hsl(var(--danger)/0.1)] px-3 py-2 text-sm text-[hsl(var(--danger))]">{submitError}</p> : null}
 
-      <AppActionButton type="submit" className="h-11 w-full gap-2" disabled={isSubmitting || isLoading} aria-busy={isSubmitting || isLoading}>
-        {isSubmitting || isLoading ? (
+      <AppActionButton type="submit" className="h-11 w-full gap-2" disabled={isSubmitting} aria-busy={isSubmitting}>
+        {isSubmitting ? (
           <>
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
             Verificando acesso...

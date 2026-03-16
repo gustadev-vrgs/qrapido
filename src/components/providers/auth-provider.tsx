@@ -33,45 +33,56 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       return;
     }
 
-    const db = getFirebaseClientFirestore();
-    const validation = await validateAdminStaffUser(db, {
-      uid: currentUser.uid,
-      email: currentUser.email
-    });
+    try {
+      const db = getFirebaseClientFirestore();
+      const validation = await validateAdminStaffUser(db, {
+        uid: currentUser.uid,
+        email: currentUser.email
+      });
 
-    if (validation.error) {
+      if (validation.error) {
+        await signOut(auth);
+        setState({
+          user: null,
+          staffUser: null,
+          isAuthenticated: false,
+          isLoading: false,
+          authError: getStaffValidationMessage(validation.error)
+        });
+        return;
+      }
+
+      const staffUser = validation.staffUser;
+
+      if (!staffUser) {
+        setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: "Não foi possível validar sua conta administrativa." });
+        return;
+      }
+
+      setState({
+        user: {
+          uid: currentUser.uid,
+          email: currentUser.email,
+          role: staffUser.role,
+          restaurantId: staffUser.restaurantId,
+          staffUserId: staffUser.id,
+          name: staffUser.name
+        },
+        staffUser,
+        isAuthenticated: true,
+        isLoading: false,
+        authError: null
+      });
+    } catch {
       await signOut(auth);
       setState({
         user: null,
         staffUser: null,
         isAuthenticated: false,
         isLoading: false,
-        authError: getStaffValidationMessage(validation.error)
+        authError: "Não foi possível validar seu acesso no momento. Verifique sua conexão e tente novamente."
       });
-      return;
     }
-
-    const staffUser = validation.staffUser;
-
-    if (!staffUser) {
-      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: "Não foi possível validar sua conta administrativa." });
-      return;
-    }
-
-    setState({
-      user: {
-        uid: currentUser.uid,
-        email: currentUser.email,
-        role: staffUser.role,
-        restaurantId: staffUser.restaurantId,
-        staffUserId: staffUser.id,
-        name: staffUser.name
-      },
-      staffUser,
-      isAuthenticated: true,
-      isLoading: false,
-      authError: null
-    });
   }, []);
 
   useEffect(() => {
