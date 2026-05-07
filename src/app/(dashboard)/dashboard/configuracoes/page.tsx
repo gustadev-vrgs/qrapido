@@ -72,7 +72,7 @@ export default function ConfiguracoesPage(): JSX.Element {
     try {
       await settingsService.create({
         restaurantId: user.restaurantId,
-        acceptedPaymentMethods: [],
+        acceptedPaymentMethods: ["pix"],
         pixKey: null,
         businessHours: defaultBusinessHours,
         antiSpamWindowSeconds: 60,
