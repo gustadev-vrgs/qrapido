@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, Clock3, Loader2, Minus, Plus, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
@@ -22,7 +23,7 @@ function MessageCard({ title, description }: { title: string; description: strin
 }
 
 function ItemImage({ item }: { item: MenuItem }): JSX.Element {
-  if (item.imageUrl) return <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" loading="lazy" />;
+  if (item.imageUrl) return <Image src={item.imageUrl} alt={item.name} width={160} height={160} className="h-full w-full object-cover" unoptimized />;
   return <div className="flex h-full w-full items-center justify-center bg-[hsl(var(--surface-muted))] text-xs text-[hsl(var(--foreground-muted))]">Sem imagem</div>;
 }
 

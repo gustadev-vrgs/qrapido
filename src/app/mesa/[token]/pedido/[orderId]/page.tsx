@@ -56,12 +56,14 @@ export default function PublicOrderPage({ params }: PublicOrderPageProps): JSX.E
     const currentTableData = tableData;
     if (!currentTableData) return;
 
+    const currentSessionId = currentTableData.session.id;
+    const currentSessionToken = currentTableData.session.sessionToken;
     let alive = true;
 
     async function loadOrder(): Promise<void> {
-      const accessToken = window.sessionStorage.getItem(`qrapido-access-${currentTableData.session.id}`) ?? "";
+      const accessToken = window.sessionStorage.getItem(`qrapido-access-${currentSessionId}`) ?? "";
       const response = await fetch(
-        `/api/public/order/${encodeURIComponent(params.orderId)}?sessionToken=${encodeURIComponent(currentTableData.session.sessionToken)}`,
+        `/api/public/order/${encodeURIComponent(params.orderId)}?sessionToken=${encodeURIComponent(currentSessionToken)}`,
         { headers: { "x-session-access-token": accessToken }, cache: "no-store" }
       );
       const payload = await response.json().catch(() => ({}));

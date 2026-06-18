@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -144,7 +145,7 @@ function SessionMessageCard({
 
 function ItemImage({ imageUrl, alt }: { imageUrl: string | null; alt: string }): JSX.Element {
   if (imageUrl) {
-    return <img src={imageUrl} alt={alt} className="h-full w-full object-cover" loading="lazy" />;
+    return <Image src={imageUrl} alt={alt} width={160} height={160} className="h-full w-full object-cover" unoptimized />;
   }
 
   return (
@@ -272,7 +273,7 @@ export default function MobileSessionPage({ params }: MobileSessionPageProps): J
     return () => {
       active = false;
     };
-  }, [normalizedToken]);
+  }, [normalizedToken, pinCode]);
 
   useEffect(() => {
     if (!session || state !== "valid") {

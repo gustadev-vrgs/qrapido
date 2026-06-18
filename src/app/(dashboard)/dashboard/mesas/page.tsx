@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -219,7 +220,7 @@ export default function MesasPage(): JSX.Element {
 
   const detailsTable = useMemo(() => tables.find((table) => table.id === detailsModalTableId) ?? null, [detailsModalTableId, tables]);
 
-  const publicUrlFor = (table: Table): string => table.qrCodeValue || `${window.location.origin}/mesa/${table.publicToken}`;
+  const publicUrlFor = useCallback((table: Table): string => table.qrCodeValue || `${window.location.origin}/mesa/${table.publicToken}`, []);
 
   const handleNewTable = () => {
     setTableForm(defaultTableFormState);
@@ -499,7 +500,7 @@ export default function MesasPage(): JSX.Element {
     void createQrDataUrl(publicUrlFor(detailsTable))
       .then(setQrPreview)
       .catch(() => setQrPreview(null));
-  }, [detailsTable?.id, detailsTable?.qrCodeValue]);
+  }, [detailsTable, publicUrlFor]);
 
   const renderTableCardActions = (table: Table) => {
     const isOpening = openingTableId === table.id;
@@ -815,7 +816,7 @@ export default function MesasPage(): JSX.Element {
             {qrPreview ? (
               <AppSurface className="flex flex-col items-center gap-3 bg-[radial-gradient(circle_at_top,#ffffff,#f7f7fb)] p-4">
                 <div className="rounded-2xl border border-[hsl(var(--border-strong))] bg-white p-3 shadow-sm">
-                  <img src={qrPreview} alt={`QR ${detailsTable.label}`} className="h-44 w-44 rounded-xl border border-[hsl(var(--border-strong))] bg-white p-2" />
+                  <Image src={qrPreview} alt={`QR ${detailsTable.label}`} width={176} height={176} className="h-44 w-44 rounded-xl border border-[hsl(var(--border-strong))] bg-white p-2" unoptimized />
                 </div>
                 <p className="text-sm font-medium">{detailsTable.label} · Mesa {detailsTable.number}</p>
                 <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
