@@ -3,12 +3,16 @@ import { z } from "zod";
 
 import { createOperationalEvent, resolveTable } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { requireStaffRequest, ADMIN_ROLES } from "@/lib/server/admin-auth";
 
 const payloadSchema = z.object({
   tableId: z.string().min(1)
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const staff = await requireStaffRequest(request, ADMIN_ROLES);
+  if (staff instanceof NextResponse) return staff;
+
   const parsed = payloadSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Payload inválido." }, { status: 400 });

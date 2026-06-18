@@ -55,7 +55,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
           <div className="mb-6 flex items-start justify-between border-b border-[hsl(var(--border))] pb-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">QRápido</p>
-              <p className="mt-2 text-2xl font-semibold">Casa Aurora</p>
+              <p className="mt-2 text-2xl font-semibold">{user?.restaurantId ?? "Restaurante"}</p>
               <p className="mt-2 text-xs text-[hsl(var(--foreground-muted))]">Operação inteligente em tempo real</p>
             </div>
             <label htmlFor="admin-sidebar-toggle" className="lg:hidden">

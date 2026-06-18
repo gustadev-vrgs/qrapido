@@ -1,36 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function hasRestaurantClaim() {
-      return isSignedIn() && request.auth.token.restaurantId is string;
-    }
-
-    function isRestaurantUser(restaurantId) {
-      return hasRestaurantClaim() && request.auth.token.restaurantId == restaurantId;
-    }
-
-    function isRestaurantDoc(data, restaurantId) {
-      return data.restaurantId is string && data.restaurantId == restaurantId;
-    }
-
-    function staffUserDoc() {
-      return get(/databases/$(database)/documents/staffUsers/$(request.auth.uid));
-    }
-
-    function hasActiveStaffForRestaurant(restaurantId) {
+    function isSignedIn() { return request.auth != null; }
+    function staffUserDoc() { return get(/databases/$(database)/documents/staffUsers/$(request.auth.uid)); }
+    function isActiveStaff() {
       return isSignedIn()
         && staffUserDoc().data.uid == request.auth.uid
         && staffUserDoc().data.isActive == true
-        && staffUserDoc().data.restaurantId == restaurantId;
+        && staffUserDoc().data.restaurantId is string;
     }
+    function staffRestaurantId() { return staffUserDoc().data.restaurantId; }
+    function staffRole() { return staffUserDoc().data.role; }
+    function isStaffForRestaurant(restaurantId) { return isActiveStaff() && staffRestaurantId() == restaurantId; }
+    function isAdminForRestaurant(restaurantId) { return isStaffForRestaurant(restaurantId) && staffRole() in ['admin', 'manager']; }
+    function isKitchenOrAdminForRestaurant(restaurantId) { return isStaffForRestaurant(restaurantId) && staffRole() in ['admin', 'manager', 'kitchen']; }
+    function isRestaurantDoc(data, restaurantId) { return data.restaurantId is string && data.restaurantId == restaurantId; }
+    function sameRestaurant() { return resource.data.restaurantId is string && request.resource.data.restaurantId == resource.data.restaurantId; }
 
     match /restaurants/{restaurantId} {
-      allow read: if isRestaurantUser(restaurantId) || hasActiveStaffForRestaurant(restaurantId);
-      allow create, update: if isRestaurantUser(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId);
+      allow read: if isStaffForRestaurant(restaurantId);
+      allow create, update: if isAdminForRestaurant(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId);
       allow delete: if false;
     }
 
@@ -38,71 +27,70 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         request.auth.uid == staffId ||
         resource.data.uid == request.auth.uid ||
-        (resource.data.restaurantId is string && (isRestaurantUser(resource.data.restaurantId) || hasActiveStaffForRestaurant(resource.data.restaurantId)))
+        (resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId))
       );
-      allow create, update: if request.resource.data.uid is string
-        && request.resource.data.restaurantId is string
-        && (
-          (hasRestaurantClaim() && isRestaurantUser(request.resource.data.restaurantId))
-          || hasActiveStaffForRestaurant(request.resource.data.restaurantId)
-        );
+      allow create, update: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
       allow delete: if false;
     }
 
-    match /{collection}/{docId} {
-      allow read: if (
-          hasRestaurantClaim() && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-        ) || (
-          resource.data.restaurantId is string && hasActiveStaffForRestaurant(resource.data.restaurantId)
-        );
-      allow create: if (
-          hasRestaurantClaim() && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
-        ) || (
-          request.resource.data.restaurantId is string && hasActiveStaffForRestaurant(request.resource.data.restaurantId)
-        );
-      allow update: if (
-          hasRestaurantClaim()
-          && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-          && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
-        ) || (
-          resource.data.restaurantId is string
-          && request.resource.data.restaurantId is string
-          && hasActiveStaffForRestaurant(resource.data.restaurantId)
-          && resource.data.restaurantId == request.resource.data.restaurantId
-        );
+    match /restaurantSettings/{settingsId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
+      allow delete: if false;
+    }
+
+    match /menuCategories/{categoryId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
+      allow delete: if false;
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
+      allow delete: if false;
+    }
+
+    match /tables/{tableId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
       allow delete: if false;
     }
 
     match /tableSessions/{sessionId} {
-      allow read: if true;
-      allow create: if (
-          hasRestaurantClaim() && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
-        ) || (
-          request.resource.data.restaurantId is string && hasActiveStaffForRestaurant(request.resource.data.restaurantId)
-        );
-      allow update: if (
-          hasRestaurantClaim()
-          && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-          && isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
-        ) || (
-          resource.data.restaurantId is string
-          && request.resource.data.restaurantId is string
-          && hasActiveStaffForRestaurant(resource.data.restaurantId)
-          && resource.data.restaurantId == request.resource.data.restaurantId
-        );
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
       allow delete: if false;
     }
 
     match /orders/{orderId} {
-      allow create: if request.resource.data.restaurantId is string
-        && request.resource.data.sessionId is string
-        && request.resource.data.duplicateGuardHash is string;
-      allow read, update: if hasRestaurantClaim()
-        && isRestaurantDoc(resource.data, request.auth.token.restaurantId)
-        && (
-          request.method == 'get' ||
-          isRestaurantDoc(request.resource.data, request.auth.token.restaurantId)
-        );
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isKitchenOrAdminForRestaurant(resource.data.restaurantId);
+      allow delete: if false;
+    }
+
+    match /orderEvents/{eventId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isStaffForRestaurant(request.resource.data.restaurantId);
+      allow update, delete: if false;
+    }
+
+    match /dailyMetrics/{metricId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create, update: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
+      allow delete: if false;
+    }
+
+    match /adminAlerts/{alertId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create: if request.resource.data.restaurantId is string && isStaffForRestaurant(request.resource.data.restaurantId);
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isStaffForRestaurant(resource.data.restaurantId);
       allow delete: if false;
     }
   }

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "seed:staff-admin": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/bootstrap-staff-admin.ts --outDir .tmp/scripts && node .tmp/scripts/bootstrap-staff-admin.js"
+    "seed:staff-admin": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/bootstrap-staff-admin.ts --outDir .tmp/scripts && node .tmp/scripts/bootstrap-staff-admin.js",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
