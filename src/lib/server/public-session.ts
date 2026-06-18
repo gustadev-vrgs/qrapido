@@ -25,6 +25,10 @@ export function createSessionToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
+export function createPublicTableToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
 export function createDuplicateGuardHash(sessionToken: string, fingerprint: string): string {
   return hashValue(`${sessionToken}:${fingerprint}`);
 }
@@ -126,6 +130,9 @@ export async function createSessionForTable(input: {
   table: any;
   customerName?: string | null;
   deviceFingerprint?: string | null;
+  peopleCount?: number;
+  notes?: string | null;
+  openedByStaffId?: string | null;
 }): Promise<{ sessionId: string; sessionToken: string; expiresAt: string }> {
   const db = getAdminFirestore() as any;
   const settings = await resolveSettings(input.restaurantId);
@@ -147,6 +154,11 @@ export async function createSessionForTable(input: {
     closedAt: null,
     lastActivityAt: nowIso(),
     requestCountWindow: 0,
+    peopleCount: input.peopleCount ?? input.table.currentPeopleCount ?? 1,
+    maxOrdersAllowed: input.peopleCount ?? input.table.currentPeopleCount ?? 1,
+    completedOrdersCount: 0,
+    openedByStaffId: input.openedByStaffId ?? null,
+    notes: input.notes ?? null,
     createdAt: nowIso(),
     updatedAt: nowIso()
   });

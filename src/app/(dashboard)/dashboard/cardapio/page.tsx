@@ -336,9 +336,9 @@ export default function CardapioPage(): JSX.Element {
           title="Categorias"
           description="Organize o cardápio por seções com ordem visual e status de ativação."
           action={
-            <AppActionButton variant="secondary" onClick={() => setSelectedCategory(null)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nova categoria
+            <AppActionButton variant="secondary" onClick={() => setSelectedCategory(null)} className="min-w-44 gap-2 whitespace-nowrap px-4">
+              <Plus className="h-4 w-4" />
+              <span>Nova categoria</span>
             </AppActionButton>
           }
         >
@@ -417,9 +417,9 @@ export default function CardapioPage(): JSX.Element {
           title="Itens do cardápio"
           description="Cadastro completo com disponibilidade, destaque, imagem e tempo de preparo."
           action={
-            <AppActionButton onClick={() => setSelectedItem(null)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Novo item
+            <AppActionButton onClick={() => setSelectedItem(null)} className="min-w-32 gap-2 whitespace-nowrap px-4">
+              <Plus className="h-4 w-4" />
+              <span>Novo item</span>
             </AppActionButton>
           }
         >

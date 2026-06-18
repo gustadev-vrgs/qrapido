@@ -24,7 +24,7 @@ export function mapRestaurant(id: string, data: DocumentData): Restaurant {
 }
 
 export function mapTable(id: string, data: DocumentData): Table {
-  return parseWithSchema(tableSchema, id, data, "table");
+  return parseWithSchema(tableSchema, id, data, "table") as Table;
 }
 
 export function mapSession(id: string, data: DocumentData): TableSession {
@@ -36,7 +36,7 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     lastActivityAt: ensureIsoTimestamp(data.lastActivityAt)
   };
 
-  return parseWithSchema(tableSessionSchema, id, normalized, "tableSession");
+  return parseWithSchema(tableSessionSchema, id, normalized, "tableSession") as TableSession;
 }
 
 export function mapMenuCategory(id: string, data: DocumentData): MenuCategory {

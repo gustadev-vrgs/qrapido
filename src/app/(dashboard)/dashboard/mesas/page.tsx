@@ -9,6 +9,10 @@ import {
   DoorOpen,
   KeyRound,
   Loader2,
+  Download,
+  Edit2,
+  Plus,
+  Trash2,
   Lock,
   QrCode,
   Search,
@@ -23,7 +27,6 @@ import {
   AppEmptyState,
   AppFilterBar,
   AppFormField,
-  AppSearchInput,
   AppSelect,
   AppSectionCard,
   AppStatusBadge,
@@ -46,12 +49,11 @@ const TABLE_STATUS_FILTERS: Array<{ value: "all" | TableStatus; label: string }>
   { value: "all", label: "Todas" },
   { value: "free", label: "Livres" },
   { value: "active", label: "Ativas" },
-  { value: "awaiting_payment", label: "Aguardando pagamento" },
+  { value: "awaiting_payment", label: "Pagamento" },
   { value: "closed", label: "Encerradas" },
   { value: "blocked", label: "Bloqueadas" }
 ];
 
-const ORDER_ACTIVE_STATUSES = ["received", "confirmed", "in_preparation", "ready"];
 
 const tableStatusStyles: Record<TableStatus, { tone: "success" | "info" | "warning" | "neutral" | "danger"; accent: string }> = {
   free: {
@@ -76,6 +78,13 @@ const tableStatusStyles: Record<TableStatus, { tone: "success" | "info" | "warni
   }
 };
 
+interface TableFormState {
+  id: string;
+  number: string;
+  label: string;
+  capacity: string;
+}
+
 interface OpenTableFormState {
   tableId: string;
   label: string;
@@ -86,6 +95,8 @@ interface OpenTableFormState {
   pinCode: string;
   operationalNotes: string;
 }
+
+const defaultTableFormState: TableFormState = { id: "", number: "", label: "", capacity: "4" };
 
 const defaultFormState: OpenTableFormState = {
   tableId: "",
@@ -103,10 +114,12 @@ function getModalTitle(table: Table | null): string {
   return `Abrir ${table.label || `Mesa ${table.number}`}`;
 }
 
-function safeString(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return value;
+function createClientToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(36).padStart(2, "0")).join("");
 }
+
 
 export default function MesasPage(): JSX.Element {
   const { user } = useAdminAuth();
@@ -118,8 +131,9 @@ export default function MesasPage(): JSX.Element {
   const [allowSessionPin, setAllowSessionPin] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<"all" | TableStatus>("all");
-  const [search, setSearch] = useState("");
-
+  const [tableFormVisible, setTableFormVisible] = useState(false);
+  const [savingTable, setSavingTable] = useState(false);
+  const [tableForm, setTableForm] = useState<TableFormState>(defaultTableFormState);
   const [openModalVisible, setOpenModalVisible] = useState(false);
   const [detailsModalTableId, setDetailsModalTableId] = useState<string | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
@@ -154,8 +168,7 @@ export default function MesasPage(): JSX.Element {
         return acc;
       }, {});
 
-      const relevantOrders = ordersData.filter((order) => ORDER_ACTIVE_STATUSES.includes(order.status));
-      const orderMap = relevantOrders.reduce<Record<string, Order[]>>((acc, order) => {
+      const orderMap = ordersData.reduce<Record<string, Order[]>>((acc, order) => {
         acc[order.tableId] = [...(acc[order.tableId] ?? []), order];
         return acc;
       }, {});
@@ -178,19 +191,10 @@ export default function MesasPage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.restaurantId]);
 
-  const filteredTables = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return tables.filter((table) => {
-      const matchesStatus = statusFilter === "all" || table.status === statusFilter;
-      if (!matchesStatus) return false;
-      if (!query) return true;
-
-      const byNumber = String(table.number).includes(query);
-      const byLabel = safeString(table.label).toLowerCase().includes(query);
-      return byNumber || byLabel;
-    });
-  }, [search, statusFilter, tables]);
+  const filteredTables = useMemo(
+    () => tables.filter((table) => statusFilter === "all" || table.status === statusFilter),
+    [statusFilter, tables]
+  );
 
   const summary = useMemo(() => {
     const activeCount = tables.filter((table) => table.status === "active").length;
@@ -212,6 +216,90 @@ export default function MesasPage(): JSX.Element {
   }, [sessionsByTable, tables]);
 
   const detailsTable = useMemo(() => tables.find((table) => table.id === detailsModalTableId) ?? null, [detailsModalTableId, tables]);
+
+  const publicUrlFor = (table: Table): string => table.qrCodeValue || `${window.location.origin}/mesa/${table.publicToken}`;
+
+  const handleNewTable = () => {
+    setTableForm(defaultTableFormState);
+    setTableFormVisible(true);
+  };
+
+  const handleEditTable = (table: Table) => {
+    setTableForm({ id: table.id, number: String(table.number), label: table.label, capacity: String(table.capacity) });
+    setTableFormVisible(true);
+  };
+
+  const submitTableForm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user?.restaurantId) return;
+    const number = Number(tableForm.number);
+    const capacity = Number(tableForm.capacity);
+    if (!Number.isInteger(number) || number < 1 || !Number.isInteger(capacity) || capacity < 1) {
+      appToast.error("Dados inválidos", "Informe número e capacidade válidos.");
+      return;
+    }
+    try {
+      setSavingTable(true);
+      if (tableForm.id) {
+        await tablesService.update(tableForm.id, { number, label: tableForm.label.trim() || `Mesa ${number}`, capacity });
+        appToast.success("Mesa atualizada", "Os dados da mesa foram salvos.");
+      } else {
+        const publicToken = createClientToken();
+        const qrCodeValue = `${window.location.origin}/mesa/${publicToken}`;
+        await tablesService.create({
+          restaurantId: user.restaurantId,
+          number,
+          label: tableForm.label.trim() || `Mesa ${number}`,
+          status: "free",
+          capacity,
+          currentPeopleCount: 0,
+          activeSessionLimit: 1,
+          activeSessionCount: 0,
+          currentSessionGroupId: null,
+          pinCode: null,
+          publicToken,
+          isActive: true,
+          qrCodeValue,
+          openedAt: null,
+          closedAt: null
+        });
+        appToast.success("Mesa criada", "QR Code público gerado para a mesa.");
+      }
+      setTableFormVisible(false);
+      await loadData(true);
+    } catch (error) {
+      console.error(error);
+      appToast.error("Falha ao salvar mesa", "Verifique os dados e tente novamente.");
+    } finally {
+      setSavingTable(false);
+    }
+  };
+
+  const toggleTableActive = async (table: Table) => {
+    if (!confirm(`${table.isActive === false ? "Ativar" : "Desativar"} mesa ${table.number}?`)) return;
+    await tablesService.update(table.id, { isActive: table.isActive === false, status: table.isActive === false ? "free" : "blocked" });
+    await loadData(true);
+  };
+
+  const deleteTable = async (table: Table) => {
+    if ((sessionsByTable[table.id] ?? []).length > 0 || table.status === "active") {
+      appToast.error("Exclusão bloqueada", "Encerre o atendimento ativo antes de excluir a mesa.");
+      return;
+    }
+    if (!confirm(`Excluir definitivamente a mesa ${table.number}?`)) return;
+    await tablesService.delete(table.id);
+    appToast.success("Mesa excluída", "A mesa foi removida do cadastro.");
+    await loadData(true);
+  };
+
+  const downloadQr = (table: Table) => {
+    void createQrDataUrl(publicUrlFor(table)).then((dataUrl) => {
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `mesa-${table.number}-qrcode.png`;
+      link.click();
+    });
+  };
 
   const handleOpenModal = (table: Table) => {
     setOpenTableForm({
@@ -239,7 +327,7 @@ export default function MesasPage(): JSX.Element {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ tableId: table.id })
       });
-      appToast.success("Mesa encerrada", "A mesa foi movida para status encerrada.");
+      appToast.success("Atendimento encerrado", "A mesa voltou ao status disponível.");
       await loadData(true);
     } catch (error) {
       console.error(error);
@@ -300,7 +388,9 @@ export default function MesasPage(): JSX.Element {
           capacity,
           currentPeopleCount,
           activeSessionLimit,
-          pinCode
+          pinCode,
+          notes: openTableForm.operationalNotes.trim() || undefined,
+          openedByStaffId: user?.uid ?? null
         })
       });
 
@@ -329,7 +419,7 @@ export default function MesasPage(): JSX.Element {
       return;
     }
 
-    void createQrDataUrl(detailsTable.qrCodeValue)
+    void createQrDataUrl(publicUrlFor(detailsTable))
       .then(setQrPreview)
       .catch(() => setQrPreview(null));
   }, [detailsTable?.id, detailsTable?.qrCodeValue]);
@@ -354,9 +444,10 @@ export default function MesasPage(): JSX.Element {
           </AppActionButton>
         )}
 
-        <AppActionButton variant="secondary" onClick={() => setDetailsModalTableId(table.id)}>
-          Detalhes
-        </AppActionButton>
+        <AppActionButton variant="secondary" onClick={() => setDetailsModalTableId(table.id)}>Detalhes</AppActionButton>
+        <AppActionButton variant="secondary" onClick={() => handleEditTable(table)} className="gap-2"><Edit2 className="h-4 w-4" />Editar</AppActionButton>
+        <AppActionButton variant="secondary" onClick={() => void toggleTableActive(table)}>{table.isActive === false ? "Ativar" : "Desativar"}</AppActionButton>
+        <AppActionButton variant="ghost" onClick={() => void deleteTable(table)} className="gap-2 text-[hsl(var(--danger))]"><Trash2 className="h-4 w-4" />Excluir</AppActionButton>
       </div>
     );
   };
@@ -393,21 +484,14 @@ export default function MesasPage(): JSX.Element {
         </AppDataCard>
       </div>
 
-      <AppFilterBar className="gap-3">
-        <AppSearchInput
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Buscar mesa por número ou nome"
-          className="w-full md:flex-1"
-        />
-
-        <div className="flex w-full flex-wrap gap-2 md:w-auto">
+      <AppFilterBar className="items-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {TABLE_STATUS_FILTERS.map((filter) => (
             <button
               type="button"
               key={filter.value}
               onClick={() => setStatusFilter(filter.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-medium uppercase tracking-[0.12em] transition ${
+              className={`h-9 whitespace-nowrap rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.12em] transition ${
                 statusFilter === filter.value
                   ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)] text-[hsl(var(--foreground))]"
                   : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
@@ -418,9 +502,15 @@ export default function MesasPage(): JSX.Element {
           ))}
         </div>
 
-        <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="md:ml-auto" disabled={isRefreshing}>
-          {isRefreshing ? "Atualizando..." : "Atualizar"}
-        </AppActionButton>
+        <div className="flex w-full shrink-0 gap-2 sm:w-auto sm:justify-end">
+          <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 whitespace-nowrap sm:flex-none">
+            <Plus className="h-4 w-4" />
+            <span>Nova mesa</span>
+          </AppActionButton>
+          <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="min-w-28 flex-1 whitespace-nowrap sm:flex-none" disabled={isRefreshing}>
+            {isRefreshing ? "Atualizando..." : "Atualizar"}
+          </AppActionButton>
+        </div>
       </AppFilterBar>
 
       <AppSectionCard
@@ -442,14 +532,13 @@ export default function MesasPage(): JSX.Element {
             description={
               tables.length === 0
                 ? "Cadastre mesas para iniciar a operação. Assim que forem criadas, aparecerão neste mapa em tempo real."
-                : "Ajuste status e busca para visualizar as mesas do salão."
+                : "Ajuste o status para visualizar as mesas do salão."
             }
             action={
               <AppActionButton
                 variant="secondary"
                 onClick={() => {
                   setStatusFilter("all");
-                  setSearch("");
                 }}
               >
                 Limpar filtros
@@ -485,11 +574,11 @@ export default function MesasPage(): JSX.Element {
                     </p>
                     <p className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4" />
-                      Pedidos ativos: {activeOrders.length}
+                      Pedidos na sessão: {activeOrders.length}
                     </p>
                     <p className="flex items-center gap-2 truncate">
                       <QrCode className="h-4 w-4" />
-                      QR: <span className="truncate">{table.qrCodeValue}</span>
+                      QR: <span className="truncate">{publicUrlFor(table)}</span>
                     </p>
                   </div>
 
@@ -504,6 +593,20 @@ export default function MesasPage(): JSX.Element {
           </div>
         )}
       </AppSectionCard>
+
+      {tableFormVisible ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={submitTableForm} className="app-surface-strong w-full max-w-lg space-y-4 rounded-2xl p-5">
+            <header className="flex items-start justify-between"><div><p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Cadastro de mesa</p><h3 className="text-xl font-semibold">{tableForm.id ? "Editar mesa" : "Nova mesa"}</h3></div><button type="button" onClick={() => setTableFormVisible(false)}><X className="h-5 w-5" /></button></header>
+            <div className="grid gap-4 md:grid-cols-2">
+              <AppFormField label="Número da mesa"><AppTextInput type="number" min={1} value={tableForm.number} onChange={(event) => setTableForm((prev) => ({ ...prev, number: event.target.value }))} required /></AppFormField>
+              <AppFormField label="Capacidade"><AppTextInput type="number" min={1} max={40} value={tableForm.capacity} onChange={(event) => setTableForm((prev) => ({ ...prev, capacity: event.target.value }))} required /></AppFormField>
+              <div className="md:col-span-2"><AppFormField label="Nome ou identificação"><AppTextInput value={tableForm.label} onChange={(event) => setTableForm((prev) => ({ ...prev, label: event.target.value }))} placeholder="Ex.: Varanda 5" /></AppFormField></div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[hsl(var(--border))] pt-3"><AppActionButton variant="secondary" onClick={() => setTableFormVisible(false)}>Cancelar</AppActionButton><AppActionButton type="submit" disabled={savingTable}>{savingTable ? "Salvando..." : "Salvar mesa"}</AppActionButton></div>
+          </form>
+        </div>
+      ) : null}
 
       {openModalVisible ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
@@ -632,20 +735,13 @@ export default function MesasPage(): JSX.Element {
                 </div>
                 <p className="text-sm font-medium">{detailsTable.label} · Mesa {detailsTable.number}</p>
                 <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
-                <AppActionButton
-                  variant="secondary"
-                  className="h-9"
-                  onClick={() => window.print()}
-                  aria-label="Imprimir QR da mesa"
-                >
-                  Imprimir QR
-                </AppActionButton>
+<div className="flex gap-2"><AppActionButton variant="secondary" className="h-9 gap-2" onClick={() => downloadQr(detailsTable)}><Download className="h-4 w-4" />Baixar QR</AppActionButton><AppActionButton variant="secondary" className="h-9" onClick={() => window.print()} aria-label="Imprimir QR da mesa">Imprimir QR</AppActionButton></div>
               </AppSurface>
             ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               <AppSurface className="space-y-3 p-4">
-                <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[hsl(var(--foreground-muted))]">Pedidos ativos relacionados</h4>
+                <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[hsl(var(--foreground-muted))]">Pedidos relacionados</h4>
                 {(ordersByTable[detailsTable.id] ?? []).length > 0 ? (
                   <ul className="space-y-2 text-sm">
                     {(ordersByTable[detailsTable.id] ?? []).slice(0, 5).map((order) => (
@@ -655,7 +751,7 @@ export default function MesasPage(): JSX.Element {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-[hsl(var(--foreground-muted))]">Nenhum pedido ativo para esta mesa no momento.</p>
+                  <p className="text-sm text-[hsl(var(--foreground-muted))]">Nenhum pedido registrado para esta mesa no momento.</p>
                 )}
               </AppSurface>
 

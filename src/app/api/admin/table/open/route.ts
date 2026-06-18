@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -10,8 +12,10 @@ const payloadSchema = z.object({
   number: z.number().int().positive(),
   capacity: z.number().int().positive(),
   currentPeopleCount: z.number().int().positive(),
-  activeSessionLimit: z.number().int().positive().max(5),
-  pinCode: z.string().length(4).nullable().optional()
+  activeSessionLimit: z.number().int().positive().max(40),
+  pinCode: z.string().length(4).nullable().optional(),
+  notes: z.string().max(500).optional(),
+  openedByStaffId: z.string().nullable().optional()
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -32,15 +36,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .where("status", "in", ["active", "idle"])
     .get();
 
-  const allowedLimit = parsed.data.activeSessionLimit ?? table.activeSessionLimit ?? 1;
-  if (activeSessionsSnapshot.size >= allowedLimit) {
-    return NextResponse.json({ error: "Limite de sessões simultâneas atingido para esta mesa." }, { status: 409 });
+  if (!activeSessionsSnapshot.empty || table.status === "active") {
+    return NextResponse.json({ error: "Já existe um atendimento ativo para esta mesa." }, { status: 409 });
   }
 
   const openedAt = new Date().toISOString();
 
-  const createdSession = await createSessionForTable({ restaurantId: table.restaurantId, table });
-  const qrCodeValue = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/m/${createdSession.sessionToken}`;
+  const createdSession = await createSessionForTable({
+    restaurantId: table.restaurantId,
+    table,
+    peopleCount: parsed.data.currentPeopleCount,
+    notes: parsed.data.notes ?? null,
+    openedByStaffId: parsed.data.openedByStaffId ?? null
+  });
+  const publicToken = table.publicToken ?? crypto.randomBytes(32).toString("base64url");
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
+  const qrCodeValue = `${baseUrl}/mesa/${publicToken}`;
 
   await db.collection("tables").doc(table.id).set(
     {
@@ -48,13 +59,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       number: parsed.data.number,
       capacity: parsed.data.capacity,
       currentPeopleCount: parsed.data.currentPeopleCount,
-      activeSessionLimit: parsed.data.activeSessionLimit,
+      activeSessionLimit: parsed.data.currentPeopleCount,
       pinCode: parsed.data.pinCode ?? null,
       status: "active",
       openedAt,
       closedAt: null,
       activeSessionCount: activeSessionsSnapshot.size + 1,
       currentSessionGroupId: createdSession.sessionId,
+      publicToken,
       qrCodeValue,
       updatedAt: openedAt
     },

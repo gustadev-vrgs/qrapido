@@ -72,6 +72,8 @@ export interface Table extends BaseEntity {
   currentSessionGroupId: string | null;
   pinCode: string | null;
   qrCodeValue: string;
+  publicToken: string;
+  isActive: boolean;
   openedAt: ISODateTimeString | null;
   closedAt: ISODateTimeString | null;
 }
@@ -89,6 +91,11 @@ export interface TableSession extends BaseEntity {
   closedAt: ISODateTimeString | null;
   lastActivityAt: ISODateTimeString;
   requestCountWindow: number;
+  peopleCount: number;
+  maxOrdersAllowed: number;
+  completedOrdersCount: number;
+  openedByStaffId: string | null;
+  notes: string | null;
 }
 
 export interface MenuCategory extends BaseEntity {
@@ -111,6 +118,24 @@ export interface MenuItem extends BaseEntity {
   isAvailable: boolean;
   isFeatured: boolean;
   sortOrder: number;
+}
+
+
+export interface PublicTableData {
+  restaurantName: string | null;
+  table: Pick<Table, "id" | "number" | "label" | "status" | "isActive" | "capacity">;
+  session: Pick<TableSession, "id" | "tableId" | "tableNumber" | "status" | "peopleCount" | "maxOrdersAllowed" | "completedOrdersCount" | "startedAt">;
+  categories: MenuCategory[];
+  items: MenuItem[];
+}
+
+export interface CartItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  notes: string;
+  imageUrl: string | null;
 }
 
 export interface OrderItem {

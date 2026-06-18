@@ -54,11 +54,13 @@ export const tableSchema = baseEntitySchema.extend({
   status: tableStatusSchema,
   capacity: z.number().int().positive().max(20),
   currentPeopleCount: z.number().int().min(0).max(40),
-  activeSessionLimit: z.number().int().positive().max(5),
+  activeSessionLimit: z.number().int().positive().max(40),
   activeSessionCount: z.number().int().min(0).max(5),
   currentSessionGroupId: entityIdSchema.nullable(),
   pinCode: z.string().length(4).nullable(),
   qrCodeValue: z.string().min(8).max(300),
+  publicToken: z.string().min(16).max(128).default("legacy-token-placeholder"),
+  isActive: z.boolean().default(true),
   openedAt: isoDateTimeSchema.nullable(),
   closedAt: isoDateTimeSchema.nullable()
 });
@@ -75,7 +77,12 @@ export const tableSessionSchema = baseEntitySchema.extend({
   expiresAt: isoDateTimeSchema,
   closedAt: isoDateTimeSchema.nullable(),
   lastActivityAt: isoDateTimeSchema,
-  requestCountWindow: z.number().int().min(0)
+  requestCountWindow: z.number().int().min(0),
+  peopleCount: z.number().int().positive().default(1),
+  maxOrdersAllowed: z.number().int().positive().default(1),
+  completedOrdersCount: z.number().int().min(0).default(0),
+  openedByStaffId: entityIdSchema.nullable().default(null),
+  notes: z.string().max(500).nullable().default(null)
 });
 
 export const menuCategorySchema = baseEntitySchema.extend({
