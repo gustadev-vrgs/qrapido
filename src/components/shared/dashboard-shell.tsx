@@ -3,76 +3,22 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BellDot, ChevronRight, LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { dashboardNavItems } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils/cn";
-import { AppActionButton, AppSearchInput, AppSurface } from "@/components/ui/app-design-system";
+import { AppActionButton } from "@/components/ui/app-design-system";
 
 interface DashboardShellProps {
   children: ReactNode;
-}
-
-interface RouteContext {
-  title: string;
-  description: string;
-  section: string;
-}
-
-const routeContext: Record<string, RouteContext> = {
-  "/dashboard": {
-    title: "Dashboard",
-    description: "Acompanhe indicadores, alertas e a saúde operacional em tempo real.",
-    section: "Painel"
-  },
-  "/dashboard/pedidos": {
-    title: "Pedidos",
-    description: "Central para monitorar fila, preparo e ritmo de expedição dos pedidos.",
-    section: "Operação"
-  },
-  "/dashboard/mesas": {
-    title: "Mesas",
-    description: "Contexto completo de ocupação, giro e sessões ativas do salão.",
-    section: "Operação"
-  },
-  "/dashboard/cardapio": {
-    title: "Cardápio",
-    description: "Gerencie categorias, itens e disponibilidade com consistência visual.",
-    section: "Gestão"
-  },
-  "/dashboard/relatorios": {
-    title: "Relatórios",
-    description: "Leia desempenho diário com visão financeira e operacional consolidada.",
-    section: "Inteligência"
-  },
-  "/dashboard/configuracoes": {
-    title: "Configurações",
-    description: "Ajuste parâmetros do restaurante, operação e preferências da equipe.",
-    section: "Administração"
-  }
-};
-
-function getRouteContext(pathname: string): RouteContext {
-  const directMatch = routeContext[pathname];
-  if (directMatch) {
-    return directMatch;
-  }
-
-  const fallbackEntry = Object.keys(routeContext)
-    .sort((a, b) => b.length - a.length)
-    .find((route) => pathname.startsWith(route));
-
-  return fallbackEntry ? routeContext[fallbackEntry] : routeContext["/dashboard"];
 }
 
 export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
   const { logout, user } = useAdminAuth();
-  const currentRoute = getRouteContext(pathname);
-
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -160,33 +106,12 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
         </aside>
 
         <main className="space-y-4">
-          <AppSurface variant="strong" className="sticky top-3 z-20 flex flex-col gap-4 p-4 md:top-5 md:p-5">
-            <div className="flex items-center gap-2 md:gap-3">
-              <label htmlFor="admin-sidebar-toggle" className="lg:hidden">
-                <span className="sr-only">Abrir navegação</span>
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]">
-                  <Menu className="h-4 w-4" />
-                </span>
-              </label>
-              <AppSearchInput placeholder="Buscar pedido, mesa ou cliente" className="flex-1" />
-              <AppActionButton variant="secondary" className="hidden gap-2 sm:inline-flex">
-                <BellDot className="h-4 w-4" />
-                Alertas
-              </AppActionButton>
-            </div>
-
-            <div className="space-y-2">
-              <p className="flex items-center gap-1 text-xs uppercase tracking-[0.16em] text-[hsl(var(--foreground-muted))]">
-                Dashboard
-                <ChevronRight className="h-3.5 w-3.5" />
-                {currentRoute.section}
-              </p>
-              <div className="space-y-1">
-                <h1 className="text-2xl font-semibold md:text-3xl">{currentRoute.title}</h1>
-                <p className="max-w-3xl text-sm text-[hsl(var(--foreground-muted))] md:text-base">{currentRoute.description}</p>
-              </div>
-            </div>
-          </AppSurface>
+          <label htmlFor="admin-sidebar-toggle" className="inline-flex lg:hidden">
+            <span className="sr-only">Abrir navegação</span>
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]">
+              <Menu className="h-4 w-4" />
+            </span>
+          </label>
 
           <section className="space-y-4 rounded-3xl border border-[hsl(var(--border))] bg-[linear-gradient(180deg,hsl(var(--background-elevated)/0.84),hsl(var(--surface)/0.95))] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] md:p-5">
             {children}
