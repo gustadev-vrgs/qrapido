@@ -83,6 +83,8 @@ interface TableFormState {
   number: string;
   label: string;
   capacity: string;
+  activeSessionLimit: string;
+  pinCode: string;
 }
 
 interface OpenTableFormState {
@@ -96,7 +98,7 @@ interface OpenTableFormState {
   operationalNotes: string;
 }
 
-const defaultTableFormState: TableFormState = { id: "", number: "", label: "", capacity: "4" };
+const defaultTableFormState: TableFormState = { id: "", number: "", label: "", capacity: "4", activeSessionLimit: "1", pinCode: "" };
 
 const defaultFormState: OpenTableFormState = {
   tableId: "",
@@ -225,7 +227,14 @@ export default function MesasPage(): JSX.Element {
   };
 
   const handleEditTable = (table: Table) => {
-    setTableForm({ id: table.id, number: String(table.number), label: table.label, capacity: String(table.capacity) });
+    setTableForm({
+      id: table.id,
+      number: String(table.number),
+      label: table.label,
+      capacity: String(table.capacity),
+      activeSessionLimit: String(table.activeSessionLimit),
+      pinCode: table.pinCode ?? ""
+    });
     setTableFormVisible(true);
   };
 
@@ -234,14 +243,24 @@ export default function MesasPage(): JSX.Element {
     if (!user?.restaurantId) return;
     const number = Number(tableForm.number);
     const capacity = Number(tableForm.capacity);
+    const activeSessionLimit = Number(tableForm.activeSessionLimit);
+    const pinCode = tableForm.pinCode.trim() || null;
     if (!Number.isInteger(number) || number < 1 || !Number.isInteger(capacity) || capacity < 1) {
       appToast.error("Dados inválidos", "Informe número e capacidade válidos.");
+      return;
+    }
+    if (!Number.isInteger(activeSessionLimit) || activeSessionLimit < 1 || activeSessionLimit > 40) {
+      appToast.error("Limite inválido", "Informe um limite de sessões entre 1 e 40.");
+      return;
+    }
+    if (pinCode && !/^\d{4}$/.test(pinCode)) {
+      appToast.error("PIN inválido", "Use 4 dígitos numéricos.");
       return;
     }
     try {
       setSavingTable(true);
       if (tableForm.id) {
-        await tablesService.update(tableForm.id, { number, label: tableForm.label.trim() || `Mesa ${number}`, capacity });
+        await tablesService.update(tableForm.id, { number, label: tableForm.label.trim() || `Mesa ${number}`, capacity, activeSessionLimit, pinCode });
         appToast.success("Mesa atualizada", "Os dados da mesa foram salvos.");
       } else {
         const publicToken = createClientToken();
@@ -253,10 +272,10 @@ export default function MesasPage(): JSX.Element {
           status: "free",
           capacity,
           currentPeopleCount: 0,
-          activeSessionLimit: 1,
+          activeSessionLimit,
           activeSessionCount: 0,
           currentSessionGroupId: null,
-          pinCode: null,
+          pinCode,
           publicToken,
           isActive: true,
           qrCodeValue,
@@ -298,6 +317,64 @@ export default function MesasPage(): JSX.Element {
       link.href = dataUrl;
       link.download = `mesa-${table.number}-qrcode.png`;
       link.click();
+    });
+  };
+
+
+  const printQr = (table: Table) => {
+    void createQrDataUrl(publicUrlFor(table)).then((dataUrl) => {
+      const frame = document.createElement("iframe");
+      frame.title = `Impressão QR ${table.label}`;
+      frame.style.position = "fixed";
+      frame.style.right = "0";
+      frame.style.bottom = "0";
+      frame.style.width = "0";
+      frame.style.height = "0";
+      frame.style.border = "0";
+      document.body.appendChild(frame);
+
+      const doc = frame.contentDocument ?? frame.contentWindow?.document;
+      if (!doc) {
+        document.body.removeChild(frame);
+        appToast.error("Falha ao imprimir QR", "Não foi possível preparar a página de impressão.");
+        return;
+      }
+
+      doc.open();
+      doc.write(`<!doctype html>
+<html>
+  <head>
+    <title>QR Code ${table.label}</title>
+    <style>
+      @page { size: A4; margin: 0; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 210mm; height: 297mm; }
+      body { display: flex; align-items: center; justify-content: center; background: #fff; }
+      img { display: block; width: 120mm; height: 120mm; object-fit: contain; }
+    </style>
+  </head>
+  <body><img src="${dataUrl}" alt="QR Code" /></body>
+</html>`);
+      doc.close();
+
+      const printFrame = () => {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+        window.setTimeout(() => frame.remove(), 1000);
+      };
+
+      const image = doc.querySelector("img");
+      if (image?.complete) {
+        printFrame();
+      } else if (image) {
+        image.onload = printFrame;
+        image.onerror = () => {
+          frame.remove();
+          appToast.error("Falha ao imprimir QR", "Não foi possível carregar a imagem do QR Code.");
+        };
+      } else {
+        printFrame();
+      }
     });
   };
 
@@ -576,9 +653,9 @@ export default function MesasPage(): JSX.Element {
                       <CreditCard className="h-4 w-4" />
                       Pedidos na sessão: {activeOrders.length}
                     </p>
-                    <p className="flex items-center gap-2 truncate">
-                      <QrCode className="h-4 w-4" />
-                      QR: <span className="truncate">{publicUrlFor(table)}</span>
+                    <p className="flex min-w-0 items-start gap-2">
+                      <QrCode className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="min-w-0 break-all">QR: {publicUrlFor(table)}</span>
                     </p>
                   </div>
 
@@ -600,7 +677,9 @@ export default function MesasPage(): JSX.Element {
             <header className="flex items-start justify-between"><div><p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Cadastro de mesa</p><h3 className="text-xl font-semibold">{tableForm.id ? "Editar mesa" : "Nova mesa"}</h3></div><button type="button" onClick={() => setTableFormVisible(false)}><X className="h-5 w-5" /></button></header>
             <div className="grid gap-4 md:grid-cols-2">
               <AppFormField label="Número da mesa"><AppTextInput type="number" min={1} value={tableForm.number} onChange={(event) => setTableForm((prev) => ({ ...prev, number: event.target.value }))} required /></AppFormField>
-              <AppFormField label="Capacidade"><AppTextInput type="number" min={1} max={40} value={tableForm.capacity} onChange={(event) => setTableForm((prev) => ({ ...prev, capacity: event.target.value }))} required /></AppFormField>
+              <AppFormField label="Capacidade"><AppTextInput type="number" min={1} max={20} value={tableForm.capacity} onChange={(event) => setTableForm((prev) => ({ ...prev, capacity: event.target.value }))} required /></AppFormField>
+              <AppFormField label="Limite de sessões"><AppTextInput type="number" min={1} max={40} value={tableForm.activeSessionLimit} onChange={(event) => setTableForm((prev) => ({ ...prev, activeSessionLimit: event.target.value }))} required /></AppFormField>
+              <AppFormField label="PIN de acesso" hint="Opcional: 4 dígitos."><AppTextInput inputMode="numeric" maxLength={4} value={tableForm.pinCode} onChange={(event) => setTableForm((prev) => ({ ...prev, pinCode: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="Ex.: 1234" /></AppFormField>
               <div className="md:col-span-2"><AppFormField label="Nome ou identificação"><AppTextInput value={tableForm.label} onChange={(event) => setTableForm((prev) => ({ ...prev, label: event.target.value }))} placeholder="Ex.: Varanda 5" /></AppFormField></div>
             </div>
             <div className="flex justify-end gap-2 border-t border-[hsl(var(--border))] pt-3"><AppActionButton variant="secondary" onClick={() => setTableFormVisible(false)}>Cancelar</AppActionButton><AppActionButton type="submit" disabled={savingTable}>{savingTable ? "Salvando..." : "Salvar mesa"}</AppActionButton></div>
@@ -714,9 +793,14 @@ export default function MesasPage(): JSX.Element {
                 <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Detalhes da mesa</p>
                 <h3 className="text-xl font-semibold">{detailsTable.label} · Mesa {detailsTable.number}</h3>
               </div>
-              <button type="button" onClick={() => setDetailsModalTableId(null)} className="rounded-lg p-1 text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]">
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <AppActionButton variant="secondary" className="h-9" onClick={() => setDetailsModalTableId(null)}>
+                  Voltar
+                </AppActionButton>
+                <button type="button" onClick={() => setDetailsModalTableId(null)} className="rounded-lg p-1 text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]" aria-label="Fechar detalhes da mesa">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </header>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -724,7 +808,7 @@ export default function MesasPage(): JSX.Element {
               <AppDataCard title="Pessoas na mesa" metadata={`${detailsTable.currentPeopleCount} de ${detailsTable.capacity}`} />
               <AppDataCard title="Sessões ativas" metadata={`${(sessionsByTable[detailsTable.id] ?? []).length} sessão(ões)`} />
               <AppDataCard title="Horário de abertura" metadata={detailsTable.openedAt ? formatDateTime(detailsTable.openedAt) : "Mesa ainda não aberta"} />
-              <AppDataCard title="QR vinculado" metadata={detailsTable.qrCodeValue} />
+              <AppDataCard title="QR vinculado"><p className="break-all text-sm text-[hsl(var(--foreground-muted))]">{detailsTable.qrCodeValue}</p></AppDataCard>
               <AppDataCard title="Limite de sessões" metadata={`${detailsTable.activeSessionLimit} simultânea(s)`} />
             </div>
 
@@ -735,7 +819,7 @@ export default function MesasPage(): JSX.Element {
                 </div>
                 <p className="text-sm font-medium">{detailsTable.label} · Mesa {detailsTable.number}</p>
                 <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
-<div className="flex gap-2"><AppActionButton variant="secondary" className="h-9 gap-2" onClick={() => downloadQr(detailsTable)}><Download className="h-4 w-4" />Baixar QR</AppActionButton><AppActionButton variant="secondary" className="h-9" onClick={() => window.print()} aria-label="Imprimir QR da mesa">Imprimir QR</AppActionButton></div>
+<div className="flex flex-wrap justify-center gap-2"><AppActionButton variant="secondary" className="h-9 gap-2" onClick={() => downloadQr(detailsTable)}><Download className="h-4 w-4" />Baixar QR</AppActionButton><AppActionButton variant="secondary" className="h-9" onClick={() => printQr(detailsTable)} aria-label="Imprimir somente o QR Code da mesa">Imprimir QR</AppActionButton></div>
               </AppSurface>
             ) : null}
 
