@@ -3,7 +3,7 @@ import { DocumentData } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany, readOne } from "@/lib/data/helpers/firestore-io";
 import { mapOrder } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantOrdered, byRestaurantAndSessionToken, byRestaurantAndTable } from "@/lib/data/queries";
+import { byRestaurantOrdered, byRestaurantAndSessionToken, byRestaurantAndTable, byRestaurantBetweenOrdered } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
 import { createOrderPayloadSchema, updateOrderPayloadSchema } from "@/lib/schemas";
 import type { CreateOrderPayload, Order, UpdateOrderPayload } from "@/lib/types/domain";
@@ -15,6 +15,11 @@ export class OrdersService {
   async listByRestaurant(restaurantId: string): Promise<Order[]> {
     const { db } = resolveContext(this.context);
     return readMany(getCollection(db, COLLECTIONS.orders), byRestaurantOrdered(restaurantId, "receivedAt", "desc"), mapOrder);
+  }
+
+  async listByRestaurantPeriod(restaurantId: string, startIso: string, endIso: string, max = 500): Promise<Order[]> {
+    const { db } = resolveContext(this.context);
+    return readMany(getCollection(db, COLLECTIONS.orders), byRestaurantBetweenOrdered(restaurantId, "receivedAt", startIso, endIso, "desc", max), mapOrder);
   }
 
   async listByTable(restaurantId: string, tableId: string): Promise<Order[]> {

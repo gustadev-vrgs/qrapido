@@ -3,7 +3,7 @@ import { DocumentData, where } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany, readOne } from "@/lib/data/helpers/firestore-io";
 import { mapSession } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantAndSessionToken, byRestaurantAndStatus, byRestaurantAndTable } from "@/lib/data/queries";
+import { byRestaurantAndSessionToken, byRestaurantAndStatus, byRestaurantAndTable, byRestaurantBetweenOrdered } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
 import { createTableSessionPayloadSchema, updateTableSessionPayloadSchema } from "@/lib/schemas";
 import type { CreateTableSessionPayload, TableSession, UpdateTableSessionPayload } from "@/lib/types/domain";
@@ -15,6 +15,11 @@ export class SessionsService {
   async listActiveByRestaurant(restaurantId: string): Promise<TableSession[]> {
     const { db } = resolveContext(this.context);
     return readMany(getCollection(db, COLLECTIONS.tableSessions), byRestaurantAndStatus(restaurantId, "active"), mapSession);
+  }
+
+  async listByRestaurantPeriod(restaurantId: string, startIso: string, endIso: string, max = 500): Promise<TableSession[]> {
+    const { db } = resolveContext(this.context);
+    return readMany(getCollection(db, COLLECTIONS.tableSessions), byRestaurantBetweenOrdered(restaurantId, "startedAt", startIso, endIso, "desc", max), mapSession);
   }
 
   async listByTable(restaurantId: string, tableId: string): Promise<TableSession[]> {
