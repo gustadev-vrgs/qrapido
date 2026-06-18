@@ -54,7 +54,7 @@ export const tableSchema = baseEntitySchema.extend({
   status: tableStatusSchema,
   capacity: z.number().int().positive().max(20),
   currentPeopleCount: z.number().int().min(0).max(40),
-  activeSessionLimit: z.number().int().positive().max(5),
+  activeSessionLimit: z.number().int().positive().max(40),
   activeSessionCount: z.number().int().min(0).max(5),
   currentSessionGroupId: entityIdSchema.nullable(),
   pinCode: z.string().length(4).nullable(),
