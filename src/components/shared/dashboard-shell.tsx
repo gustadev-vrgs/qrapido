@@ -3,13 +3,14 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, Moon, Sun, X } from "lucide-react";
 
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { dashboardNavItems } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils/cn";
 import { AppActionButton } from "@/components/ui/app-design-system";
+import { useTheme } from "@/components/providers/theme-provider";
 
 interface DashboardShellProps {
   children: ReactNode;
@@ -19,6 +20,13 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
   const { logout, user } = useAdminAuth();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
+
+  const toggleTheme = () => {
+    setTheme(isDarkMode ? "light" : "dark");
+  };
+
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -93,6 +101,10 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
           </nav>
 
           <div className="mt-auto space-y-3 border-t border-[hsl(var(--border))] pt-4">
+            <AppActionButton variant="secondary" className="w-full justify-start gap-2" onClick={toggleTheme}>
+              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {isDarkMode ? "Modo claro" : "Modo escuro"}
+            </AppActionButton>
             <div className="rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] p-3">
               <p className="text-xs uppercase tracking-[0.12em] text-[hsl(var(--foreground-muted))]">Usuário logado</p>
               <p className="mt-1 text-sm font-semibold">{user?.name ?? "Equipe QRápido"}</p>

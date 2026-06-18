@@ -41,6 +41,7 @@ const defaultBusinessHours: BusinessHours = {
 export default function ConfiguracoesPage(): JSX.Element {
   const { user } = useAdminAuth();
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
+  const [restaurantDocumentId, setRestaurantDocumentId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
@@ -56,9 +57,11 @@ export default function ConfiguracoesPage(): JSX.Element {
         setSettings(found ?? null);
 
         const restaurant = await restaurantsService.getByRestaurantId(user.restaurantId);
+        setRestaurantDocumentId(restaurant?.id ?? null);
         setRestaurantName(restaurant?.name ?? "");
       } catch {
         setSettings(null);
+        setRestaurantDocumentId(null);
       }
     };
 
@@ -114,8 +117,23 @@ export default function ConfiguracoesPage(): JSX.Element {
 
   const saveSettings = async () => {
     if (!settings) return;
+
+    const trimmedRestaurantName = restaurantName.trim();
+    if (!trimmedRestaurantName || trimmedRestaurantName.length < 2) {
+      appToast.error("Nome inválido", "Informe um nome de restaurante com pelo menos 2 caracteres.");
+      return;
+    }
+
+    if (!restaurantDocumentId) {
+      appToast.error("Restaurante não encontrado", "Não foi possível localizar o cadastro do restaurante para atualizar o nome.");
+      return;
+    }
+
     setIsSaving(true);
     try {
+      await restaurantsService.update(restaurantDocumentId, {
+        name: trimmedRestaurantName
+      });
       await settingsService.update(settings.id, {
         acceptedPaymentMethods: settings.acceptedPaymentMethods,
         pixKey: settings.pixKey,
@@ -127,7 +145,8 @@ export default function ConfiguracoesPage(): JSX.Element {
         billRequestEnabled: settings.billRequestEnabled,
         businessHours: settings.businessHours
       });
-      appToast.success("Configurações salvas", "Preferências operacionais atualizadas com sucesso no Firestore.");
+      setRestaurantName(trimmedRestaurantName);
+      appToast.success("Configurações salvas", "Nome do restaurante e preferências operacionais atualizados com sucesso.");
     } catch {
       appToast.error("Falha ao salvar", "Não foi possível persistir as alterações no Firebase/Firestore.");
     } finally {
@@ -156,7 +175,7 @@ export default function ConfiguracoesPage(): JSX.Element {
       <AppSectionCard title="Dados do restaurante" description="Base operacional para atendimento e cobrança.">
         <div className="grid gap-4 md:grid-cols-2">
           <AppFormField label="Nome do restaurante">
-            <AppTextInput value={restaurantName} readOnly placeholder="Nome será exibido quando cadastrado" />
+            <AppTextInput value={restaurantName} onChange={(event) => setRestaurantName(event.target.value)} placeholder="Nome do restaurante" />
           </AppFormField>
           <AppFormField label="Chave Pix">
             <AppTextInput value={settings.pixKey ?? ""} onChange={(event) => setSettings({ ...settings, pixKey: event.target.value })} placeholder="contato@restaurante.com" />

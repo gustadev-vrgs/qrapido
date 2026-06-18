@@ -29,6 +29,11 @@ function resolveTheme(theme: Theme): ResolvedTheme {
   return theme === "system" ? getSystemTheme() : theme;
 }
 
+function applyResolvedTheme(resolvedTheme: ResolvedTheme) {
+  document.documentElement.dataset.theme = resolvedTheme;
+  document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+}
+
 export function ThemeProvider({ children, defaultTheme = "light", storageKey = "qrapido-theme" }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(resolveTheme(defaultTheme));
@@ -44,15 +49,17 @@ export function ThemeProvider({ children, defaultTheme = "light", storageKey = "
   useEffect(() => {
     const nextResolvedTheme = resolveTheme(theme);
     setResolvedTheme(nextResolvedTheme);
-
-    document.documentElement.dataset.theme = nextResolvedTheme;
-    document.documentElement.classList.toggle("dark", nextResolvedTheme === "dark");
+    applyResolvedTheme(nextResolvedTheme);
     window.localStorage.setItem(storageKey, theme);
 
     if (theme !== "system") return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const listener = () => setResolvedTheme(getSystemTheme());
+    const listener = () => {
+      const nextSystemTheme = getSystemTheme();
+      setResolvedTheme(nextSystemTheme);
+      applyResolvedTheme(nextSystemTheme);
+    };
     media.addEventListener("change", listener);
 
     return () => media.removeEventListener("change", listener);
