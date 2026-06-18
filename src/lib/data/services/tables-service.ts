@@ -1,4 +1,4 @@
-import { DocumentData } from "firebase/firestore";
+import { DocumentData, deleteDoc } from "firebase/firestore";
 
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { DataLayerError } from "@/lib/data/errors";
@@ -48,5 +48,14 @@ export class TablesService {
       ...parsed,
       updatedAt: nowIsoString()
     });
+  }
+
+  async delete(id: string): Promise<void> {
+    const { db, scope } = resolveContext(this.context);
+    if (scope !== "admin") {
+      throw new DataLayerError("Only admin scope can delete tables", "forbidden");
+    }
+
+    await deleteDoc(getDocumentRef(db, COLLECTIONS.tables, id));
   }
 }

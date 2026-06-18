@@ -41,7 +41,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   await db.collection("tables").doc(table.id).set(
     {
-      status: "closed",
+      status: "free",
       closedAt,
       currentPeopleCount: 0,
       activeSessionCount: 0,
