@@ -50,7 +50,7 @@ const TABLE_STATUS_FILTERS: Array<{ value: "all" | TableStatus; label: string }>
   { value: "all", label: "Todas" },
   { value: "free", label: "Livres" },
   { value: "active", label: "Ativas" },
-  { value: "awaiting_payment", label: "Aguardando pagamento" },
+  { value: "awaiting_payment", label: "Pagamento" },
   { value: "closed", label: "Encerradas" },
   { value: "blocked", label: "Bloqueadas" }
 ];
@@ -500,35 +500,42 @@ export default function MesasPage(): JSX.Element {
         </AppDataCard>
       </div>
 
-      <AppFilterBar className="gap-3">
-        <AppSearchInput
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Buscar mesa por número ou nome"
-          className="w-full md:flex-1"
-        />
+      <AppFilterBar className="items-stretch gap-4 md:items-center">
+        <div className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(240px,320px)_1fr] lg:items-center">
+          <AppSearchInput
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar mesa por número ou nome"
+            className="w-full"
+          />
 
-        <div className="flex w-full flex-wrap gap-2 md:w-auto">
-          {TABLE_STATUS_FILTERS.map((filter) => (
-            <button
-              type="button"
-              key={filter.value}
-              onClick={() => setStatusFilter(filter.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-medium uppercase tracking-[0.12em] transition ${
-                statusFilter === filter.value
-                  ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)] text-[hsl(var(--foreground))]"
-                  : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
-              }`}
-            >
-              {filter.label}
-            </button>
-          ))}
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {TABLE_STATUS_FILTERS.map((filter) => (
+              <button
+                type="button"
+                key={filter.value}
+                onClick={() => setStatusFilter(filter.value)}
+                className={`h-9 whitespace-nowrap rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                  statusFilter === filter.value
+                    ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)] text-[hsl(var(--foreground))]"
+                    : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <AppActionButton variant="primary" onClick={handleNewTable} className="gap-2"><Plus className="h-4 w-4" />Nova mesa</AppActionButton>
-        <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="md:ml-auto" disabled={isRefreshing}>
-          {isRefreshing ? "Atualizando..." : "Atualizar"}
-        </AppActionButton>
+        <div className="flex w-full shrink-0 gap-2 sm:w-auto sm:justify-end">
+          <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 sm:flex-none">
+            <Plus className="h-4 w-4" />
+            <span>Nova mesa</span>
+          </AppActionButton>
+          <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="min-w-28 flex-1 sm:flex-none" disabled={isRefreshing}>
+            {isRefreshing ? "Atualizando..." : "Atualizar"}
+          </AppActionButton>
+        </div>
       </AppFilterBar>
 
       <AppSectionCard
