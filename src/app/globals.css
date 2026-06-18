@@ -4,15 +4,15 @@
 
 :root {
   color-scheme: light;
-  --background: 215 38% 97%;
-  --background-elevated: 210 28% 99%;
-  --surface: 210 24% 99%;
-  --surface-muted: 214 26% 95%;
-  --foreground: 220 30% 18%;
-  --foreground-muted: 218 15% 45%;
-  --border: 216 22% 87%;
-  --border-strong: 216 21% 79%;
-  --primary: 217 82% 46%;
+  --background: 216 34% 94%;
+  --background-elevated: 214 30% 97%;
+  --surface: 214 27% 96%;
+  --surface-muted: 216 26% 91%;
+  --foreground: 222 32% 16%;
+  --foreground-muted: 218 18% 38%;
+  --border: 216 22% 82%;
+  --border-strong: 216 19% 72%;
+  --primary: 217 78% 43%;
   --primary-foreground: 210 40% 99%;
   --focus-ring: 217 86% 54%;
   --success: 165 65% 34%;
@@ -78,6 +78,7 @@ html[data-theme="dark"] {
     @apply h-11 w-full rounded-xl border px-3 text-sm transition-all placeholder:text-[hsl(var(--foreground-muted))] focus-visible:outline-none;
     background-color: hsl(var(--surface) / 0.92);
     border-color: hsl(var(--border));
+    color: hsl(var(--foreground));
   }
 
   .app-field:focus-visible {
