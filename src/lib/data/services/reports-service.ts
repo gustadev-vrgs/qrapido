@@ -3,11 +3,11 @@ import { DocumentData } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { DataLayerError } from "@/lib/data/errors";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany } from "@/lib/data/helpers/firestore-io";
-import { mapDailyMetric } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantOrdered } from "@/lib/data/queries";
+import { mapDailyMetric, mapOrderEvent } from "@/lib/data/mappers/domain-mappers";
+import { byRestaurantOrdered, byRestaurantBetweenOrdered } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
 import { createDailyMetricPayloadSchema, updateDailyMetricPayloadSchema } from "@/lib/schemas";
-import type { CreateDailyMetricPayload, DailyMetric, UpdateDailyMetricPayload } from "@/lib/types/domain";
+import type { CreateDailyMetricPayload, DailyMetric, OrderEvent, UpdateDailyMetricPayload } from "@/lib/types/domain";
 import { nowIsoString } from "@/lib/data/helpers/timestamps";
 
 export class ReportsService {
@@ -16,6 +16,11 @@ export class ReportsService {
   async listDailyMetrics(restaurantId: string): Promise<DailyMetric[]> {
     const { db } = resolveContext(this.context);
     return readMany(getCollection(db, COLLECTIONS.dailyMetrics), byRestaurantOrdered(restaurantId, "dateKey", "desc"), mapDailyMetric);
+  }
+
+  async listOrderEventsPeriod(restaurantId: string, startIso: string, endIso: string, max = 500): Promise<OrderEvent[]> {
+    const { db } = resolveContext(this.context);
+    return readMany(getCollection(db, COLLECTIONS.orderEvents), byRestaurantBetweenOrdered(restaurantId, "createdAt", startIso, endIso, "desc", max), mapOrderEvent);
   }
 
   async createDailyMetric(payload: CreateDailyMetricPayload): Promise<string> {

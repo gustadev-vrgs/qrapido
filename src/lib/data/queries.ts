@@ -1,4 +1,4 @@
-import { QueryConstraint, orderBy, where } from "firebase/firestore";
+import { QueryConstraint, orderBy, where, limit } from "firebase/firestore";
 
 import { buildRestaurantScope } from "@/lib/data/helpers/filters";
 
@@ -20,4 +20,8 @@ export function byRestaurantAndTable(restaurantId: string, tableId: string): Que
 
 export function byRestaurantAndSessionToken(restaurantId: string, sessionToken: string): QueryConstraint[] {
   return [...buildRestaurantScope({ restaurantId }), where("sessionToken", "==", sessionToken)];
+}
+
+export function byRestaurantBetweenOrdered(restaurantId: string, field: string, startIso: string, endIso: string, direction: "asc" | "desc" = "asc", max = 500): QueryConstraint[] {
+  return [...buildRestaurantScope({ restaurantId }), where(field, ">=", startIso), where(field, "<=", endIso), orderBy(field, direction), limit(max)];
 }

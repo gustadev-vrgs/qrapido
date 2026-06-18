@@ -6,12 +6,13 @@ import {
   menuItemSchema,
   restaurantSchema,
   orderSchema,
+  orderEventSchema,
   restaurantSettingsSchema,
   staffUserSchema,
   tableSchema,
   tableSessionSchema
 } from "@/lib/schemas";
-import type { DailyMetric, MenuCategory, MenuItem, Order, Restaurant, RestaurantSettings, StaffUser, Table, TableSession } from "@/lib/types/domain";
+import type { DailyMetric, MenuCategory, MenuItem, Order, OrderEvent, Restaurant, RestaurantSettings, StaffUser, Table, TableSession } from "@/lib/types/domain";
 import { ensureIsoTimestamp } from "@/lib/data/helpers/serialization";
 import { parseWithSchema } from "@/lib/data/mappers/common";
 
@@ -56,6 +57,11 @@ export function mapOrder(id: string, data: DocumentData): Order {
   };
 
   return parseWithSchema(orderSchema, id, normalized, "order");
+}
+
+export function mapOrderEvent(id: string, data: DocumentData): OrderEvent {
+  const normalized = { ...data, createdAt: ensureIsoTimestamp(data.createdAt) };
+  return parseWithSchema(orderEventSchema, id, normalized, "orderEvent");
 }
 
 export function mapDailyMetric(id: string, data: DocumentData): DailyMetric {

@@ -19,6 +19,7 @@ import { TablesService } from "@/lib/data/services/tables-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { DailyMetric, Order, Table } from "@/lib/types/domain";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { calculateSummary } from "@/lib/utils/report-calculations";
 
 const ORDER_STATUS_LABEL: Record<Order["status"], string> = {
   received: "Recebido",
@@ -67,10 +68,11 @@ export default function DashboardPage(): JSX.Element {
   }, [ordersService, reportsService, tablesService, user?.restaurantId]);
 
   const todayMetric = metrics[0];
-  const totalOrders = todayMetric?.totalOrders ?? orders.length;
-  const totalRevenue = todayMetric?.totalRevenue ?? orders.filter((order) => order.status !== "cancelled").reduce((acc, order) => acc + order.total, 0);
-  const cancelledOrders = todayMetric?.cancelledOrders ?? orders.filter((order) => order.status === "cancelled").length;
-  const averageTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+  const dashboardSummary = calculateSummary(orders, []);
+  const totalOrders = todayMetric?.totalOrders ?? dashboardSummary.validOrders;
+  const totalRevenue = todayMetric?.totalRevenue ?? dashboardSummary.revenue;
+  const cancelledOrders = todayMetric?.cancelledOrders ?? dashboardSummary.cancelledOrders;
+  const averageTicket = todayMetric?.averageTicket ?? dashboardSummary.averageTicket;
   const avgPrepMinutes = todayMetric?.averagePreparationMinutes ?? 0;
   const occupiedTables = tables.filter((table) => table.status === "active" || table.status === "awaiting_payment").length;
 
