@@ -522,7 +522,7 @@ export default function CardapioPage(): JSX.Element {
             </div>
             <AppFormField
               label="Imagem (URL)"
-              hint="Upload real pode ser conectado depois; por enquanto, aceite URL externa ou deixe em branco para fallback elegante."
+              hint="Informe uma URL HTTPS da imagem do produto ou deixe em branco para exibir o estado visual padrão."
               error={itemForm.formState.errors.imageUrl?.message}
             >
               <AppTextInput placeholder="https://..." {...itemForm.register("imageUrl")} />

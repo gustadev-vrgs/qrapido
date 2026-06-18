@@ -125,7 +125,7 @@ function createClientToken(): string {
 
 
 export default function MesasPage(): JSX.Element {
-  const { user } = useAdminAuth();
+  const { firebaseUser, user } = useAdminAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
@@ -181,7 +181,7 @@ export default function MesasPage(): JSX.Element {
       setOrdersByTable(orderMap);
       setAllowSessionPin(Boolean(settingsData[0]?.allowSessionPin));
     } catch (error) {
-      console.error(error);
+      if (process.env.NODE_ENV === "development") console.error(error);
       appToast.error("Não foi possível carregar o módulo de mesas", "Verifique conexão e permissões de acesso.");
     } finally {
       setIsLoading(false);
@@ -288,7 +288,7 @@ export default function MesasPage(): JSX.Element {
       setTableFormVisible(false);
       await loadData(true);
     } catch (error) {
-      console.error(error);
+      if (process.env.NODE_ENV === "development") console.error(error);
       appToast.error("Falha ao salvar mesa", "Verifique os dados e tente novamente.");
     } finally {
       setSavingTable(false);
@@ -402,13 +402,13 @@ export default function MesasPage(): JSX.Element {
       setClosingTableId(table.id);
       await fetch("/api/admin/table/close", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", authorization: `Bearer ${await firebaseUser?.getIdToken()}` },
         body: JSON.stringify({ tableId: table.id })
       });
       appToast.success("Atendimento encerrado", "A mesa voltou ao status disponível.");
       await loadData(true);
     } catch (error) {
-      console.error(error);
+      if (process.env.NODE_ENV === "development") console.error(error);
       appToast.error("Falha ao encerrar mesa", "Tente novamente em instantes.");
     } finally {
       setClosingTableId(null);
@@ -458,7 +458,7 @@ export default function MesasPage(): JSX.Element {
       setOpeningTableId(table.id);
       const response = await fetch("/api/admin/table/open", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", authorization: `Bearer ${await firebaseUser?.getIdToken()}` },
         body: JSON.stringify({
           tableId: table.id,
           label: openTableForm.label.trim() || table.label,
@@ -484,7 +484,7 @@ export default function MesasPage(): JSX.Element {
       setOpenTableForm(defaultFormState);
       await loadData(true);
     } catch (error) {
-      console.error(error);
+      if (process.env.NODE_ENV === "development") console.error(error);
       appToast.error("Falha ao abrir mesa", "Não foi possível atualizar o status da mesa.");
     } finally {
       setOpeningTableId(null);
