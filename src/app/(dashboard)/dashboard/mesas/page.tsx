@@ -786,8 +786,8 @@ export default function MesasPage(): JSX.Element {
       ) : null}
 
       {detailsTable ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
-          <div className="app-surface-strong w-full max-w-3xl space-y-4 rounded-2xl p-5">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <div className="app-surface-strong max-h-[calc(100vh-2rem)] w-full max-w-3xl space-y-4 overflow-y-auto rounded-2xl p-5">
             <header className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Detalhes da mesa</p>
@@ -819,7 +819,15 @@ export default function MesasPage(): JSX.Element {
                 </div>
                 <p className="text-sm font-medium">{detailsTable.label} · Mesa {detailsTable.number}</p>
                 <p className="text-xs text-[hsl(var(--foreground-muted))]">QR pronto para visualização e base para impressão operacional.</p>
-<div className="flex flex-wrap justify-center gap-2"><AppActionButton variant="secondary" className="h-9 gap-2" onClick={() => downloadQr(detailsTable)}><Download className="h-4 w-4" />Baixar QR</AppActionButton><AppActionButton variant="secondary" className="h-9" onClick={() => printQr(detailsTable)} aria-label="Imprimir somente o QR Code da mesa">Imprimir QR</AppActionButton></div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <AppActionButton variant="secondary" className="h-9 gap-2" onClick={() => downloadQr(detailsTable)}>
+                    <Download className="h-4 w-4" />
+                    Baixar QR
+                  </AppActionButton>
+                  <AppActionButton variant="secondary" className="h-9" onClick={() => printQr(detailsTable)} aria-label="Imprimir somente o QR Code da mesa">
+                    Imprimir QR
+                  </AppActionButton>
+                </div>
               </AppSurface>
             ) : null}
 
