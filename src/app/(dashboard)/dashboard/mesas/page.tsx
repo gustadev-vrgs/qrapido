@@ -27,7 +27,6 @@ import {
   AppEmptyState,
   AppFilterBar,
   AppFormField,
-  AppSearchInput,
   AppSelect,
   AppSectionCard,
   AppStatusBadge,
@@ -121,10 +120,6 @@ function createClientToken(): string {
   return Array.from(bytes, (byte) => byte.toString(36).padStart(2, "0")).join("");
 }
 
-function safeString(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return value;
-}
 
 export default function MesasPage(): JSX.Element {
   const { user } = useAdminAuth();
@@ -136,8 +131,6 @@ export default function MesasPage(): JSX.Element {
   const [allowSessionPin, setAllowSessionPin] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<"all" | TableStatus>("all");
-  const [search, setSearch] = useState("");
-
   const [tableFormVisible, setTableFormVisible] = useState(false);
   const [savingTable, setSavingTable] = useState(false);
   const [tableForm, setTableForm] = useState<TableFormState>(defaultTableFormState);
@@ -198,19 +191,10 @@ export default function MesasPage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.restaurantId]);
 
-  const filteredTables = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return tables.filter((table) => {
-      const matchesStatus = statusFilter === "all" || table.status === statusFilter;
-      if (!matchesStatus) return false;
-      if (!query) return true;
-
-      const byNumber = String(table.number).includes(query);
-      const byLabel = safeString(table.label).toLowerCase().includes(query);
-      return byNumber || byLabel;
-    });
-  }, [search, statusFilter, tables]);
+  const filteredTables = useMemo(
+    () => tables.filter((table) => statusFilter === "all" || table.status === statusFilter),
+    [statusFilter, tables]
+  );
 
   const summary = useMemo(() => {
     const activeCount = tables.filter((table) => table.status === "active").length;
@@ -500,39 +484,30 @@ export default function MesasPage(): JSX.Element {
         </AppDataCard>
       </div>
 
-      <AppFilterBar className="items-stretch gap-4 md:items-center">
-        <div className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(240px,320px)_1fr] lg:items-center">
-          <AppSearchInput
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar mesa por número ou nome"
-            className="w-full"
-          />
-
-          <div className="flex min-w-0 flex-wrap gap-2">
-            {TABLE_STATUS_FILTERS.map((filter) => (
-              <button
-                type="button"
-                key={filter.value}
-                onClick={() => setStatusFilter(filter.value)}
-                className={`h-9 whitespace-nowrap rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.12em] transition ${
-                  statusFilter === filter.value
-                    ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)] text-[hsl(var(--foreground))]"
-                    : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
-                }`}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
+      <AppFilterBar className="items-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {TABLE_STATUS_FILTERS.map((filter) => (
+            <button
+              type="button"
+              key={filter.value}
+              onClick={() => setStatusFilter(filter.value)}
+              className={`h-9 whitespace-nowrap rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                statusFilter === filter.value
+                  ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)] text-[hsl(var(--foreground))]"
+                  : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
         </div>
 
         <div className="flex w-full shrink-0 gap-2 sm:w-auto sm:justify-end">
-          <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 sm:flex-none">
+          <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 whitespace-nowrap sm:flex-none">
             <Plus className="h-4 w-4" />
             <span>Nova mesa</span>
           </AppActionButton>
-          <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="min-w-28 flex-1 sm:flex-none" disabled={isRefreshing}>
+          <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="min-w-28 flex-1 whitespace-nowrap sm:flex-none" disabled={isRefreshing}>
             {isRefreshing ? "Atualizando..." : "Atualizar"}
           </AppActionButton>
         </div>
@@ -557,14 +532,13 @@ export default function MesasPage(): JSX.Element {
             description={
               tables.length === 0
                 ? "Cadastre mesas para iniciar a operação. Assim que forem criadas, aparecerão neste mapa em tempo real."
-                : "Ajuste status e busca para visualizar as mesas do salão."
+                : "Ajuste o status para visualizar as mesas do salão."
             }
             action={
               <AppActionButton
                 variant="secondary"
                 onClick={() => {
                   setStatusFilter("all");
-                  setSearch("");
                 }}
               >
                 Limpar filtros
