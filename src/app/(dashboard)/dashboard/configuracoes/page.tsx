@@ -77,6 +77,9 @@ export default function ConfiguracoesPage(): JSX.Element {
         restaurantId: user.restaurantId,
         acceptedPaymentMethods: ["pix"],
         pixKey: null,
+        pixReceiverName: null,
+        pixReceiverCity: null,
+        pixInstructions: null,
         businessHours: defaultBusinessHours,
         antiSpamWindowSeconds: 60,
         maxOrdersPerWindow: 3,
@@ -137,6 +140,9 @@ export default function ConfiguracoesPage(): JSX.Element {
       await settingsService.update(settings.id, {
         acceptedPaymentMethods: settings.acceptedPaymentMethods,
         pixKey: settings.pixKey,
+        pixReceiverName: settings.pixReceiverName ?? null,
+        pixReceiverCity: settings.pixReceiverCity ?? null,
+        pixInstructions: settings.pixInstructions ?? null,
         defaultSessionDurationMinutes: settings.defaultSessionDurationMinutes,
         antiSpamWindowSeconds: settings.antiSpamWindowSeconds,
         maxOrdersPerWindow: settings.maxOrdersPerWindow,
@@ -177,8 +183,17 @@ export default function ConfiguracoesPage(): JSX.Element {
           <AppFormField label="Nome do restaurante">
             <AppTextInput value={restaurantName} onChange={(event) => setRestaurantName(event.target.value)} placeholder="Nome do restaurante" />
           </AppFormField>
-          <AppFormField label="Chave Pix">
+          <AppFormField label="CNPJ ou chave PIX">
             <AppTextInput value={settings.pixKey ?? ""} onChange={(event) => setSettings({ ...settings, pixKey: event.target.value })} placeholder="contato@restaurante.com" />
+          </AppFormField>
+          <AppFormField label="Nome do recebedor PIX">
+            <AppTextInput value={settings.pixReceiverName ?? ""} onChange={(event) => setSettings({ ...settings, pixReceiverName: event.target.value })} placeholder="Nome exibido no checkout" />
+          </AppFormField>
+          <AppFormField label="Cidade do recebedor PIX">
+            <AppTextInput value={settings.pixReceiverCity ?? ""} onChange={(event) => setSettings({ ...settings, pixReceiverCity: event.target.value })} placeholder="São Paulo" />
+          </AppFormField>
+          <AppFormField label="Instrução de pagamento PIX">
+            <AppTextInput value={settings.pixInstructions ?? ""} onChange={(event) => setSettings({ ...settings, pixInstructions: event.target.value })} placeholder="Instrução opcional para simulação" />
           </AppFormField>
         </div>
       </AppSectionCard>

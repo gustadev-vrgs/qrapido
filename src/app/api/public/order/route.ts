@@ -3,136 +3,100 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  computeSessionStatus,
-  createOperationalEvent,
-  guardOrderAbuse,
-  markSessionExpired,
-  resolveSession,
-  resolveTable,
-  validateAccessGrant
-} from "@/lib/server/public-session";
+import { computeSessionStatus, createOperationalEvent, guardOrderAbuse, markSessionExpired, resolveSession, resolveTable, validateAccessGrant } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 
-const itemSchema = z.object({
-  menuItemId: z.string().min(1),
-  nameSnapshot: z.string().min(1),
-  priceSnapshot: z.number().positive(),
-  quantity: z.number().int().positive(),
-  notes: z.string().max(280).nullable(),
-  total: z.number().positive()
-});
-
+const itemSchema = z.object({ menuItemId: z.string().min(1), quantity: z.number().int().positive().max(99), notes: z.string().max(280).nullable().optional() });
 const payloadSchema = z.object({
   sessionToken: z.string().min(16).max(128),
   items: z.array(itemSchema).min(1),
-  subtotal: z.number().positive(),
   duplicateFingerprint: z.string().min(8).max(280),
-  notes: z.string().max(500).nullable().optional()
+  customerName: z.string().max(80).nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+  paymentMethod: z.enum(["pix", "cash", "debit_card", "credit_card"]),
+  paymentMode: z.enum(["system_simulated", "counter", "waiter"]),
+  changeFor: z.number().positive().nullable().optional()
 });
+
+function roundMoney(value: number): number { return Math.round(value * 100) / 100; }
+function paymentStatus(method: string, mode: string): string {
+  if (mode === "counter") return "pagar no caixa";
+  if (mode === "waiter") return "aguardando garçom";
+  if (method === "pix" || method === "credit_card" || method === "debit_card") return "simulado";
+  return "pendente";
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const parsed = payloadSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
-  }
+  if (!parsed.success) return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
 
   const session = await resolveSession(parsed.data.sessionToken);
-  if (!session) {
-    return NextResponse.json({ error: "Sessão não encontrada." }, { status: 404 });
-  }
+  if (!session) return NextResponse.json({ error: "Sessão não encontrada." }, { status: 404 });
 
   const accessToken = request.headers.get("x-session-access-token");
-  if (!(await validateAccessGrant(session, accessToken))) {
-    return NextResponse.json({ error: "Acesso não autorizado para essa sessão." }, { status: 401 });
-  }
+  if (!(await validateAccessGrant(session, accessToken))) return NextResponse.json({ error: "Acesso não autorizado para essa sessão." }, { status: 401 });
 
   const table = await resolveTable(session.tableId);
-  if (!table || table.status !== "active") {
-    await createOperationalEvent({
-      restaurantId: session.restaurantId,
-      tableId: session.tableId,
-      sessionId: session.id,
-      type: "order_cancelled",
-      message: "Tentativa de pedido com mesa inativa",
-      metadata: { reason: "inactive_table" }
-    });
-    return NextResponse.json({ error: "Mesa não está ativa para pedidos." }, { status: 409 });
-  }
+  if (!table || table.status !== "active") return NextResponse.json({ error: "Mesa não está ativa para pedidos." }, { status: 409 });
 
   const status = computeSessionStatus(session);
-  if (status === "expired") {
-    await markSessionExpired(session.id);
-    return NextResponse.json({ error: "Sessão expirada." }, { status: 410 });
-  }
-
-  if (status !== "active") {
-    return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
-  }
-
-  const duplicateGuardHash = crypto
-    .createHash("sha256")
-    .update(`${parsed.data.sessionToken}:${parsed.data.duplicateFingerprint}:${Math.round(parsed.data.subtotal * 100)}`)
-    .digest("hex");
-
-  const abuseCheck = await guardOrderAbuse({
-    restaurantId: session.restaurantId,
-    sessionId: session.id,
-    duplicateGuardHash
-  });
-
-  if (!abuseCheck.ok) {
-    await createOperationalEvent({
-      restaurantId: session.restaurantId,
-      tableId: session.tableId,
-      sessionId: session.id,
-      type: "order_cancelled",
-      message: "Pedido bloqueado por anti-abuso",
-      metadata: { reason: abuseCheck.reason }
-    });
-    return NextResponse.json({ error: abuseCheck.reason }, { status: 429 });
-  }
+  if (status === "expired") { await markSessionExpired(session.id); return NextResponse.json({ error: "Sessão expirada." }, { status: 410 }); }
+  if (status !== "active") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
 
   const db = getAdminFirestore() as any;
-  const receivedAt = new Date().toISOString();
-  const orderPayload = {
-    restaurantId: session.restaurantId,
-    tableId: session.tableId,
-    tableNumber: session.tableNumber,
-    sessionId: session.id,
-    sessionToken: session.sessionToken,
-    customerName: session.customerName ?? null,
-    items: parsed.data.items,
-    subtotal: Number(parsed.data.subtotal.toFixed(2)),
-    serviceFee: 0,
-    total: Number(parsed.data.subtotal.toFixed(2)),
-    paymentMethod: "card_on_table",
-    status: "received",
-    notes: parsed.data.notes ?? null,
-    duplicateGuardHash,
-    receivedAt,
-    deliveredAt: null,
-    cancelledAt: null,
-    createdAt: receivedAt,
-    updatedAt: receivedAt
-  };
+  const duplicateGuardHash = crypto.createHash("sha256").update(`${parsed.data.sessionToken}:${parsed.data.duplicateFingerprint}`).digest("hex");
+  const abuseCheck = await guardOrderAbuse({ restaurantId: session.restaurantId, sessionId: session.id, duplicateGuardHash });
+  if (!abuseCheck.ok) return NextResponse.json({ error: abuseCheck.reason }, { status: 429 });
 
-  const orderRef = await db.collection("orders").add(orderPayload);
+  const menuRefs = parsed.data.items.map((item) => db.collection("menuItems").doc(item.menuItemId));
+  const menuDocs = await db.getAll(...menuRefs);
+  const menuById = new Map<string, any>();
+  for (const doc of menuDocs) {
+    if (!doc.exists) return NextResponse.json({ error: "Um item do pedido não existe mais." }, { status: 400 });
+    const item = { id: doc.id, ...doc.data() };
+    if (item.restaurantId !== session.restaurantId || item.isActive !== true || item.isAvailable !== true) return NextResponse.json({ error: `O item ${item.name ?? doc.id} não está disponível.` }, { status: 409 });
+    menuById.set(doc.id, item);
+  }
 
-  await createOperationalEvent({
-    restaurantId: session.restaurantId,
-    tableId: session.tableId,
-    sessionId: session.id,
-    orderId: orderRef.id,
-    type: "order_created",
-    message: "Pedido criado pelo cliente",
-    metadata: {
-      itemsCount: parsed.data.items.length,
-      subtotal: parsed.data.subtotal
-    }
+  const items = parsed.data.items.map((input) => {
+    const menuItem = menuById.get(input.menuItemId);
+    const total = roundMoney(menuItem.price * input.quantity);
+    return { menuItemId: input.menuItemId, nameSnapshot: menuItem.name, priceSnapshot: roundMoney(menuItem.price), quantity: input.quantity, notes: input.notes?.trim() || null, total };
   });
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + item.total, 0));
+  const now = new Date().toISOString();
 
-  await db.collection("tableSessions").doc(session.id).set({ lastActivityAt: receivedAt, updatedAt: receivedAt }, { merge: true });
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const sessionRef = db.collection("tableSessions").doc(session.id);
+      const sessionSnap = await transaction.get(sessionRef);
+      if (!sessionSnap.exists) throw new Error("SESSION_NOT_FOUND");
+      const fresh = sessionSnap.data();
+      if (fresh.status !== "active" || new Date(fresh.expiresAt).getTime() <= Date.now()) throw new Error("SESSION_INACTIVE");
+      if ((fresh.completedOrdersCount ?? 0) >= (fresh.maxOrdersAllowed ?? fresh.peopleCount ?? 1)) throw new Error("ORDER_LIMIT");
+      const sequence = (fresh.completedOrdersCount ?? 0) + 1;
+      const orderRef = db.collection("orders").doc();
+      const code = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}-${orderRef.id.slice(-4).toUpperCase()}`;
+      transaction.set(orderRef, {
+        restaurantId: session.restaurantId, orderCode: code, tableId: session.tableId, tableNumber: session.tableNumber,
+        sessionId: session.id, sessionToken: session.sessionToken, customerName: parsed.data.customerName?.trim() || session.customerName || null,
+        items, subtotal, serviceFee: 0, total: subtotal, paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode,
+        paymentStatus: paymentStatus(parsed.data.paymentMethod, parsed.data.paymentMode), changeFor: parsed.data.changeFor ?? null,
+        status: "received", notes: parsed.data.notes?.trim() || null, duplicateGuardHash, receivedAt: now, deliveredAt: null, cancelledAt: null,
+        cancelReason: null, orderSlotReleased: false, createdAt: now, updatedAt: now
+      });
+      transaction.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
+      return { orderId: orderRef.id, orderCode: code };
+    });
 
-  return NextResponse.json({ orderId: orderRef.id }, { status: 201 });
+    await Promise.all([
+      createOperationalEvent({ restaurantId: session.restaurantId, tableId: session.tableId, sessionId: session.id, orderId: result.orderId, type: "order_created", message: "Pedido criado pelo cliente", metadata: { subtotal } }),
+      db.collection("adminAlerts").add({ restaurantId: session.restaurantId, type: "new_order", title: "Novo pedido", message: `Mesa ${session.tableNumber} criou o pedido ${result.orderCode}.`, targetType: "order", targetId: result.orderId, read: false, createdAt: now })
+    ]);
+    return NextResponse.json({ orderId: result.orderId, orderCode: result.orderCode, subtotal }, { status: 201 });
+  } catch (error: any) {
+    if (error.message === "ORDER_LIMIT") return NextResponse.json({ error: "Todos os pedidos permitidos para esta mesa já foram utilizados. Solicite ajuda a um funcionário." }, { status: 409 });
+    if (error.message === "SESSION_INACTIVE") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
+    throw error;
+  }
 }

@@ -124,7 +124,7 @@ export interface MenuItem extends BaseEntity {
 export interface PublicTableData {
   restaurantName: string | null;
   table: Pick<Table, "id" | "number" | "label" | "status" | "isActive" | "capacity">;
-  session: Pick<TableSession, "id" | "tableId" | "tableNumber" | "status" | "peopleCount" | "maxOrdersAllowed" | "completedOrdersCount" | "startedAt">;
+  session: Pick<TableSession, "id" | "tableId" | "tableNumber" | "sessionToken" | "status" | "peopleCount" | "maxOrdersAllowed" | "completedOrdersCount" | "startedAt">;
   categories: MenuCategory[];
   items: MenuItem[];
 }
@@ -193,6 +193,9 @@ export type BusinessHours = Record<WeekdayKey, BusinessHoursDay>;
 export interface RestaurantSettings extends BaseEntity {
   acceptedPaymentMethods: PaymentMethod[];
   pixKey: string | null;
+  pixReceiverName?: string | null;
+  pixReceiverCity?: string | null;
+  pixInstructions?: string | null;
   businessHours: BusinessHours;
   antiSpamWindowSeconds: number;
   maxOrdersPerWindow: number;

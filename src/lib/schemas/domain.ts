@@ -168,6 +168,9 @@ export const businessHoursSchema = z.object({
 export const restaurantSettingsSchema = baseEntitySchema.extend({
   acceptedPaymentMethods: z.array(paymentMethodSchema).min(1),
   pixKey: z.string().max(140).nullable(),
+  pixReceiverName: z.string().max(120).nullable().optional(),
+  pixReceiverCity: z.string().max(80).nullable().optional(),
+  pixInstructions: z.string().max(240).nullable().optional(),
   businessHours: businessHoursSchema,
   antiSpamWindowSeconds: z.number().int().positive().max(3600),
   maxOrdersPerWindow: z.number().int().positive().max(20),

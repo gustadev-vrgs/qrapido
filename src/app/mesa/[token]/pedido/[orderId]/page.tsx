@@ -1,0 +1,21 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AppActionButton, AppSkeleton, AppStatusBadge, AppSurface } from "@/components/ui/app-design-system";
+import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
+import { formatCurrency, formatDateTime } from "@/lib/utils/formatters";
+import type { Order, PublicTableData } from "@/lib/types/domain";
+
+export default function PublicOrderPage({ params }: { params: { token: string; orderId: string } }): JSX.Element {
+  const token = useMemo(() => decodeURIComponent(params.token), [params.token]);
+  const [table, setTable] = useState<PublicTableData | null>(null);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { let alive = true; async function loadTable() { const r = await fetch(`/api/public/table/${encodeURIComponent(token)}`, { cache: "no-store" }); const p = await r.json(); if (!alive) return; if (!r.ok) { setError(p.error ?? "Mesa inválida."); return; } setTable(p); sessionStorage.setItem(`qrapido-access-${p.session.id}`, p.accessToken); } void loadTable(); return () => { alive = false; }; }, [token]);
+  useEffect(() => { if (!table) return; let alive = true; async function loadOrder() { const accessToken = sessionStorage.getItem(`qrapido-access-${table.session.id}`) ?? ""; const r = await fetch(`/api/public/order/${encodeURIComponent(params.orderId)}?sessionToken=${encodeURIComponent((table.session as any).sessionToken)}`, { headers: { "x-session-access-token": accessToken }, cache: "no-store" }); const p = await r.json(); if (!alive) return; if (!r.ok) setError(p.error ?? "Pedido indisponível."); else setOrder(p); } void loadOrder(); const id = window.setInterval(loadOrder, 5000); return () => { alive = false; window.clearInterval(id); }; }, [params.orderId, table]);
+  const steps = ["received", "in_preparation", "ready", "delivered"];
+  if (error) return <main className="min-h-screen p-4"><AppSurface className="mx-auto max-w-md p-5 text-center">{error}<div className="mt-3"><Link href={`/mesa/${token}`}>Voltar para mesa</Link></div></AppSurface></main>;
+  if (!order || !table) return <main className="min-h-screen p-4"><AppSkeleton className="mx-auto h-64 max-w-md" /></main>;
+  const current = steps.indexOf(order.status);
+  return <main className="min-h-screen bg-[hsl(var(--background))] p-4"><section className="mx-auto max-w-md space-y-4"><AppSurface className="space-y-2 p-4"><p className="text-xs uppercase text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber}</p><h1 className="text-2xl">Pedido {(order as any).orderCode ?? `#${order.id.slice(-6).toUpperCase()}`}</h1><AppStatusBadge tone={order.status === "cancelled" ? "danger" : "info"}>{orderStatusLabels[order.status]}</AppStatusBadge><p className="text-sm text-[hsl(var(--foreground-muted))]">Criado em {formatDateTime(order.createdAt)}</p></AppSurface><AppSurface className="p-4"><div className="grid grid-cols-4 gap-1 text-center text-xs">{steps.map((s, i) => <div key={s} className={`rounded-full px-2 py-2 ${i <= current ? "bg-[hsl(var(--primary))] text-white" : "bg-[hsl(var(--surface-muted))]"}`}>{orderStatusLabels[s as Order["status"]]}</div>)}</div>{order.status === "cancelled" ? <p className="mt-3 text-sm text-[hsl(var(--danger))]">Motivo: {(order as any).cancelReason ?? order.notes ?? "não informado"}</p> : null}</AppSurface><AppSurface className="space-y-2 p-4"><h2 className="font-semibold">Itens</h2>{order.items.map((item) => <div key={item.menuItemId + item.notes} className="flex justify-between text-sm"><span>{item.quantity}x {item.nameSnapshot}</span><strong>{formatCurrency(item.total)}</strong></div>)}<div className="flex justify-between border-t border-[hsl(var(--border))] pt-2"><span>Total</span><strong>{formatCurrency(order.total)}</strong></div></AppSurface><AppSurface className="p-4 text-sm"><p>Pagamento: <strong>{paymentMethodLabels[order.paymentMethod]}</strong></p><p>Status pagamento: <strong>{(order as any).paymentStatus ?? "pendente"}</strong></p></AppSurface><AppActionButton variant="secondary" className="w-full" onClick={() => location.href = `/mesa/${encodeURIComponent(token)}`}>Voltar ao cardápio</AppActionButton></section></main>;
+}

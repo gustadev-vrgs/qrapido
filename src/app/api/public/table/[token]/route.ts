@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { createSessionAccessGrant } from "@/lib/server/public-session";
 
 const TOKEN_PATTERN = /^[a-zA-Z0-9_-]{24,128}$/;
 
@@ -37,17 +38,23 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
 
   const sessionDoc = sessionsSnapshot.docs[0];
   const session = { id: sessionDoc.id, ...sessionDoc.data() } as any;
-  const [restaurantDoc, categoriesSnapshot, itemsSnapshot] = await Promise.all([
+  const [restaurantDoc, categoriesSnapshot, itemsSnapshot, settingsSnapshot] = await Promise.all([
     db.collection("restaurants").doc(table.restaurantId).get(),
     db.collection("menuCategories").where("restaurantId", "==", table.restaurantId).where("isActive", "==", true).orderBy("sortOrder", "asc").get(),
-    db.collection("menuItems").where("restaurantId", "==", table.restaurantId).where("isActive", "==", true).where("isAvailable", "==", true).orderBy("sortOrder", "asc").get()
+    db.collection("menuItems").where("restaurantId", "==", table.restaurantId).where("isActive", "==", true).where("isAvailable", "==", true).orderBy("sortOrder", "asc").get(),
+    db.collection("restaurantSettings").where("restaurantId", "==", table.restaurantId).limit(1).get()
   ]);
+
+  const access = await createSessionAccessGrant(session);
+  const settings = settingsSnapshot.empty ? null : { id: settingsSnapshot.docs[0].id, ...settingsSnapshot.docs[0].data() };
 
   return NextResponse.json({
     restaurantName: restaurantDoc.exists ? restaurantDoc.data()?.name ?? null : null,
     table: { id: table.id, number: table.number, label: table.label, status: table.status, isActive: table.isActive !== false, capacity: table.capacity },
     session,
     categories: categoriesSnapshot.docs.map(serializeDoc),
-    items: itemsSnapshot.docs.map(serializeDoc)
+    items: itemsSnapshot.docs.map(serializeDoc),
+    accessToken: access.accessToken,
+    settings
   });
 }
