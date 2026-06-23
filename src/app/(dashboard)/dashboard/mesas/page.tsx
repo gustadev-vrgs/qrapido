@@ -44,6 +44,7 @@ import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { Order, Table, TableSession, TableStatus } from "@/lib/types/domain";
 import { formatDateTime } from "@/lib/utils/formatters";
 import { createQrDataUrl } from "@/lib/utils/qr";
+import { buildPublicTableUrl, resolvePublicTableUrl } from "@/lib/utils/public-url";
 import { appToast } from "@/lib/utils/toast";
 
 const TABLE_STATUS_FILTERS: Array<{ value: "all" | TableStatus; label: string }> = [
@@ -220,7 +221,7 @@ export default function MesasPage(): JSX.Element {
 
   const detailsTable = useMemo(() => tables.find((table) => table.id === detailsModalTableId) ?? null, [detailsModalTableId, tables]);
 
-  const publicUrlFor = useCallback((table: Table): string => table.qrCodeValue || `${window.location.origin}/mesa/${table.publicToken}`, []);
+  const publicUrlFor = useCallback((table: Table): string => resolvePublicTableUrl(table), []);
 
   const handleNewTable = () => {
     setTableForm(defaultTableFormState);
@@ -265,7 +266,7 @@ export default function MesasPage(): JSX.Element {
         appToast.success("Mesa atualizada", "Os dados da mesa foram salvos.");
       } else {
         const publicToken = createClientToken();
-        const qrCodeValue = `${window.location.origin}/mesa/${publicToken}`;
+        const qrCodeValue = buildPublicTableUrl(publicToken);
         await tablesService.create({
           restaurantId: user.restaurantId,
           number,
@@ -809,7 +810,7 @@ export default function MesasPage(): JSX.Element {
               <AppDataCard title="Pessoas na mesa" metadata={`${detailsTable.currentPeopleCount} de ${detailsTable.capacity}`} />
               <AppDataCard title="Sessões ativas" metadata={`${(sessionsByTable[detailsTable.id] ?? []).length} sessão(ões)`} />
               <AppDataCard title="Horário de abertura" metadata={detailsTable.openedAt ? formatDateTime(detailsTable.openedAt) : "Mesa ainda não aberta"} />
-              <AppDataCard title="QR vinculado"><p className="break-all text-sm text-[hsl(var(--foreground-muted))]">{detailsTable.qrCodeValue}</p></AppDataCard>
+              <AppDataCard title="QR vinculado"><p className="break-all text-sm text-[hsl(var(--foreground-muted))]">{publicUrlFor(detailsTable)}</p></AppDataCard>
               <AppDataCard title="Limite de sessões" metadata={`${detailsTable.activeSessionLimit} simultânea(s)`} />
             </div>
 
