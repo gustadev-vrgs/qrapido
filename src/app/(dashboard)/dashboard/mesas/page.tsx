@@ -40,6 +40,7 @@ import { OrdersService } from "@/lib/data/services/orders-service";
 import { SessionsService } from "@/lib/data/services/sessions-service";
 import { SettingsService } from "@/lib/data/services/settings-service";
 import { TablesService } from "@/lib/data/services/tables-service";
+import { getFirebaseClientAuth } from "@/lib/firebase/client";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { Order, Table, TableSession, TableStatus } from "@/lib/types/domain";
 import { formatDateTime } from "@/lib/utils/formatters";
@@ -223,6 +224,33 @@ export default function MesasPage(): JSX.Element {
 
   const publicUrlFor = useCallback((table: Table): string => resolvePublicTableUrl(table), []);
 
+  const getAdminIdToken = useCallback(async (forceRefresh = false): Promise<string | null> => {
+    const authUser = firebaseUser ?? getFirebaseClientAuth().currentUser;
+    return authUser ? authUser.getIdToken(forceRefresh) : null;
+  }, [firebaseUser]);
+
+  const fetchAdminJson = useCallback(async (url: string, payload: Record<string, unknown>): Promise<Response> => {
+    const token = await getAdminIdToken();
+    if (!token) throw new Error("Sessão administrativa ausente. Faça login novamente.");
+
+    const request = (idToken: string) => fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${idToken}` },
+      body: JSON.stringify(payload)
+    });
+
+    const response = await request(token);
+    if (response.status !== 401) return response;
+
+    const refreshedToken = await getAdminIdToken(true);
+    return refreshedToken ? request(refreshedToken) : response;
+  }, [getAdminIdToken]);
+
+  async function readApiError(response: Response, fallback: string): Promise<string> {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    return payload?.error ?? fallback;
+  }
+
   const handleNewTable = () => {
     setTableForm(defaultTableFormState);
     setTableFormVisible(true);
@@ -401,16 +429,13 @@ export default function MesasPage(): JSX.Element {
 
     try {
       setClosingTableId(table.id);
-      await fetch("/api/admin/table/close", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${await firebaseUser?.getIdToken()}` },
-        body: JSON.stringify({ tableId: table.id })
-      });
+      const response = await fetchAdminJson("/api/admin/table/close", { tableId: table.id });
+      if (!response.ok) throw new Error(await readApiError(response, "Não foi possível encerrar a mesa."));
       appToast.success("Atendimento encerrado", "A mesa voltou ao status disponível.");
       await loadData(true);
     } catch (error) {
       if (process.env.NODE_ENV === "development") console.error(error);
-      appToast.error("Falha ao encerrar mesa", "Tente novamente em instantes.");
+      appToast.error("Falha ao encerrar mesa", error instanceof Error ? error.message : "Tente novamente em instantes.");
     } finally {
       setClosingTableId(null);
     }
@@ -457,24 +482,20 @@ export default function MesasPage(): JSX.Element {
 
     try {
       setOpeningTableId(table.id);
-      const response = await fetch("/api/admin/table/open", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${await firebaseUser?.getIdToken()}` },
-        body: JSON.stringify({
-          tableId: table.id,
-          label: openTableForm.label.trim() || table.label,
-          number: Number(openTableForm.number) || table.number,
-          capacity,
-          currentPeopleCount,
-          activeSessionLimit,
-          pinCode,
-          notes: openTableForm.operationalNotes.trim() || undefined,
-          openedByStaffId: user?.uid ?? null
-        })
+      const response = await fetchAdminJson("/api/admin/table/open", {
+        tableId: table.id,
+        label: openTableForm.label.trim() || table.label,
+        number: Number(openTableForm.number) || table.number,
+        capacity,
+        currentPeopleCount,
+        activeSessionLimit,
+        pinCode,
+        notes: openTableForm.operationalNotes.trim() || undefined,
+        openedByStaffId: user?.uid ?? null
       });
 
       if (!response.ok) {
-        throw new Error("Falha ao abrir mesa");
+        throw new Error(await readApiError(response, "Falha ao abrir mesa"));
       }
 
       appToast.success("Mesa aberta com sucesso", "Mesa pronta para receber sessões e pedidos.");
@@ -486,7 +507,7 @@ export default function MesasPage(): JSX.Element {
       await loadData(true);
     } catch (error) {
       if (process.env.NODE_ENV === "development") console.error(error);
-      appToast.error("Falha ao abrir mesa", "Não foi possível atualizar o status da mesa.");
+      appToast.error("Falha ao abrir mesa", error instanceof Error ? error.message : "Não foi possível atualizar o status da mesa.");
     } finally {
       setOpeningTableId(null);
     }
