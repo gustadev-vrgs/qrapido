@@ -63,7 +63,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
         const payload = await response.json().catch(() => ({}));
         if (!active) return;
         if (!response.ok) {
-          setMessage(payload.error ?? "Não foi possível carregar esta mesa.");
+          setMessage(payload.error ?? "Não foi possível carregar os dados da mesa. Tente novamente ou solicite ajuda a um funcionário.");
           setState(response.status === 404 ? "invalid" : response.status === 423 ? "inactive" : response.status === 409 ? "no_session" : "error");
           return;
         }
@@ -73,7 +73,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
         setState("ready");
       } catch {
         if (active) {
-          setMessage("Não foi possível carregar esta mesa agora.");
+          setMessage("Não foi possível carregar os dados da mesa. Tente novamente ou solicite ajuda a um funcionário.");
           setState("error");
         }
       }
@@ -150,7 +150,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
         {state === "loading" ? <><AppSkeleton className="h-32" /><AppSkeleton className="h-14" /><AppSkeleton className="h-36" /></> : null}
         {state === "invalid" ? <MessageCard title="QR Code inválido ou mesa não encontrada." description={message} /> : null}
         {state === "inactive" ? <MessageCard title="Esta mesa está temporariamente indisponível." description={message} /> : null}
-        {state === "no_session" ? <MessageCard title="Atendimento ainda não aberto" description="Esta mesa ainda não possui um atendimento aberto. Solicite a liberação a um funcionário." /> : null}
+        {state === "no_session" ? <MessageCard title="Esta mesa ainda não possui um atendimento aberto." description="Esta mesa ainda não possui um atendimento aberto. Solicite a liberação a um funcionário." /> : null}
         {state === "error" ? <MessageCard title="Erro ao carregar" description={message} /> : null}
 
         {state === "ready" && data ? <>

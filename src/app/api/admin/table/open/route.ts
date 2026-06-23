@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createOperationalEvent, createSessionForTable, resolveTable } from "@/lib/server/public-session";
+import { buildPublicTableUrl } from "@/lib/utils/public-url";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { requireStaffRequest, ADMIN_ROLES } from "@/lib/server/admin-auth";
 
@@ -54,8 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     openedByStaffId: parsed.data.openedByStaffId ?? null
   });
   const publicToken = table.publicToken ?? crypto.randomBytes(32).toString("base64url");
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
-  const qrCodeValue = `${baseUrl}/mesa/${publicToken}`;
+  const qrCodeValue = buildPublicTableUrl(publicToken, request.nextUrl.origin);
 
   await db.collection("tables").doc(table.id).set(
     {
