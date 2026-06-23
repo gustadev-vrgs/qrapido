@@ -248,7 +248,15 @@ export default function MesasPage(): JSX.Element {
 
   async function readApiError(response: Response, fallback: string): Promise<string> {
     const payload = await response.json().catch(() => null) as { error?: string } | null;
-    return payload?.error ?? fallback;
+    if (payload?.error) return payload.error;
+
+    if (response.status === 401) return "Sua sessão expirou. Faça login novamente.";
+    if (response.status === 403) return "Você não possui permissão para abrir atendimentos.";
+    if (response.status === 404) return "Mesa não encontrada.";
+    if (response.status === 409) return "Esta mesa já possui atendimento aberto.";
+    if (response.status === 500) return "Não foi possível abrir o atendimento. Tente novamente.";
+
+    return fallback;
   }
 
   const handleNewTable = () => {
@@ -444,6 +452,8 @@ export default function MesasPage(): JSX.Element {
   const submitOpenTable = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (openingTableId) return;
+
     const table = tables.find((item) => item.id === openTableForm.tableId);
     if (!table) {
       appToast.error("Mesa não encontrada", "Atualize a tela e tente novamente.");
@@ -490,8 +500,7 @@ export default function MesasPage(): JSX.Element {
         currentPeopleCount,
         activeSessionLimit,
         pinCode,
-        notes: openTableForm.operationalNotes.trim() || undefined,
-        openedByStaffId: user?.uid ?? null
+        notes: openTableForm.operationalNotes.trim() || undefined
       });
 
       if (!response.ok) {
@@ -507,7 +516,7 @@ export default function MesasPage(): JSX.Element {
       await loadData(true);
     } catch (error) {
       if (process.env.NODE_ENV === "development") console.error(error);
-      appToast.error("Falha ao abrir mesa", error instanceof Error ? error.message : "Não foi possível atualizar o status da mesa.");
+      appToast.error("Falha ao abrir mesa", error instanceof Error ? error.message : "Não foi possível abrir o atendimento. Tente novamente.");
     } finally {
       setOpeningTableId(null);
     }
@@ -795,12 +804,12 @@ export default function MesasPage(): JSX.Element {
               </div>
 
               <div className="md:col-span-2 flex justify-end gap-2 border-t border-[hsl(var(--border))] pt-3">
-                <AppActionButton variant="secondary" onClick={() => setOpenModalVisible(false)}>
+                <AppActionButton variant="secondary" onClick={() => setOpenModalVisible(false)} disabled={Boolean(openingTableId)}>
                   Cancelar
                 </AppActionButton>
                 <AppActionButton type="submit" className="gap-2" disabled={Boolean(openingTableId)}>
                   {openingTableId ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Confirmar abertura
+                  {openingTableId ? "Abrindo..." : "Confirmar abertura"}
                 </AppActionButton>
               </div>
             </form>
