@@ -8,9 +8,7 @@ import { SettingsService } from "@/lib/data/services/settings-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { BusinessHours, PaymentMethod, RestaurantSettings, WeekdayKey } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
-
-const weekdayLabels: Record<WeekdayKey, string> = {
-  monday: "Segunda",
+import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaurantDisplayName } from "@/lib/constants/restaurant";
   tuesday: "Terça",
   wednesday: "Quarta",
   thursday: "Quinta",
@@ -42,7 +40,7 @@ export default function ConfiguracoesPage(): JSX.Element {
   const { user } = useAdminAuth();
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [restaurantDocumentId, setRestaurantDocumentId] = useState<string | null>(null);
-  const [restaurantName, setRestaurantName] = useState("");
+        setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
   const [isSaving, setIsSaving] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
 

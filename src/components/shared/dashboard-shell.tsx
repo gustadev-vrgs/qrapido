@@ -1,12 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaurantDisplayName } from "@/lib/constants/restaurant";
+        if (isMounted) setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
 
-import { ROLE_LABELS } from "@/lib/auth/roles";
-import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
+      setRestaurantName(resolveRestaurantDisplayName((event as CustomEvent<string>).detail));
 import { dashboardNavItems } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils/cn";
 import { AppActionButton } from "@/components/ui/app-design-system";
