@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { AppActionButton, AppEmptyState, AppFormField, AppSectionCard, AppSelect, AppTextInput } from "@/components/ui/app-design-system";
+import { AppActionButton, AppEmptyState, AppFormField, AppSectionCard, AppSelect, AppSkeleton, AppTextInput } from "@/components/ui/app-design-system";
 import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { SettingsService } from "@/lib/data/services/settings-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
@@ -12,7 +12,15 @@ import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaura
 import { DEFAULT_BUSINESS_HOURS, PAYMENT_LABELS, WEEKDAY_LABELS } from "@/lib/constants/restaurant-settings";
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [restaurantDocumentId, setRestaurantDocumentId] = useState<string | null>(null);
-        setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
+  const [isLoading, setIsLoading] = useState(true);
+      if (!user?.restaurantId) {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      } finally {
+        setIsLoading(false);
         businessHours: DEFAULT_BUSINESS_HOURS,
   const [isBootstrapping, setIsBootstrapping] = useState(false);
 
@@ -129,6 +137,16 @@ import { DEFAULT_BUSINESS_HOURS, PAYMENT_LABELS, WEEKDAY_LABELS } from "@/lib/co
       setIsSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <section className="space-y-4" aria-busy="true" aria-label="Carregando configurações">
+        <AppSkeleton className="h-52" />
+        <AppSkeleton className="h-80" />
+        <AppSkeleton className="h-72" />
+      </section>
+    );
+  }
 
   if (!settings) {
     return (
