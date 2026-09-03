@@ -41,6 +41,12 @@ html[data-theme="dark"] {
 }
 
 @layer base {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   body {
     @apply antialiased;
     background-color: hsl(var(--background));
@@ -49,11 +55,13 @@ html[data-theme="dark"] {
   }
 
   h1 {
-    @apply text-3xl font-semibold tracking-tight md:text-4xl;
+    @apply font-semibold tracking-tight;
+    font-size: clamp(1.75rem, 2vw + 1rem, 2.25rem);
   }
 
   h2 {
-    @apply text-2xl font-semibold tracking-tight;
+    @apply font-semibold tracking-tight;
+    font-size: clamp(1.35rem, 1vw + 1rem, 1.5rem);
   }
 
   h3 {
