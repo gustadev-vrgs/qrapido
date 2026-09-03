@@ -1,12 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaurantDisplayName } from "@/lib/constants/restaurant";
+        if (isMounted) setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
 
-import { ROLE_LABELS } from "@/lib/auth/roles";
-import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
+      setRestaurantName(resolveRestaurantDisplayName((event as CustomEvent<string>).detail));
 import { dashboardNavItems } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils/cn";
 import { AppActionButton } from "@/components/ui/app-design-system";
@@ -41,21 +38,21 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))] p-3 md:p-5">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 lg:grid lg:grid-cols-[290px_1fr]">
+    <div className="min-h-screen bg-[hsl(var(--background))] p-2.5 sm:p-3 lg:p-4 2xl:p-5">
+      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 lg:grid lg:grid-cols-[clamp(230px,21vw,280px)_minmax(0,1fr)] lg:gap-4 2xl:gap-5">
         <input id="admin-sidebar-toggle" type="checkbox" className="peer sr-only" />
 
         <label
           htmlFor="admin-sidebar-toggle"
-          className="fixed inset-0 z-30 hidden cursor-pointer bg-black/40 opacity-0 transition-opacity duration-300 peer-checked:block peer-checked:opacity-100 lg:hidden"
+          className="fixed inset-0 z-30 hidden cursor-pointer bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity duration-300 peer-checked:block peer-checked:opacity-100 lg:hidden"
           aria-label="Fechar menu"
         />
 
-        <aside className="app-surface-strong fixed inset-y-3 left-3 z-40 flex w-[85vw] max-w-[320px] -translate-x-[120%] flex-col bg-[linear-gradient(180deg,hsl(var(--background-elevated)),hsl(var(--surface)))] p-5 transition-transform duration-300 peer-checked:translate-x-0 lg:sticky lg:top-5 lg:z-10 lg:h-[calc(100vh-2.5rem)] lg:w-auto lg:max-w-none lg:translate-x-0">
-          <div className="mb-6 flex items-start justify-between border-b border-[hsl(var(--border))] pb-5">
+        <aside className="app-surface-strong fixed inset-y-2.5 left-2.5 z-40 flex w-[min(88vw,320px)] min-h-0 -translate-x-[120%] flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--background-elevated)),hsl(var(--surface)))] p-4 transition-transform duration-300 peer-checked:translate-x-0 sm:inset-y-3 sm:left-3 sm:p-5 lg:sticky lg:top-4 lg:z-10 lg:h-[calc(100dvh-2rem)] lg:w-auto lg:max-w-none lg:translate-x-0 lg:p-4 2xl:top-5 2xl:h-[calc(100dvh-2.5rem)] 2xl:p-5">
+          <div className="mb-3 flex shrink-0 items-start justify-between border-b border-[hsl(var(--border))] pb-4 2xl:mb-5 2xl:pb-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">QRápido</p>
-              <p className="mt-2 text-2xl font-semibold">{user?.restaurantId ?? "Restaurante"}</p>
+              <p className="mt-2 break-words text-xl font-semibold 2xl:text-2xl">{user?.restaurantId ?? "Restaurante"}</p>
               <p className="mt-2 text-xs text-[hsl(var(--foreground-muted))]">Operação inteligente em tempo real</p>
             </div>
             <label htmlFor="admin-sidebar-toggle" className="lg:hidden">
@@ -66,7 +63,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
             </label>
           </div>
 
-          <nav className="space-y-2">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 2xl:space-y-2">
             {dashboardNavItems.map(({ href, icon: Icon, label, description }) => {
               const active = isNavItemActive(href);
 
@@ -75,7 +72,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
                   key={href}
                   href={href}
                   className={cn(
-                    "group relative flex items-start gap-3 rounded-2xl border px-3 py-3 transition-all duration-200",
+                    "group relative flex items-start gap-3 rounded-2xl border px-3 py-2.5 transition-all duration-200 2xl:py-3",
                     active
                       ? "border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--foreground))] shadow-[0_6px_18px_hsl(var(--primary)/0.12)]"
                       : "border-transparent text-[hsl(var(--foreground-muted))] hover:border-[hsl(var(--border-strong))] hover:bg-[hsl(var(--surface-muted)/0.7)] hover:text-[hsl(var(--foreground))]"
@@ -100,7 +97,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
             })}
           </nav>
 
-          <div className="mt-auto space-y-3 border-t border-[hsl(var(--border))] pt-4">
+          <div className="mt-3 shrink-0 space-y-2 border-t border-[hsl(var(--border))] pt-3 2xl:mt-4 2xl:space-y-3 2xl:pt-4">
             <AppActionButton variant="secondary" className="w-full justify-start gap-2" onClick={toggleTheme}>
               {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               {isDarkMode ? "Modo claro" : "Modo escuro"}
@@ -117,7 +114,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
           </div>
         </aside>
 
-        <main className="space-y-4">
+        <main className="min-w-0 space-y-3 lg:space-y-4">
           <label htmlFor="admin-sidebar-toggle" className="inline-flex lg:hidden">
             <span className="sr-only">Abrir navegação</span>
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]">
@@ -125,7 +122,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
             </span>
           </label>
 
-          <section className="space-y-4 rounded-3xl border border-[hsl(var(--border))] bg-[linear-gradient(180deg,hsl(var(--background-elevated)/0.84),hsl(var(--surface)/0.95))] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] md:p-5">
+          <section className="min-w-0 space-y-4 overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[linear-gradient(180deg,hsl(var(--background-elevated)/0.84),hsl(var(--surface)/0.95))] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] sm:rounded-3xl sm:p-4 xl:p-5">
             {children}
           </section>
         </main>
