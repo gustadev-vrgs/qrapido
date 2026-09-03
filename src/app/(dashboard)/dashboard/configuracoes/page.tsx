@@ -9,39 +9,11 @@ import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { BusinessHours, PaymentMethod, RestaurantSettings, WeekdayKey } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
 import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaurantDisplayName } from "@/lib/constants/restaurant";
-  tuesday: "Terça",
-  wednesday: "Quarta",
-  thursday: "Quinta",
-  friday: "Sexta",
-  saturday: "Sábado",
-  sunday: "Domingo"
-};
-
-const paymentLabels: Record<PaymentMethod, string> = {
-  pix: "Pix",
-  cash: "Dinheiro",
-  debit_card: "Cartão de débito",
-  credit_card: "Cartão de crédito",
-  card_on_counter: "Cartão no caixa",
-  card_on_table: "Cartão na mesa"
-};
-
-const defaultBusinessHours: BusinessHours = {
-  monday: { isOpen: true, open: "09:00", close: "18:00" },
-  tuesday: { isOpen: true, open: "09:00", close: "18:00" },
-  wednesday: { isOpen: true, open: "09:00", close: "18:00" },
-  thursday: { isOpen: true, open: "09:00", close: "18:00" },
-  friday: { isOpen: true, open: "09:00", close: "18:00" },
-  saturday: { isOpen: false, open: "09:00", close: "18:00" },
-  sunday: { isOpen: false, open: "09:00", close: "18:00" }
-};
-
-export default function ConfiguracoesPage(): JSX.Element {
-  const { user } = useAdminAuth();
+import { DEFAULT_BUSINESS_HOURS, PAYMENT_LABELS, WEEKDAY_LABELS } from "@/lib/constants/restaurant-settings";
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [restaurantDocumentId, setRestaurantDocumentId] = useState<string | null>(null);
         setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
-  const [isSaving, setIsSaving] = useState(false);
+        businessHours: DEFAULT_BUSINESS_HOURS,
   const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const settingsService = useMemo(() => new SettingsService({ scope: "admin" }), []);
@@ -201,7 +173,7 @@ export default function ConfiguracoesPage(): JSX.Element {
           {(Object.keys(settings.businessHours) as WeekdayKey[]).map((day) => (
             <div key={day} className="grid gap-2 rounded-xl border border-[hsl(var(--border-strong))] p-3">
               <label className="flex items-center justify-between text-sm font-medium">
-                {weekdayLabels[day]}
+                {WEEKDAY_LABELS[day]}
                 <input type="checkbox" checked={settings.businessHours[day].isOpen} onChange={(event) => updateHours(day, { isOpen: event.target.checked })} />
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -231,10 +203,10 @@ export default function ConfiguracoesPage(): JSX.Element {
           </AppFormField>
           <AppFormField label="Métodos de pagamento aceitos" hint="Selecione múltiplos métodos conforme a operação.">
             <div className="grid grid-cols-2 gap-2 text-sm">
-              {(Object.keys(paymentLabels) as PaymentMethod[]).map((method) => (
+              {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map((method) => (
                 <label key={method} className="flex items-center gap-2 rounded-lg border border-[hsl(var(--border-strong))] p-2">
                   <input type="checkbox" checked={settings.acceptedPaymentMethods.includes(method)} onChange={() => togglePaymentMethod(method)} />
-                  {paymentLabels[method]}
+                  {PAYMENT_LABELS[method]}
                 </label>
               ))}
             </div>
