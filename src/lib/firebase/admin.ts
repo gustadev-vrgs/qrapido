@@ -49,6 +49,16 @@ function assertAdminEnv() {
   };
 }
 
+/** Returns presence/format diagnostics only; never returns credential values. */
+export function getFirebaseAdminEnvDiagnostics() {
+  const privateKey = requiredAdminEnv.privateKey;
+  return {
+    FIREBASE_PROJECT_ID: requiredAdminEnv.projectId ? "configured" : "missing",
+    FIREBASE_CLIENT_EMAIL: requiredAdminEnv.clientEmail && requiredAdminEnv.clientEmail.includes('@') ? "configured" : requiredAdminEnv.clientEmail ? "invalid_format" : "missing",
+    FIREBASE_PRIVATE_KEY: !privateKey ? "missing" : privateKey.includes("BEGIN PRIVATE KEY") ? "configured" : "invalid_format",
+  } as const;
+}
+
 export function getFirebaseAdminApp() {
   const { app } = loadAdminModules();
 

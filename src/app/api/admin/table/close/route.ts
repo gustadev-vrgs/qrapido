@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { createOperationalEvent, resolveTable } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { requireStaffRequest, ADMIN_ROLES } from "@/lib/server/admin-auth";
+import { requireStaffRequest, ADMIN_ROLES, forbiddenResource } from "@/lib/server/admin-auth";
 
 const payloadSchema = z.object({
   tableId: z.string().min(1)
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const staff = await requireStaffRequest(request, ADMIN_ROLES);
   if (staff instanceof NextResponse) return staff;
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
   }
@@ -22,11 +22,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!table) {
     return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
   }
+  if (table.restaurantId !== staff.staffUser.restaurantId) return forbiddenResource(staff.requestId);
 
   const db = getAdminFirestore() as any;
   const closedAt = new Date().toISOString();
   const sessionSnapshot = await db
     .collection("tableSessions")
+    .where("restaurantId", "==", staff.staffUser.restaurantId)
     .where("tableId", "==", table.id)
     .where("status", "in", ["active", "idle"])
     .get();
@@ -63,5 +65,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     message: "Mesa encerrada no painel"
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, requestId: staff.requestId }, { headers: { "x-request-id": staff.requestId } });
 }

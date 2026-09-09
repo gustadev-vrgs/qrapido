@@ -1,12 +1,8 @@
-import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
 
 import { COLLECTION_NAMES, type StaffUser } from "@/lib/types/domain";
 import { canAccessDashboard } from "@/lib/auth/roles";
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
 
 async function getActiveStaffUserByDocId(db: Firestore, uid: string): Promise<StaffUser | null> {
   const snapshot = await getDoc(doc(db, COLLECTION_NAMES.staffUsers, uid));
@@ -17,7 +13,7 @@ async function getActiveStaffUserByDocId(db: Firestore, uid: string): Promise<St
 
   const data = snapshot.data() as Omit<StaffUser, "id">;
 
-  if (!data.isActive) {
+  if (!data.isActive || data.uid !== uid) {
     return null;
   }
 
@@ -27,57 +23,8 @@ async function getActiveStaffUserByDocId(db: Firestore, uid: string): Promise<St
   };
 }
 
-async function getActiveStaffUserByField(db: Firestore, field: "uid" | "email", value: string): Promise<StaffUser | null> {
-  const staffQuery = query(
-    collection(db, COLLECTION_NAMES.staffUsers),
-    where(field, "==", value),
-    where("isActive", "==", true),
-    limit(1)
-  );
-
-  const snapshot = await getDocs(staffQuery);
-
-  if (snapshot.empty) {
-    return null;
-  }
-
-  const document = snapshot.docs[0];
-  return {
-    id: document.id,
-    ...(document.data() as Omit<StaffUser, "id">)
-  };
-}
-
 export async function getActiveStaffUser(db: Firestore, user: { uid: string; email: string | null }): Promise<StaffUser | null> {
-  const byDocId = await getActiveStaffUserByDocId(db, user.uid);
-
-  if (byDocId) {
-    return byDocId;
-  }
-
-  const byUid = await getActiveStaffUserByField(db, "uid", user.uid);
-
-  if (byUid) {
-    return byUid;
-  }
-
-  if (!user.email) {
-    return null;
-  }
-
-  const trimmedEmail = user.email.trim();
-  const normalizedEmail = normalizeEmail(user.email);
-  const candidateEmails = Array.from(new Set([trimmedEmail, normalizedEmail])).filter(Boolean);
-
-  for (const email of candidateEmails) {
-    const byEmail = await getActiveStaffUserByField(db, "email", email);
-
-    if (byEmail) {
-      return byEmail;
-    }
-  }
-
-  return null;
+  return getActiveStaffUserByDocId(db, user.uid);
 }
 
 export type StaffValidationError = "missing_staff_user" | "forbidden_role";

@@ -1,83 +1,70 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getFirebaseAdminAuth, getFirebaseAdminFirestore } from "@/lib/firebase/admin";
-import type { StaffUser, UserRole } from "@/lib/types/domain";
+import { USER_ROLES, type StaffUser, type UserRole } from "@/lib/types/domain";
 
 export const ADMIN_ROLES: UserRole[] = ["admin", "manager"];
-export const STAFF_ROLES: UserRole[] = ["admin", "manager", "attendant", "kitchen"];
+export const STAFF_ROLES: UserRole[] = [...USER_ROLES];
 
-export interface VerifiedStaffRequest {
-  uid: string;
-  email: string | null;
-  staffUser: StaffUser;
+export interface VerifiedStaffRequest { uid: string; email: string | null; staffUser: StaffUser; requestId: string }
+
+function response(message: string, status: number, requestId: string, code: string): NextResponse {
+  return NextResponse.json({ error: message, code, requestId }, { status, headers: { "x-request-id": requestId } });
 }
 
-function authError(message: string, status = 401): NextResponse {
-  return NextResponse.json({ error: message }, { status });
+function bearer(request: NextRequest): string | null {
+  const match = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i);
+  return match?.[1] ?? null;
 }
 
-function getBearerToken(request: NextRequest): string | null {
-  const header = request.headers.get("authorization") ?? "";
-  const [scheme, ...parts] = header.trim().split(/\s+/);
-  const token = parts.join(" ");
-  return scheme?.toLowerCase() === "bearer" && token ? token : null;
+function requestId(request: NextRequest): string {
+  const supplied = request.headers.get("x-request-id");
+  return supplied && /^[a-zA-Z0-9_-]{8,80}$/.test(supplied) ? supplied : randomUUID();
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+function isInvalidToken(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code.startsWith("auth/id-token-") || code === "auth/argument-error";
 }
 
-async function findActiveStaffUser(db: any, user: { uid: string; email: string | null }): Promise<StaffUser | null> {
-  const byId = await db.collection("staffUsers").doc(user.uid).get();
-  if (byId.exists) {
-    const staffUser = { id: byId.id, ...byId.data() } as StaffUser;
-    if (staffUser.isActive && staffUser.uid === user.uid) return staffUser;
-  }
-
-  const byUid = await db.collection("staffUsers").where("uid", "==", user.uid).where("isActive", "==", true).limit(1).get();
-  if (!byUid.empty) {
-    const doc = byUid.docs[0];
-    const staffUser = { id: doc.id, ...doc.data() } as StaffUser;
-    if (staffUser.uid === user.uid) return staffUser;
-  }
-
-  if (!user.email) return null;
-
-  const candidateEmails = Array.from(new Set([user.email.trim(), normalizeEmail(user.email)])).filter(Boolean);
-  for (const email of candidateEmails) {
-    const byEmail = await db.collection("staffUsers").where("email", "==", email).where("isActive", "==", true).limit(1).get();
-    if (!byEmail.empty) {
-      const doc = byEmail.docs[0];
-      const staffUser = { id: doc.id, ...doc.data() } as StaffUser;
-      if (staffUser.uid === user.uid) return staffUser;
-    }
-  }
-
-  return null;
+export function logAdminFailure(id: string, stage: string, error: unknown): void {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown";
+  console.error(JSON.stringify({ level: "error", event: "admin_request_failed", requestId: id, stage, code }));
 }
 
 export async function requireStaffRequest(request: NextRequest, allowedRoles: UserRole[] = STAFF_ROLES): Promise<VerifiedStaffRequest | NextResponse> {
-  const idToken = getBearerToken(request);
-  if (!idToken) return authError("Sua sessão expirou. Faça login novamente.");
+  const id = requestId(request);
+  const idToken = bearer(request);
+  if (!idToken) return response("Autenticação ausente ou inválida.", 401, id, "invalid_token");
+
+  let decoded: { uid: string; email?: string | null };
+  try {
+    decoded = await (getFirebaseAdminAuth() as { verifyIdToken(token: string): Promise<{ uid: string; email?: string | null }> }).verifyIdToken(idToken);
+  } catch (error) {
+    if (isInvalidToken(error)) return response("Sua sessão expirou. Faça login novamente.", 401, id, "invalid_token");
+    logAdminFailure(id, "verify_token", error);
+    return response("Serviço de autenticação temporariamente indisponível.", 500, id, "auth_infrastructure_error");
+  }
 
   try {
-    const auth = getFirebaseAdminAuth() as { verifyIdToken: (token: string) => Promise<{ uid: string; email?: string | null }> };
-    const decoded = await auth.verifyIdToken(idToken);
-    const db = getFirebaseAdminFirestore() as any;
-    const staffUser = await findActiveStaffUser(db, { uid: decoded.uid, email: decoded.email ?? null });
-
-    if (!staffUser) return authError("Usuário sem cadastro ativo na equipe.", 403);
-    if (!allowedRoles.includes(staffUser.role)) return authError("Você não possui permissão para abrir atendimentos.", 403);
-
-    return { uid: decoded.uid, email: decoded.email ?? null, staffUser };
-  } catch (error) {
-    if (process.env.NODE_ENV === "development") console.error("Admin auth validation failed", error);
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("Missing Firebase admin environment variables")) {
-      return authError("Erro de configuração do servidor. Verifique as variáveis do Firebase Admin.", 500);
+    const snapshot = await (getFirebaseAdminFirestore() as any).collection("staffUsers").doc(decoded.uid).get();
+    if (!snapshot.exists) return response("Usuário sem cadastro ativo na equipe.", 403, id, "staff_not_found");
+    const staffUser = { id: snapshot.id, ...snapshot.data() } as StaffUser;
+    const validRole = USER_ROLES.includes(staffUser.role);
+    if (staffUser.uid !== decoded.uid || !staffUser.isActive || !staffUser.restaurantId || !validRole) {
+      return response("Cadastro de funcionário inativo ou inválido.", 403, id, "staff_inactive_or_invalid");
     }
-    return authError("Sua sessão expirou. Faça login novamente.");
+    if (!allowedRoles.includes(staffUser.role)) return response("Você não possui permissão para esta operação.", 403, id, "insufficient_role");
+    return { uid: decoded.uid, email: decoded.email ?? null, staffUser, requestId: id };
+  } catch (error) {
+    logAdminFailure(id, "load_staff", error);
+    return response("Não foi possível validar as permissões no momento.", 500, id, "staff_infrastructure_error");
   }
+}
+
+export function forbiddenResource(requestId: string): NextResponse {
+  return response("O recurso não pertence ao seu restaurante.", 403, requestId, "restaurant_mismatch");
 }

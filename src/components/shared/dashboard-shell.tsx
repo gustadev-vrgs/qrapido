@@ -129,7 +129,7 @@ export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
           </div>
 
           <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 2xl:space-y-2">
-            {dashboardNavItems.map(
+            {dashboardNavItems.filter((item) => !item.roles || (user && item.roles.includes(user.role))).map(
               ({ href, icon: Icon, label, description }) => {
                 const active = isNavItemActive(href);
 
