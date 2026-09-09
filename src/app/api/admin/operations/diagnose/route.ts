@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { ADMIN_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
 
+interface DiagnosticTable {
+  status?: string;
+  currentSessionGroupId?: string | null;
+}
+
+interface DiagnosticSession {
+  status?: string;
+  expiresAt?: string;
+}
+
 // Read-only diagnosis: it never deletes or repairs production records automatically.
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const staff = await requireStaffRequest(request, ADMIN_ROLES);
@@ -11,13 +21,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     db.collection("tables").where("restaurantId", "==", staff.staffUser.restaurantId).get(),
     db.collection("tableSessions").where("restaurantId", "==", staff.staffUser.restaurantId).get()
   ]);
-  const sessionMap = new Map(sessions.docs.map((doc: any) => [doc.id, doc.data()]));
+  const sessionMap = new Map<string, DiagnosticSession>(
+    sessions.docs.map((doc: any) => [doc.id, doc.data() as DiagnosticSession])
+  );
   const issues: Array<Record<string, unknown>> = [];
   for (const doc of tables.docs) {
-    const table = doc.data(); const session = table.currentSessionGroupId ? sessionMap.get(table.currentSessionGroupId) : null;
+    const table = doc.data() as DiagnosticTable;
+    const session = table.currentSessionGroupId ? sessionMap.get(table.currentSessionGroupId) ?? null : null;
     if (table.status === "active" && !session) issues.push({ code: "ACTIVE_WITHOUT_SESSION", tableId: doc.id, recovery: "Revisar histórico e vincular ou bloquear manualmente; não criar sessão retroativa." });
-    if (session && ["closed"].includes(session.status) && table.status !== "free") issues.push({ code: "CLOSED_SESSION_OCCUPIES_TABLE", tableId: doc.id, sessionId: table.currentSessionGroupId, recovery: "Confirmar ausência de pendências antes de liberar a mesa." });
-    if (session && new Date(session.expiresAt).getTime() <= Date.now() && session.status === "active") issues.push({ code: "EXPIRED_NOT_MATERIALIZED", tableId: doc.id, sessionId: table.currentSessionGroupId, recovery: "Renovar ou bloquear novos pedidos; preservar pedidos existentes." });
+    if (session?.status === "closed" && table.status !== "free") issues.push({ code: "CLOSED_SESSION_OCCUPIES_TABLE", tableId: doc.id, sessionId: table.currentSessionGroupId, recovery: "Confirmar ausência de pendências antes de liberar a mesa." });
+    if (session?.expiresAt && new Date(session.expiresAt).getTime() <= Date.now() && session.status === "active") issues.push({ code: "EXPIRED_NOT_MATERIALIZED", tableId: doc.id, sessionId: table.currentSessionGroupId, recovery: "Renovar ou bloquear novos pedidos; preservar pedidos existentes." });
   }
   return NextResponse.json({ generatedAt: new Date().toISOString(), readOnly: true, issueCount: issues.length, issues });
 }
