@@ -99,6 +99,7 @@ export async function createSessionAccessGrant(session: any): Promise<{ cookieVa
       csrfHash: hashValue(csrfToken),
       expiresAt,
       revokedAt: null,
+      blockedUntil: null,
       createdAt: nowIso(),
       updatedAt: nowIso()
     }
@@ -118,6 +119,7 @@ export async function validateAccessGrant(session: any, cookieValue: string | nu
   if (!doc.exists) return false;
   const data = doc.data();
   if (!data || data.revokedAt || toMillis(data.expiresAt) <= Date.now()) return false;
+  if (data.blockedUntil && toMillis(data.blockedUntil) > Date.now()) return false;
   if (computeSessionStatus(session) !== "active") return false;
   if (data.sessionId !== session.id || data.restaurantId !== session.restaurantId || data.tableId !== session.tableId) return false;
   if (data.tokenHash !== hashValue(secret)) return false;
@@ -146,8 +148,6 @@ export async function verifyAttendanceCode(session: any, code: string): Promise<
     if (!snap.exists) return { ok: false, limited: false };
     const fresh = snap.data();
     if (computeSessionStatus(fresh) !== "active") return { ok: false, limited: false };
-    const lockedUntil = fresh.accessLockedUntil ? toMillis(fresh.accessLockedUntil) : 0;
-    if (lockedUntil > Date.now()) return { ok: false, limited: true };
     const valid = Boolean(fresh.accessCodeHash && fresh.accessCodeSalt) &&
       crypto.timingSafeEqual(Buffer.from(hashAttendanceCode(code, fresh.accessCodeSalt), "hex"), Buffer.from(fresh.accessCodeHash, "hex"));
     if (valid) {
@@ -155,8 +155,10 @@ export async function verifyAttendanceCode(session: any, code: string): Promise<
       return { ok: true };
     }
     const attempts = (fresh.accessFailedAttempts ?? 0) + 1;
-    tx.update(ref, { accessFailedAttempts: attempts, accessLockedUntil: attempts >= MAX_ACCESS_ATTEMPTS ? new Date(Date.now() + ACCESS_LOCK_MINUTES * 60_000).toISOString() : null, updatedAt: nowIso() });
-    return { ok: false, limited: attempts >= MAX_ACCESS_ATTEMPTS };
+    // The per-IP/table Firestore limiter protects attempts. Never lock the whole
+    // table because several legitimate diners commonly share the restaurant Wi-Fi.
+    tx.update(ref, { accessFailedAttempts: attempts, accessLockedUntil: null, updatedAt: nowIso() });
+    return { ok: false, limited: false };
   });
 }
 

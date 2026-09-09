@@ -82,6 +82,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Contadores e reservas de segurança são exclusivos das APIs Admin.
+    match /publicRateLimits/{limitId} { allow read, write: if false; }
+    match /orderIdempotency/{keyId} { allow read, write: if false; }
+
     match /orders/{orderId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
       allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
