@@ -81,7 +81,18 @@ export function computeSessionStatus(session: any): "active" | "expired" | "bloc
 
 export async function markSessionExpired(sessionId: string): Promise<void> {
   const db = getAdminFirestore() as any;
-  await db.collection("tableSessions").doc(sessionId).set({ status: "expired", updatedAt: nowIso() }, { merge: true });
+  const sessionRef = db.collection("tableSessions").doc(sessionId);
+  await db.runTransaction(async (tx: any) => {
+    const sessionSnap = await tx.get(sessionRef);
+    if (!sessionSnap.exists || ["closed", "blocked", "expired"].includes(sessionSnap.data().status)) return;
+    const session = sessionSnap.data();
+    const tableRef = db.collection("tables").doc(session.tableId);
+    const tableSnap = await tx.get(tableRef);
+    const at = nowIso();
+    tx.update(sessionRef, { status: "expired", expiredAt: at, updatedAt: at });
+    if (tableSnap.exists && tableSnap.data().currentSessionGroupId === sessionId) tx.update(tableRef, { status: "blocked", updatedAt: at });
+    tx.set(db.collection("orderEvents").doc(), { restaurantId: session.restaurantId, tableId: session.tableId, sessionId, orderId: "system", type: "session_expired", actorType: "system", actorId: null, message: "Atendimento expirado; novos pedidos e acessos foram bloqueados", metadata: {}, createdAt: at });
+  });
 }
 
 export async function createSessionAccessGrant(session: any): Promise<{ cookieValue: string; csrfToken: string; expiresAt: string }> {
@@ -140,6 +151,23 @@ export async function resolveAuthorizedSession(cookieValue: string | null, csrfT
   return await validateAccessGrant(session, cookieValue, csrfToken) ? session : null;
 }
 
+/** Read-only access for orders already created. Expiration blocks mutations but
+ * does not hide their result from the grant that created them. */
+export async function resolveHistoricalAuthorizedSession(cookieValue: string | null): Promise<any | null> {
+  if (!cookieValue) return null;
+  const [grantId, secret, ...extra] = cookieValue.split(".");
+  if (!grantId || !secret || extra.length) return null;
+  const db = getAdminFirestore() as any;
+  const grantSnap = await db.collection("sessionAccessGrants").doc(grantId).get();
+  if (!grantSnap.exists) return null;
+  const grant = grantSnap.data();
+  if (grant.revokedAt || grant.tokenHash !== hashValue(secret) || toMillis(grant.expiresAt) <= Date.now()) return null;
+  const sessionSnap = await db.collection("tableSessions").doc(grant.sessionId).get();
+  if (!sessionSnap.exists) return null;
+  const session = { id: sessionSnap.id, ...sessionSnap.data() } as any;
+  return session.restaurantId === grant.restaurantId && session.tableId === grant.tableId ? session : null;
+}
+
 export async function verifyAttendanceCode(session: any, code: string): Promise<{ ok: true } | { ok: false; limited: boolean }> {
   const db = getAdminFirestore() as any;
   const ref = db.collection("tableSessions").doc(session.id);
@@ -170,6 +198,8 @@ export async function createOperationalEvent(input: {
   type: string;
   message: string;
   metadata?: Record<string, unknown>;
+  actorType?: "staff" | "customer" | "system";
+  actorId?: string | null;
 }): Promise<void> {
   const db = getAdminFirestore() as any;
   await db.collection("orderEvents").add({
@@ -177,8 +207,8 @@ export async function createOperationalEvent(input: {
     tableId: input.tableId,
     sessionId: input.sessionId,
     orderId: input.orderId ?? "system",
-    actorType: "customer",
-    actorId: null,
+    actorType: input.actorType ?? "system",
+    actorId: input.actorId ?? null,
     type: input.type,
     message: input.message,
     metadata: input.metadata ?? {},

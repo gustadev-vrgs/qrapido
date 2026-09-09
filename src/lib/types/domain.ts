@@ -93,6 +93,7 @@ export interface TableSession extends BaseEntity {
   requestCountWindow: number;
   peopleCount: number;
   maxOrdersAllowed: number;
+  orderLimitEnabled: boolean;
   completedOrdersCount: number;
   openedByStaffId: string | null;
   notes: string | null;
@@ -164,6 +165,8 @@ export interface Order extends BaseEntity {
   receivedAt: ISODateTimeString;
   deliveredAt: ISODateTimeString | null;
   cancelledAt: ISODateTimeString | null;
+  cancellationReason?: string | null;
+  quotaReleasedAt?: ISODateTimeString | null;
 }
 
 export interface OrderEvent {

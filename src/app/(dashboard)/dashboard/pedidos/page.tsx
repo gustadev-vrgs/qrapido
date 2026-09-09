@@ -20,6 +20,7 @@ import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-l
 import { OrdersService } from "@/lib/data/services/orders-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { getClientFirestore } from "@/lib/firebase/firestore";
+import { getFirebaseClientAuth } from "@/lib/firebase/client";
 import type { Order, OrderStatus } from "@/lib/types/domain";
 import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
@@ -161,7 +162,7 @@ interface CancelDialogState {
 }
 
 export default function PedidosPage(): JSX.Element {
-  const { user } = useAdminAuth();
+  const { user, firebaseUser } = useAdminAuth();
   const ordersService = useMemo(() => new OrdersService({ scope: "admin" }), []);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -250,12 +251,14 @@ export default function PedidosPage(): JSX.Element {
     try {
       setUpdatingOrderId(order.id);
 
-      await ordersService.update(order.id, {
-        status: nextStatus,
-        cancelledAt: nextStatus === "cancelled" ? new Date().toISOString() : null,
-        deliveredAt: nextStatus === "delivered" ? new Date().toISOString() : order.deliveredAt,
-        notes: nextStatus === "cancelled" && reason ? `${order.notes ? `${order.notes} • ` : ""}Cancelado: ${reason}` : order.notes
-      });
+      const authUser = firebaseUser ?? getFirebaseClientAuth().currentUser;
+      const token = await authUser?.getIdToken();
+      if (!token) throw new Error("Sessão administrativa ausente.");
+      const response = await fetch("/api/admin/order/transition", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId: order.id, nextStatus, reason }) });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Transição recusada pelo servidor.");
+      }
 
       setOrders((previous) =>
         previous.map((item) =>
@@ -277,7 +280,7 @@ export default function PedidosPage(): JSX.Element {
       }
     } catch (error) {
       console.error(error);
-      appToast.error("Não foi possível atualizar o status", "Tente novamente em instantes.");
+      appToast.error("Não foi possível atualizar o status", error instanceof Error ? error.message : "Tente novamente em instantes.");
     } finally {
       setUpdatingOrderId(null);
     }
