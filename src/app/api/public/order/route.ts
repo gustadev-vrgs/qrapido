@@ -1,98 +1,90 @@
-import crypto from "node:crypto";
-
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { computeSessionStatus, createOperationalEvent, guardOrderAbuse, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { MAX_PUBLIC_BODY_BYTES, payloadTooLargeResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
+import { computeSessionStatus, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
 
-const itemSchema = z.object({ menuItemId: z.string().min(1), quantity: z.number().int().positive().max(99), notes: z.string().max(280).nullable().optional() });
+const MAX_CART_LINES = 30;
+const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(20), notes: z.string().trim().max(180).nullable().optional() }).strict();
 const payloadSchema = z.object({
-  items: z.array(itemSchema).min(1),
-  duplicateFingerprint: z.string().min(8).max(280),
-  customerName: z.string().max(80).nullable().optional(),
-  notes: z.string().max(500).nullable().optional(),
-  paymentMethod: z.enum(["pix", "cash", "debit_card", "credit_card"]),
-  paymentMode: z.enum(["system_simulated", "counter", "waiter"]),
-  changeFor: z.number().positive().nullable().optional()
-});
+  items: z.array(itemSchema).min(1).max(MAX_CART_LINES),
+  customerName: z.string().trim().max(80).nullable().optional(), notes: z.string().trim().max(500).nullable().optional(),
+  paymentMethod: z.enum(["pix", "cash", "debit_card", "credit_card"]), paymentMode: z.enum(["system_simulated", "counter", "waiter"]),
+  changeFor: z.number().finite().positive().max(100000).nullable().optional()
+}).strict();
 
-function roundMoney(value: number): number { return Math.round(value * 100) / 100; }
-function paymentStatus(method: string, mode: string): string {
-  if (mode === "counter") return "pagar no caixa";
-  if (mode === "waiter") return "aguardando garçom";
-  if (method === "pix" || method === "credit_card" || method === "debit_card") return "simulado";
-  return "pendente";
-}
+const money = (value: number): number => Math.round(value * 100) / 100;
+const paymentStatus = (mode: string): string => mode === "system_simulated" ? "simulação acadêmica — sem recebimento confirmado" : mode === "counter" ? "pagamento pendente no caixa" : "pagamento pendente com garçom";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const parsed = payloadSchema.safeParse(await request.json());
-  if (!parsed.success) return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
+  let body: unknown;
+  try { body = await readLimitedJson(request, MAX_PUBLIC_BODY_BYTES); } catch { return payloadTooLargeResponse(); }
+  const parsed = payloadSchema.safeParse(body);
+  const idempotencyKey = request.headers.get("idempotency-key")?.trim() ?? "";
+  if (!parsed.success || !/^[a-zA-Z0-9_-]{16,128}$/.test(idempotencyKey)) return NextResponse.json({ error: "Payload ou chave de idempotência inválida." }, { status: 400 });
 
-  const session = await resolveAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null, request.headers.get("x-csrf-token"));
+  const cookie = request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null;
+  const grantId = cookie?.split(".")[0] ?? "";
+  const session = await resolveAuthorizedSession(cookie, request.headers.get("x-csrf-token"));
   if (!session) return NextResponse.json({ error: "Acesso não autorizado para essa mesa." }, { status: 401 });
-
   const table = await resolveTable(session.tableId);
-  if (!table || table.status !== "active") return NextResponse.json({ error: "Mesa não está ativa para pedidos." }, { status: 409 });
-
-  const status = computeSessionStatus(session);
-  if (status === "expired") { await markSessionExpired(session.id); return NextResponse.json({ error: "Sessão expirada." }, { status: 410 }); }
-  if (status !== "active") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
+  if (!table || table.restaurantId !== session.restaurantId || table.status !== "active") return NextResponse.json({ error: "Mesa não está ativa para pedidos." }, { status: 409 });
+  if (computeSessionStatus(session) !== "active") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
 
   const db = getAdminFirestore() as any;
-  const duplicateGuardHash = crypto.createHash("sha256").update(`${session.id}:${parsed.data.duplicateFingerprint}`).digest("hex");
-  const abuseCheck = await guardOrderAbuse({ restaurantId: session.restaurantId, sessionId: session.id, duplicateGuardHash });
-  if (!abuseCheck.ok) return NextResponse.json({ error: abuseCheck.reason }, { status: 429 });
-
-  const menuRefs = parsed.data.items.map((item) => db.collection("menuItems").doc(item.menuItemId));
-  const menuDocs = await db.getAll(...menuRefs);
-  const menuById = new Map<string, any>();
-  for (const doc of menuDocs) {
-    if (!doc.exists) return NextResponse.json({ error: "Um item do pedido não existe mais." }, { status: 400 });
-    const item = { id: doc.id, ...doc.data() };
-    if (item.restaurantId !== session.restaurantId || item.isActive !== true || item.isAvailable !== true) return NextResponse.json({ error: `O item ${item.name ?? doc.id} não está disponível.` }, { status: 409 });
-    menuById.set(doc.id, item);
-  }
-
-  const items = parsed.data.items.map((input) => {
-    const menuItem = menuById.get(input.menuItemId);
-    const total = roundMoney(menuItem.price * input.quantity);
-    return { menuItemId: input.menuItemId, nameSnapshot: menuItem.name, priceSnapshot: roundMoney(menuItem.price), quantity: input.quantity, notes: input.notes?.trim() || null, total };
-  });
-  const subtotal = roundMoney(items.reduce((sum, item) => sum + item.total, 0));
-  const now = new Date().toISOString();
+  const canonical = JSON.stringify(parsed.data);
+  const contentHash = stableHash(canonical);
+  const idempotencyRef = db.collection("orderIdempotency").doc(stableHash(`${session.id}:${idempotencyKey}`));
+  const settings = await db.collection("restaurantSettings").where("restaurantId", "==", session.restaurantId).limit(1).get();
+  const serviceFeePercent = Number(settings.empty ? 0 : settings.docs[0].data().serviceFeePercent ?? 0);
+  if (!Number.isFinite(serviceFeePercent) || serviceFeePercent < 0 || serviceFeePercent > 100) return NextResponse.json({ error: "Configuração de taxa inválida." }, { status: 503 });
 
   try {
-    const result = await db.runTransaction(async (transaction: any) => {
+    const result = await db.runTransaction(async (tx: any) => {
+      const nowMs = Date.now(); const now = new Date(nowMs).toISOString();
       const sessionRef = db.collection("tableSessions").doc(session.id);
-      const sessionSnap = await transaction.get(sessionRef);
-      if (!sessionSnap.exists) throw new Error("SESSION_NOT_FOUND");
+      const menuRefs = parsed.data.items.map((item) => db.collection("menuItems").doc(item.menuItemId));
+      const rateRules = [
+        { scope: "order_grant", key: grantId, limit: 4, seconds: 60 },
+        { scope: "order_session", key: session.id, limit: 12, seconds: 60 },
+        { scope: "order_table", key: session.tableId, limit: 24, seconds: 60 }
+      ].map((rule) => ({ ...rule, window: Math.floor(nowMs / (rule.seconds * 1000)) }));
+      const rateRefs = rateRules.map((rule) => db.collection("publicRateLimits").doc(stableHash(`${rule.scope}:${rule.key}:${rule.window}`)));
+      const [idemSnap, sessionSnap, ...rest] = await Promise.all([tx.get(idempotencyRef), tx.get(sessionRef), ...menuRefs.map((ref) => tx.get(ref)), ...rateRefs.map((ref) => tx.get(ref))]);
+      if (idemSnap.exists) {
+        const idem = idemSnap.data();
+        if (idem.contentHash !== contentHash) throw new Error("IDEMPOTENCY_CONFLICT");
+        return { orderId: idem.orderId, orderCode: idem.orderCode, subtotal: idem.subtotal, serviceFee: idem.serviceFee, total: idem.total, replay: true };
+      }
       const fresh = sessionSnap.data();
-      if (fresh.status !== "active" || new Date(fresh.expiresAt).getTime() <= Date.now()) throw new Error("SESSION_INACTIVE");
+      if (!sessionSnap.exists || fresh.status !== "active" || new Date(fresh.expiresAt).getTime() <= nowMs) throw new Error("SESSION_INACTIVE");
       if ((fresh.completedOrdersCount ?? 0) >= (fresh.maxOrdersAllowed ?? fresh.peopleCount ?? 1)) throw new Error("ORDER_LIMIT");
-      const sequence = (fresh.completedOrdersCount ?? 0) + 1;
-      const orderRef = db.collection("orders").doc();
-      const code = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}-${orderRef.id.slice(-4).toUpperCase()}`;
-      transaction.set(orderRef, {
-        restaurantId: session.restaurantId, orderCode: code, tableId: session.tableId, tableNumber: session.tableNumber,
-        sessionId: session.id, sessionToken: session.sessionToken, customerName: parsed.data.customerName?.trim() || session.customerName || null,
-        items, subtotal, serviceFee: 0, total: subtotal, paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode,
-        paymentStatus: paymentStatus(parsed.data.paymentMethod, parsed.data.paymentMode), changeFor: parsed.data.changeFor ?? null,
-        status: "received", notes: parsed.data.notes?.trim() || null, duplicateGuardHash, receivedAt: now, deliveredAt: null, cancelledAt: null,
-        cancelReason: null, orderSlotReleased: false, createdAt: now, updatedAt: now
+      const menuSnaps = rest.slice(0, menuRefs.length); const rateSnaps = rest.slice(menuRefs.length);
+      rateRules.forEach((rule, index) => { if ((rateSnaps[index].data()?.count ?? 0) >= rule.limit) { const error = new Error("RATE_LIMIT") as Error & { retryAfter?: number }; error.retryAfter = rule.seconds - Math.floor((nowMs / 1000) % rule.seconds); throw error; } });
+      const items = parsed.data.items.map((input, index) => {
+        const snap = menuSnaps[index]; const product = snap.exists ? snap.data() : null;
+        if (!product || product.restaurantId !== session.restaurantId || product.isActive !== true || product.isAvailable !== true) throw new Error("ITEM_UNAVAILABLE");
+        const price = Number(product.price); if (!Number.isFinite(price) || price < 0) throw new Error("ITEM_INVALID");
+        return { menuItemId: snap.id, nameSnapshot: String(product.name ?? "").slice(0, 120), priceSnapshot: money(price), quantity: input.quantity, notes: input.notes || null, total: money(price * input.quantity) };
       });
-      transaction.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
-      return { orderId: orderRef.id, orderCode: code };
+      const subtotal = money(items.reduce((sum, item) => sum + item.total, 0)); const serviceFee = money(subtotal * serviceFeePercent / 100); const total = money(subtotal + serviceFee);
+      const sequence = (fresh.completedOrdersCount ?? 0) + 1; const orderRef = db.collection("orders").doc();
+      const orderCode = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}-${orderRef.id.slice(-4).toUpperCase()}`;
+      tx.set(orderRef, { restaurantId: session.restaurantId, orderCode, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, customerName: parsed.data.customerName || session.customerName || null, items, subtotal, serviceFeePercent, serviceFee, total, paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, paymentStatus: paymentStatus(parsed.data.paymentMode), financialReceiptConfirmed: false, simulation: parsed.data.paymentMode === "system_simulated", changeFor: parsed.data.changeFor ?? null, status: "received", notes: parsed.data.notes || null, receivedAt: now, createdAt: now, updatedAt: now });
+      tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, orderId: orderRef.id, orderCode, subtotal, serviceFee, total, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
+      tx.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
+      rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), updatedAt: now }, { merge: true }));
+      return { orderId: orderRef.id, orderCode, subtotal, serviceFee, total, replay: false };
     });
-
-    await Promise.all([
-      createOperationalEvent({ restaurantId: session.restaurantId, tableId: session.tableId, sessionId: session.id, orderId: result.orderId, type: "order_created", message: "Pedido criado pelo cliente", metadata: { subtotal } }),
-      db.collection("adminAlerts").add({ restaurantId: session.restaurantId, type: "new_order", title: "Novo pedido", message: `Mesa ${session.tableNumber} criou o pedido ${result.orderCode}.`, targetType: "order", targetId: result.orderId, read: false, createdAt: now })
-    ]);
-    return NextResponse.json({ orderId: result.orderId, orderCode: result.orderCode, subtotal }, { status: 201 });
-  } catch (error: any) {
-    if (error.message === "ORDER_LIMIT") return NextResponse.json({ error: "Todos os pedidos permitidos para esta mesa já foram utilizados. Solicite ajuda a um funcionário." }, { status: 409 });
-    if (error.message === "SESSION_INACTIVE") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
+    return NextResponse.json(result, { status: result.replay ? 200 : 201 });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Esta chave já foi usada com outro conteúdo." }, { status: 409 });
+    if (code === "ORDER_LIMIT") return NextResponse.json({ error: "A cota de pedidos desta sessão foi atingida." }, { status: 409 });
+    if (code === "ITEM_UNAVAILABLE" || code === "ITEM_INVALID") return NextResponse.json({ error: "Um produto não pertence a este restaurante ou não está disponível." }, { status: 409 });
+    if (code === "RATE_LIMIT") { const retryAfter = (error as Error & { retryAfter?: number }).retryAfter ?? 60; return NextResponse.json({ error: `Muitas tentativas desta autorização. Tente novamente em ${retryAfter} segundos.`, retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } }); }
+    if (code === "SESSION_INACTIVE") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
     throw error;
   }
 }

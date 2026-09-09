@@ -3,11 +3,13 @@ import { z } from "zod";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { computeSessionStatus, createSessionAccessGrant, markSessionExpired, PUBLIC_ACCESS_COOKIE, verifyAttendanceCode } from "@/lib/server/public-session";
+import { clientIpHint, consumeRateLimits, payloadTooLargeResponse, rateLimitedResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
 
 const schema = z.object({ publicToken: z.string().regex(/^[a-zA-Z0-9_-]{24,128}$/), accessCode: z.string().regex(/^\d{6}$/) });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  let body: unknown; try { body = await readLimitedJson(request, 1024); } catch { return payloadTooLargeResponse(); }
+  const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Informe o código de 6 dígitos do atendimento." }, { status: 400 });
   const db = getAdminFirestore() as any;
   const tables = await db.collection("tables").where("publicToken", "==", parsed.data.publicToken).limit(1).get();
@@ -15,6 +17,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const tableDoc = tables.docs[0];
   const table = { id: tableDoc.id, ...tableDoc.data() } as any;
   if (table.isActive === false || table.status !== "active") return NextResponse.json({ error: "Mesa indisponível. Solicite a liberação a um funcionário." }, { status: 403 });
+  const ip = stableHash(clientIpHint(request));
+  const rate = await consumeRateLimits([{ scope: "access_table", key: table.id, limit: 40, windowSeconds: 300 }, { scope: "access_table_ip", key: `${table.id}:${ip}`, limit: 6, windowSeconds: 300 }]);
+  if (!rate.ok) return rateLimitedResponse(rate.retryAfter);
   const sessions = await db.collection("tableSessions").where("tableId", "==", table.id).where("status", "==", "active").limit(1).get();
   if (sessions.empty) return NextResponse.json({ error: "Atendimento não está aberto." }, { status: 409 });
   const doc = sessions.docs[0];
