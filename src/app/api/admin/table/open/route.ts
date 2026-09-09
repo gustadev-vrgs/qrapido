@@ -7,7 +7,7 @@ import { z } from "zod";
 import { createOperationalEvent, createSessionToken, resolveSettings, resolveTable } from "@/lib/server/public-session";
 import { buildPublicTableUrl } from "@/lib/utils/public-url";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { requireStaffRequest, ADMIN_ROLES } from "@/lib/server/admin-auth";
+import { requireStaffRequest, ADMIN_ROLES, forbiddenResource, logAdminFailure } from "@/lib/server/admin-auth";
 
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
 
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!table) {
     return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
   }
+  if (table.restaurantId !== staff.staffUser.restaurantId) return forbiddenResource(staff.requestId);
 
   if (table.isActive === false || table.status === "blocked") {
     return NextResponse.json({ error: "Esta mesa está inativa." }, { status: 400 });
@@ -65,6 +66,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       const freshTable = { id: freshTableDoc.id, ...freshTableDoc.data() } as any;
+      if (freshTable.restaurantId !== staff.staffUser.restaurantId || freshTable.restaurantId !== table.restaurantId) {
+        throw Object.assign(new Error("O recurso não pertence ao seu restaurante."), { status: 403 });
+      }
       if (freshTable.isActive === false || freshTable.status === "blocked") {
         throw Object.assign(new Error("Esta mesa está inativa."), { status: 400 });
       }
@@ -128,8 +132,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 500;
     const message = error instanceof Error ? error.message : "Não foi possível abrir o atendimento. Tente novamente.";
-    if (status === 500 && process.env.NODE_ENV === "development") console.error("Open table failed", error);
-    return NextResponse.json({ error: status === 500 ? "Não foi possível abrir o atendimento. Tente novamente." : message }, { status });
+    if (status === 500) logAdminFailure(staff.requestId, "open_table", error);
+    return NextResponse.json({ error: status === 500 ? "Não foi possível abrir o atendimento. Tente novamente." : message, requestId: staff.requestId }, { status, headers: { "x-request-id": staff.requestId } });
   }
 
   await createOperationalEvent({
@@ -150,5 +154,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     metadata: { expiresAt }
   });
 
-  return NextResponse.json({ ok: true, sessionId: sessionRef.id, sessionToken, qrCodeValue }, { status: 201 });
+  return NextResponse.json({ ok: true, sessionId: sessionRef.id, sessionToken, qrCodeValue, requestId: staff.requestId }, { status: 201, headers: { "x-request-id": staff.requestId } });
 }

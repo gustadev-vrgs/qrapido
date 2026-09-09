@@ -89,6 +89,15 @@ Bootstrap de admin (opcional):
 npm run seed:staff-admin -- --uid <UID_FIREBASE_AUTH> --email <EMAIL> --name "<NOME>" --restaurantId <RESTAURANT_ID>
 ```
 
+`staffUsers` deve usar o UID do Firebase Auth também como ID do documento. Para auditar
+cadastros antigos sem alterar dados, execute `npm run audit:staff`. Revise o relatório e,
+somente depois, use `npm run audit:staff -- --apply`: o modo de aplicação copia apenas
+registros estruturalmente válidos para o ID canônico e preserva o documento de origem.
+
+Após publicar, implante `firestore/firestore.rules` no mesmo projeto Firebase usado pela
+aplicação. Confirme externamente que as variáveis Admin estão configuradas; o diagnóstico
+do servidor informa apenas quais campos estão ausentes ou mal formatados, nunca valores.
+
 ## Qualidade e validação
 ```bash
 npm run lint

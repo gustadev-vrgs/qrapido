@@ -128,6 +128,7 @@ function createClientToken(): string {
 
 export default function MesasPage(): JSX.Element {
   const { firebaseUser, user } = useAdminAuth();
+  const canManageTables = user?.role === "admin" || user?.role === "manager";
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
@@ -539,14 +540,14 @@ export default function MesasPage(): JSX.Element {
 
     return (
       <div className="flex flex-wrap gap-2">
-        {(table.status === "free" || table.status === "closed") && (
+        {canManageTables && (table.status === "free" || table.status === "closed") && (
           <AppActionButton variant="primary" onClick={() => handleOpenModal(table)} disabled={isOpening} className="gap-2">
             {isOpening ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorOpen className="h-4 w-4" />}
             Abrir mesa
           </AppActionButton>
         )}
 
-        {(table.status === "active" || table.status === "awaiting_payment") && (
+        {canManageTables && (table.status === "active" || table.status === "awaiting_payment") && (
           <AppActionButton variant="destructive" onClick={() => void handleCloseTable(table)} disabled={isClosing} className="gap-2">
             {isClosing ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorClosed className="h-4 w-4" />}
             Encerrar mesa
@@ -554,9 +555,9 @@ export default function MesasPage(): JSX.Element {
         )}
 
         <AppActionButton variant="secondary" onClick={() => setDetailsModalTableId(table.id)}>Detalhes</AppActionButton>
-        <AppActionButton variant="secondary" onClick={() => handleEditTable(table)} className="gap-2"><Edit2 className="h-4 w-4" />Editar</AppActionButton>
+        {canManageTables ? <><AppActionButton variant="secondary" onClick={() => handleEditTable(table)} className="gap-2"><Edit2 className="h-4 w-4" />Editar</AppActionButton>
         <AppActionButton variant="secondary" onClick={() => void toggleTableActive(table)}>{table.isActive === false ? "Ativar" : "Desativar"}</AppActionButton>
-        <AppActionButton variant="ghost" onClick={() => void deleteTable(table)} className="gap-2 text-[hsl(var(--danger))]"><Trash2 className="h-4 w-4" />Excluir</AppActionButton>
+        <AppActionButton variant="ghost" onClick={() => void deleteTable(table)} className="gap-2 text-[hsl(var(--danger))]"><Trash2 className="h-4 w-4" />Excluir</AppActionButton></> : null}
       </div>
     );
   };
@@ -612,10 +613,10 @@ export default function MesasPage(): JSX.Element {
         </div>
 
         <div className="flex w-full shrink-0 gap-2 sm:w-auto sm:justify-end">
-          <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 whitespace-nowrap sm:flex-none">
+          {canManageTables ? <AppActionButton variant="primary" onClick={handleNewTable} className="min-w-32 flex-1 gap-2 whitespace-nowrap sm:flex-none">
             <Plus className="h-4 w-4" />
             <span>Nova mesa</span>
-          </AppActionButton>
+          </AppActionButton> : null}
           <AppActionButton variant="secondary" onClick={() => void loadData(true)} className="min-w-28 flex-1 whitespace-nowrap sm:flex-none" disabled={isRefreshing}>
             {isRefreshing ? "Atualizando..." : "Atualizar"}
           </AppActionButton>
@@ -703,7 +704,7 @@ export default function MesasPage(): JSX.Element {
         )}
       </AppSectionCard>
 
-      {tableFormVisible ? (
+      {canManageTables && tableFormVisible ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
           <form onSubmit={submitTableForm} className="app-surface-strong w-full max-w-lg space-y-4 rounded-2xl p-5">
             <header className="flex items-start justify-between"><div><p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Cadastro de mesa</p><h3 className="text-xl font-semibold">{tableForm.id ? "Editar mesa" : "Nova mesa"}</h3></div><button type="button" onClick={() => setTableFormVisible(false)}><X className="h-5 w-5" /></button></header>
@@ -719,7 +720,7 @@ export default function MesasPage(): JSX.Element {
         </div>
       ) : null}
 
-      {openModalVisible ? (
+      {canManageTables && openModalVisible ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
           <div className="app-surface-strong w-full max-w-2xl space-y-4 rounded-2xl p-5">
             <header className="flex items-start justify-between gap-3">
