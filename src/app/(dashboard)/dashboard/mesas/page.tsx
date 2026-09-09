@@ -432,13 +432,12 @@ export default function MesasPage(): JSX.Element {
   };
 
   const handleCloseTable = async (table: Table) => {
-    if (!confirm(`Encerrar ${table.label || `Mesa ${table.number}`}?`)) {
-      return;
-    }
+    const reason = prompt(`Motivo para encerrar ${table.label || `Mesa ${table.number}`} (pedidos pendentes impedirão o fechamento):`);
+    if (!reason || reason.trim().length < 4) return;
 
     try {
       setClosingTableId(table.id);
-      const response = await fetchAdminJson("/api/admin/table/close", { tableId: table.id });
+      const response = await fetchAdminJson("/api/admin/table/close", { tableId: table.id, reason: reason.trim() });
       if (!response.ok) throw new Error(await readApiError(response, "Não foi possível encerrar a mesa."));
       appToast.success("Atendimento encerrado", "A mesa voltou ao status disponível.");
       await loadData(true);
@@ -447,6 +446,24 @@ export default function MesasPage(): JSX.Element {
       appToast.error("Falha ao encerrar mesa", error instanceof Error ? error.message : "Tente novamente em instantes.");
     } finally {
       setClosingTableId(null);
+    }
+  };
+
+  const handleRenewTable = async (table: Table) => {
+    const reason = prompt("Motivo da renovação do atendimento:");
+    if (!reason || reason.trim().length < 4) return;
+    const maxOrdersAllowed = Number(prompt("Limite total de pedidos (independente do número de pessoas):", String(table.activeSessionLimit)));
+    if (!Number.isInteger(maxOrdersAllowed) || maxOrdersAllowed < 1 || maxOrdersAllowed > 100) {
+      appToast.error("Limite inválido", "Informe de 1 a 100 pedidos.");
+      return;
+    }
+    try {
+      const response = await fetchAdminJson("/api/admin/table/session", { tableId: table.id, action: "renew", durationMinutes: 90, maxOrdersAllowed, orderLimitEnabled: true, reason: reason.trim() });
+      if (!response.ok) throw new Error(await readApiError(response, "Não foi possível renovar o atendimento."));
+      appToast.success("Atendimento renovado", "Novos pedidos foram liberados; pedidos existentes foram preservados.");
+      await loadData(true);
+    } catch (error) {
+      appToast.error("Falha ao renovar", error instanceof Error ? error.message : "Tente novamente.");
     }
   };
 
@@ -481,7 +498,7 @@ export default function MesasPage(): JSX.Element {
     }
 
     if (!Number.isFinite(activeSessionLimit) || activeSessionLimit < 1) {
-      appToast.error("Limite de sessões inválido", "Defina ao menos 1 sessão ativa.");
+      appToast.error("Limite de pedidos inválido", "Defina ao menos 1 pedido permitido.");
       return;
     }
 
@@ -542,12 +559,16 @@ export default function MesasPage(): JSX.Element {
           </AppActionButton>
         )}
 
-        {canManageTables && (table.status === "active" || table.status === "awaiting_payment") && (
+        {canManageTables && (table.status === "active" || table.status === "awaiting_payment" || table.status === "blocked") && (
           <AppActionButton variant="destructive" onClick={() => void handleCloseTable(table)} disabled={isClosing} className="gap-2">
             {isClosing ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorClosed className="h-4 w-4" />}
             Encerrar mesa
           </AppActionButton>
         )}
+
+        {canManageTables && table.status === "blocked" ? (
+          <AppActionButton variant="primary" onClick={() => void handleRenewTable(table)}>Renovar atendimento</AppActionButton>
+        ) : null}
 
         <AppActionButton variant="secondary" onClick={() => setDetailsModalTableId(table.id)}>Detalhes</AppActionButton>
         {canManageTables ? <><AppActionButton variant="secondary" onClick={() => handleEditTable(table)} className="gap-2"><Edit2 className="h-4 w-4" />Editar</AppActionButton>
@@ -675,7 +696,7 @@ export default function MesasPage(): JSX.Element {
                     </p>
                     <p className="flex items-center gap-2">
                       <UserRound className="h-4 w-4" />
-                      Sessões ativas: {activeSessions.length} / limite {table.activeSessionLimit}
+                      Atendimentos ativos: {activeSessions.length} • cota: {table.activeSessionLimit} pedidos
                     </p>
                     <p className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4" />
@@ -706,7 +727,7 @@ export default function MesasPage(): JSX.Element {
             <div className="grid gap-4 md:grid-cols-2">
               <AppFormField label="Número da mesa"><AppTextInput type="number" min={1} value={tableForm.number} onChange={(event) => setTableForm((prev) => ({ ...prev, number: event.target.value }))} required /></AppFormField>
               <AppFormField label="Capacidade"><AppTextInput type="number" min={1} max={20} value={tableForm.capacity} onChange={(event) => setTableForm((prev) => ({ ...prev, capacity: event.target.value }))} required /></AppFormField>
-              <AppFormField label="Limite de sessões"><AppTextInput type="number" min={1} max={40} value={tableForm.activeSessionLimit} onChange={(event) => setTableForm((prev) => ({ ...prev, activeSessionLimit: event.target.value }))} required /></AppFormField>
+              <AppFormField label="Limite de pedidos por atendimento"><AppTextInput type="number" min={1} max={40} value={tableForm.activeSessionLimit} onChange={(event) => setTableForm((prev) => ({ ...prev, activeSessionLimit: event.target.value }))} required /></AppFormField>
               <AppFormField label="PIN de acesso" hint="Opcional: 4 dígitos."><AppTextInput inputMode="numeric" maxLength={4} value={tableForm.pinCode} onChange={(event) => setTableForm((prev) => ({ ...prev, pinCode: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="Ex.: 1234" /></AppFormField>
               <div className="md:col-span-2"><AppFormField label="Nome ou identificação"><AppTextInput value={tableForm.label} onChange={(event) => setTableForm((prev) => ({ ...prev, label: event.target.value }))} placeholder="Ex.: Varanda 5" /></AppFormField></div>
             </div>
@@ -830,7 +851,7 @@ export default function MesasPage(): JSX.Element {
               <AppDataCard title="Sessões ativas" metadata={`${(sessionsByTable[detailsTable.id] ?? []).length} sessão(ões)`} />
               <AppDataCard title="Horário de abertura" metadata={detailsTable.openedAt ? formatDateTime(detailsTable.openedAt) : "Mesa ainda não aberta"} />
               <AppDataCard title="QR vinculado"><p className="break-all text-sm text-[hsl(var(--foreground-muted))]">{publicUrlFor(detailsTable)}</p></AppDataCard>
-              <AppDataCard title="Limite de sessões" metadata={`${detailsTable.activeSessionLimit} simultânea(s)`} />
+              <AppDataCard title="Cota de pedidos" metadata={`${detailsTable.activeSessionLimit} por atendimento (não vinculada ao nº de pessoas)`} />
             </div>
 
             {qrPreview ? (

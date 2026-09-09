@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession } from "@/lib/server/public-session";
+import { PUBLIC_ACCESS_COOKIE, resolveHistoricalAuthorizedSession } from "@/lib/server/public-session";
 
 export async function GET(request: NextRequest, { params }: { params: { orderId: string } }): Promise<NextResponse> {
-  const session = await resolveAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null);
+  const session = await resolveHistoricalAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null);
   if (!session) return NextResponse.json({ error: "Acesso não autorizado." }, { status: 401 });
   const doc = await (getAdminFirestore() as any).collection("orders").doc(params.orderId).get();
   if (!doc.exists) return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });

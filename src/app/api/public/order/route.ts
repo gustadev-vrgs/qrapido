@@ -51,7 +51,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { scope: "order_table", key: session.tableId, limit: 24, seconds: 60 }
       ].map((rule) => ({ ...rule, window: Math.floor(nowMs / (rule.seconds * 1000)) }));
       const rateRefs = rateRules.map((rule) => db.collection("publicRateLimits").doc(stableHash(`${rule.scope}:${rule.key}:${rule.window}`)));
-      const [idemSnap, sessionSnap, ...rest] = await Promise.all([tx.get(idempotencyRef), tx.get(sessionRef), ...menuRefs.map((ref) => tx.get(ref)), ...rateRefs.map((ref) => tx.get(ref))]);
+      const tableRef = db.collection("tables").doc(session.tableId);
+      const [idemSnap, sessionSnap, tableSnap, ...rest] = await Promise.all([tx.get(idempotencyRef), tx.get(sessionRef), tx.get(tableRef), ...menuRefs.map((ref) => tx.get(ref)), ...rateRefs.map((ref) => tx.get(ref))]);
       if (idemSnap.exists) {
         const idem = idemSnap.data();
         if (idem.contentHash !== contentHash) throw new Error("IDEMPOTENCY_CONFLICT");
@@ -59,7 +60,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       const fresh = sessionSnap.data();
       if (!sessionSnap.exists || fresh.status !== "active" || new Date(fresh.expiresAt).getTime() <= nowMs) throw new Error("SESSION_INACTIVE");
-      if ((fresh.completedOrdersCount ?? 0) >= (fresh.maxOrdersAllowed ?? fresh.peopleCount ?? 1)) throw new Error("ORDER_LIMIT");
+      const freshTable = tableSnap.data();
+      if (!tableSnap.exists || freshTable.restaurantId !== session.restaurantId || freshTable.status !== "active" || freshTable.currentSessionGroupId !== session.id) throw new Error("SESSION_INACTIVE");
+      if (fresh.orderLimitEnabled !== false && (fresh.completedOrdersCount ?? 0) >= (fresh.maxOrdersAllowed ?? 1)) throw new Error("ORDER_LIMIT");
       const menuSnaps = rest.slice(0, menuRefs.length); const rateSnaps = rest.slice(menuRefs.length);
       rateRules.forEach((rule, index) => { if ((rateSnaps[index].data()?.count ?? 0) >= rule.limit) { const error = new Error("RATE_LIMIT") as Error & { retryAfter?: number }; error.retryAfter = rule.seconds - Math.floor((nowMs / 1000) % rule.seconds); throw error; } });
       const items = parsed.data.items.map((input, index) => {
@@ -74,6 +77,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       tx.set(orderRef, { restaurantId: session.restaurantId, orderCode, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, customerName: parsed.data.customerName || session.customerName || null, items, subtotal, serviceFeePercent, serviceFee, total, paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, paymentStatus: paymentStatus(parsed.data.paymentMode), financialReceiptConfirmed: false, simulation: parsed.data.paymentMode === "system_simulated", changeFor: parsed.data.changeFor ?? null, status: "received", notes: parsed.data.notes || null, receivedAt: now, createdAt: now, updatedAt: now });
       tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, orderId: orderRef.id, orderCode, subtotal, serviceFee, total, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
       tx.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
+      const eventRef = db.collection("orderEvents").doc();
+      tx.set(eventRef, { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: "customer", actorId: grantId || null, message: "Pedido criado pelo cliente", metadata: { orderCode }, createdAt: now });
+      const alertRef = db.collection("adminAlerts").doc();
+      tx.set(alertRef, { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "new_order", message: `Novo pedido ${orderCode}`, read: false, createdAt: now, updatedAt: now });
       rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), updatedAt: now }, { merge: true }));
       return { orderId: orderRef.id, orderCode, subtotal, serviceFee, total, replay: false };
     });

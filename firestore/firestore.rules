@@ -88,10 +88,10 @@ service cloud.firestore {
 
     match /orders/{orderId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
-      allow update: if resource.data.restaurantId is string && sameRestaurant()
-        && canOperateOrders(resource.data.restaurantId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt', 'preparationStartedAt', 'readyAt', 'deliveredAt', 'cancelledAt', 'updatedAt']);
+      // Order creation and state transitions are server-only. The trusted APIs
+      // validate session/table concurrency, prices, quota and transition graph.
+      // The formerly client-writable set was: hasOnly(['status', 'confirmedAt', 'preparationStartedAt', 'readyAt', 'deliveredAt', 'cancelledAt', 'updatedAt']).
+      allow create, update: if false;
       allow delete: if false;
     }
 

@@ -100,7 +100,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         lastActivityAt: openedAt,
         requestCountWindow: 0,
         peopleCount: parsed.data.currentPeopleCount,
-        maxOrdersAllowed: parsed.data.currentPeopleCount,
+        // The operational order quota is explicit and is not derived from headcount.
+        orderLimitEnabled: true,
+        maxOrdersAllowed: parsed.data.activeSessionLimit,
         completedOrdersCount: 0,
         openedByStaffId: staff.staffUser.id,
         notes: parsed.data.notes ?? null,
@@ -147,8 +149,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     sessionId: sessionRef.id,
     type: "table_opened",
     message: "Mesa aberta para atendimento",
-    metadata: { qrCodeValue }
-  });
+    metadata: { publicTableUrl: qrCodeValue }, actorType: "staff", actorId: staff.staffUser.id
+  }).catch((error) => logAdminFailure(staff.requestId, "open_table_event", error));
 
   await createOperationalEvent({
     restaurantId: table.restaurantId,
@@ -156,8 +158,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     sessionId: sessionRef.id,
     type: "session_created",
     message: "Sessão temporária criada para mesa aberta",
-    metadata: { expiresAt }
-  });
+    metadata: { expiresAt }, actorType: "staff", actorId: staff.staffUser.id
+  }).catch((error) => logAdminFailure(staff.requestId, "open_session_event", error));
 
   return NextResponse.json({ ok: true, sessionId: sessionRef.id, attendanceCode: attendanceCode.code, qrCodeValue, requestId: staff.requestId }, { status: 201, headers: { "x-request-id": staff.requestId, "Cache-Control": "no-store" } });
 }

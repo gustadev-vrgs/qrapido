@@ -80,6 +80,7 @@ export const tableSessionSchema = baseEntitySchema.extend({
   requestCountWindow: z.number().int().min(0),
   peopleCount: z.number().int().positive().default(1),
   maxOrdersAllowed: z.number().int().positive().default(1),
+  orderLimitEnabled: z.boolean().default(true),
   completedOrdersCount: z.number().int().min(0).default(0),
   openedByStaffId: entityIdSchema.nullable().default(null),
   notes: z.string().max(500).nullable().default(null)
@@ -132,7 +133,9 @@ export const orderSchema = baseEntitySchema.extend({
   duplicateGuardHash: z.string().min(8).max(128),
   receivedAt: isoDateTimeSchema,
   deliveredAt: isoDateTimeSchema.nullable(),
-  cancelledAt: isoDateTimeSchema.nullable()
+  cancelledAt: isoDateTimeSchema.nullable(),
+  cancellationReason: z.string().max(300).nullable().optional(),
+  quotaReleasedAt: isoDateTimeSchema.nullable().optional()
 });
 
 export const orderEventSchema = z.object({

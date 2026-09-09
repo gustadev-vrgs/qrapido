@@ -1,71 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createOperationalEvent, resolveTable } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { requireStaffRequest, ADMIN_ROLES, forbiddenResource } from "@/lib/server/admin-auth";
+import { requireStaffRequest, ADMIN_ROLES, logAdminFailure } from "@/lib/server/admin-auth";
 
-const payloadSchema = z.object({
-  tableId: z.string().min(1)
-});
+const payloadSchema = z.object({ tableId: z.string().min(1), reason: z.string().trim().min(4).max(300) }).strict();
+const PENDING_ORDER_STATUSES = ["received", "confirmed", "in_preparation", "ready"];
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const staff = await requireStaffRequest(request, ADMIN_ROLES);
   if (staff instanceof NextResponse) return staff;
-
   const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
-  }
-
-  const table = await resolveTable(parsed.data.tableId);
-  if (!table) {
-    return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
-  }
-  if (table.restaurantId !== staff.staffUser.restaurantId) return forbiddenResource(staff.requestId);
+  if (!parsed.success) return NextResponse.json({ error: "Informe a mesa e o motivo do encerramento." }, { status: 400 });
 
   const db = getAdminFirestore() as any;
-  const closedAt = new Date().toISOString();
-  const sessionSnapshot = await db
-    .collection("tableSessions")
-    .where("restaurantId", "==", staff.staffUser.restaurantId)
-    .where("tableId", "==", table.id)
-    .where("status", "in", ["active", "idle"])
-    .get();
+  const tableRef = db.collection("tables").doc(parsed.data.tableId);
+  try {
+    const result = await db.runTransaction(async (tx: any) => {
+      const tableSnap = await tx.get(tableRef);
+      if (!tableSnap.exists) throw Object.assign(new Error("Mesa não encontrada."), { status: 404 });
+      const table = tableSnap.data();
+      if (table.restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Mesa não encontrada."), { status: 404 });
+      if (!table.currentSessionGroupId) {
+        if (table.status === "free") return { replay: true };
+        throw Object.assign(new Error("Mesa sem referência de atendimento. Execute o diagnóstico antes de recuperar."), { status: 409 });
+      }
+      const sessionRef = db.collection("tableSessions").doc(table.currentSessionGroupId);
+      const sessionSnap = await tx.get(sessionRef);
+      if (!sessionSnap.exists || sessionSnap.data().restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Atendimento inconsistente. Nenhum dado foi apagado; execute o diagnóstico."), { status: 409 });
+      const ordersQuery = db.collection("orders").where("restaurantId", "==", staff.staffUser.restaurantId).where("sessionId", "==", sessionSnap.id).where("status", "in", PENDING_ORDER_STATUSES);
+      const grantsQuery = db.collection("sessionAccessGrants").where("sessionId", "==", sessionSnap.id).where("revokedAt", "==", null);
+      const [pendingOrders, grants] = await Promise.all([tx.get(ordersQuery), tx.get(grantsQuery)]);
+      if (!pendingOrders.empty) throw Object.assign(new Error(`Há ${pendingOrders.size} pedido(s) pendente(s). Conclua ou cancele antes de encerrar.`), { status: 409 });
 
-  for (const doc of sessionSnapshot.docs) {
-    await db.collection("tableSessions").doc(doc.id).set({ status: "closed", closedAt, updatedAt: closedAt }, { merge: true });
-    await createOperationalEvent({
-      restaurantId: table.restaurantId,
-      tableId: table.id,
-      sessionId: doc.id,
-      type: "session_closed",
-      message: "Sessão encerrada por fechamento da mesa",
-      metadata: { reason: "table_closed" }
+      const now = new Date().toISOString();
+      tx.update(sessionRef, { status: "closed", closedAt: now, closeReason: parsed.data.reason, updatedAt: now });
+      grants.docs.forEach((grant: any) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
+      tx.update(tableRef, { status: "free", closedAt: now, currentPeopleCount: 0, activeSessionCount: 0, currentSessionGroupId: null, updatedAt: now });
+      tx.set(db.collection("orderEvents").doc(), { restaurantId: staff.staffUser.restaurantId, tableId: tableSnap.id, sessionId: sessionSnap.id, orderId: "system", type: "table_closed", actorType: "staff", actorId: staff.staffUser.id, message: "Atendimento encerrado e acessos revogados", metadata: { reason: parsed.data.reason, revokedGrantCount: grants.size }, createdAt: now });
+      return { replay: false };
     });
+    return NextResponse.json({ ok: true, ...result, requestId: staff.requestId });
+  } catch (error) {
+    const status = Number((error as { status?: number }).status ?? 500);
+    if (status === 500) logAdminFailure(staff.requestId, "close_table", error);
+    return NextResponse.json({ error: status === 500 ? "Não foi possível encerrar; nenhuma alteração parcial foi confirmada." : (error as Error).message, requestId: staff.requestId }, { status });
   }
-  const grants = await db.collection("sessionAccessGrants").where("tableId", "==", table.id).where("revokedAt", "==", null).get();
-  for (const grant of grants.docs) await grant.ref.set({ revokedAt: closedAt, updatedAt: closedAt }, { merge: true });
-
-  await db.collection("tables").doc(table.id).set(
-    {
-      status: "free",
-      closedAt,
-      currentPeopleCount: 0,
-      activeSessionCount: 0,
-      currentSessionGroupId: null,
-      updatedAt: closedAt
-    },
-    { merge: true }
-  );
-
-  await createOperationalEvent({
-    restaurantId: table.restaurantId,
-    tableId: table.id,
-    sessionId: table.currentSessionGroupId ?? "system",
-    type: "table_closed",
-    message: "Mesa encerrada no painel"
-  });
-
-  return NextResponse.json({ ok: true, requestId: staff.requestId }, { headers: { "x-request-id": staff.requestId } });
 }
