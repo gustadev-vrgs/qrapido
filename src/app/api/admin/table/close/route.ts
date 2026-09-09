@@ -44,6 +44,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       metadata: { reason: "table_closed" }
     });
   }
+  const grants = await db.collection("sessionAccessGrants").where("tableId", "==", table.id).where("revokedAt", "==", null).get();
+  for (const grant of grants.docs) await grant.ref.set({ revokedAt: closedAt, updatedAt: closedAt }, { merge: true });
 
   await db.collection("tables").doc(table.id).set(
     {

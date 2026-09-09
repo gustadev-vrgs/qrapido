@@ -2,13 +2,13 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, CheckCircle2, Clock3, Loader2, Minus, Plus, Search, ShoppingBag, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Clock3, Loader2, Lock, Minus, Plus, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
 import { AppActionButton, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
 import type { CartItem, MenuCategory, MenuItem, PublicTableData } from "@/lib/types/domain";
 import { formatCurrency } from "@/lib/utils/formatters";
 
-type PageState = "loading" | "ready" | "invalid" | "inactive" | "no_session" | "error";
+type PageState = "loading" | "locked" | "ready" | "invalid" | "inactive" | "no_session" | "error";
 
 interface PublicMesaPageProps { params: { token: string } }
 
@@ -31,6 +31,8 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
   const [state, setState] = useState<PageState>("loading");
   const [data, setData] = useState<PublicTableData | null>(null);
   const [message, setMessage] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [csrfToken, setCsrfToken] = useState("");
   const [activeCategoryId, setActiveCategoryId] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -64,11 +66,11 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
         if (!active) return;
         if (!response.ok) {
           setMessage(payload.error ?? "Não foi possível carregar os dados da mesa. Tente novamente ou solicite ajuda a um funcionário.");
-          setState(response.status === 404 ? "invalid" : response.status === 423 ? "inactive" : response.status === 409 ? "no_session" : "error");
+          setState(response.status === 404 ? "invalid" : response.status === 423 ? "inactive" : response.status === 409 ? "no_session" : response.status === 401 ? "locked" : "error");
           return;
         }
         setData(payload);
-        try { window.sessionStorage.setItem(`qrapido-access-${payload.session.id}`, payload.accessToken); } catch {}
+        setCsrfToken(window.sessionStorage.getItem("qrapido-csrf") ?? "");
         setActiveCategoryId(payload.categories?.[0]?.id ?? "all");
         setState("ready");
       } catch {
@@ -81,6 +83,16 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
     void load();
     return () => { active = false; };
   }, [token]);
+
+  async function authorize(): Promise<void> {
+    setMessage("");
+    const response = await fetch("/api/public/session/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ publicToken: token, accessCode }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) { setMessage(payload.error ?? "Não foi possível liberar esta mesa."); return; }
+    window.sessionStorage.setItem("qrapido-csrf", payload.csrfToken);
+    setCsrfToken(payload.csrfToken);
+    window.location.reload();
+  }
 
   useEffect(() => {
     if (!storageKey || state !== "ready") return;
@@ -107,9 +119,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
     if (!data || cartItems.length === 0 || submitting) return;
     setSubmitting(true); setFeedback("");
     try {
-      const accessToken = window.sessionStorage.getItem(`qrapido-access-${data.session.id}`);
-      const response = await fetch("/api/public/order", { method: "POST", headers: { "Content-Type": "application/json", "x-session-access-token": accessToken ?? "" }, body: JSON.stringify({
-        sessionToken: data.session.sessionToken,
+      const response = await fetch("/api/public/order", { method: "POST", headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken }, body: JSON.stringify({
         items: cartItems.map((item) => ({ menuItemId: item.menuItemId, quantity: item.quantity, notes: item.notes || null })),
         duplicateFingerprint: `${Date.now()}-${cartItems.map((item) => `${item.menuItemId}:${item.quantity}:${item.notes}`).join("|")}`,
         customerName: customerName.trim() || null, notes: generalNotes.trim() || null, paymentMethod, paymentMode, changeFor: changeFor ? Number(changeFor.replace(",", ".")) : null
@@ -125,8 +135,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
     if (!data || callingWaiter) return;
     setCallingWaiter(true); setFeedback("");
     try {
-      const accessToken = window.sessionStorage.getItem(`qrapido-access-${data.session.id}`);
-      const response = await fetch("/api/public/waiter-call", { method: "POST", headers: { "Content-Type": "application/json", "x-session-access-token": accessToken ?? "" }, body: JSON.stringify({ sessionToken: data.session.sessionToken, reason: waiterReason }) });
+      const response = await fetch("/api/public/waiter-call", { method: "POST", headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken }, body: JSON.stringify({ reason: waiterReason }) });
       const payload = await response.json().catch(() => ({}));
       setFeedback(response.ok ? "Chamado enviado para a equipe." : payload.error ?? "Não foi possível chamar o garçom.");
       if (response.ok) setWaiterOpen(false);
@@ -151,6 +160,7 @@ export default function PublicMesaPage({ params }: PublicMesaPageProps): JSX.Ele
         {state === "invalid" ? <MessageCard title="QR Code inválido ou mesa não encontrada." description={message} /> : null}
         {state === "inactive" ? <MessageCard title="Esta mesa está temporariamente indisponível." description={message} /> : null}
         {state === "no_session" ? <MessageCard title="Esta mesa ainda não possui um atendimento aberto." description="Esta mesa ainda não possui um atendimento aberto. Solicite a liberação a um funcionário." /> : null}
+        {state === "locked" ? <AppSurface className="space-y-4 p-6 text-center"><Lock className="mx-auto h-8 w-8 text-[hsl(var(--warning))]" /><h1 className="text-xl">Código do atendimento necessário</h1><p className="text-sm text-[hsl(var(--foreground-muted))]">O QR identifica a mesa, mas não autoriza pedidos. Solicite presencialmente à equipe o código temporário de 6 dígitos.</p><input className="app-field text-center text-xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={accessCode} onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" />{message ? <p className="text-sm text-[hsl(var(--danger))]">{message}</p> : null}<AppActionButton className="w-full" disabled={accessCode.length !== 6} onClick={() => void authorize()}>Liberar este celular</AppActionButton></AppSurface> : null}
         {state === "error" ? <MessageCard title="Erro ao carregar" description={message} /> : null}
 
         {state === "ready" && data ? <>

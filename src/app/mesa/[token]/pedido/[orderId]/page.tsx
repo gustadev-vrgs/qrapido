@@ -12,7 +12,7 @@ interface PublicOrderPageProps {
   params: { token: string; orderId: string };
 }
 
-type PublicTablePayload = PublicTableData & { accessToken: string };
+type PublicTablePayload = PublicTableData;
 
 const TRACKING_STEPS: Array<Extract<Order["status"], "received" | "in_preparation" | "ready" | "delivered">> = [
   "received",
@@ -42,7 +42,6 @@ export default function PublicOrderPage({ params }: PublicOrderPageProps): JSX.E
 
       const publicTablePayload = payload as PublicTablePayload;
       setTableData(publicTablePayload);
-      window.sessionStorage.setItem(`qrapido-access-${publicTablePayload.session.id}`, publicTablePayload.accessToken);
     }
 
     void loadTable();
@@ -56,16 +55,10 @@ export default function PublicOrderPage({ params }: PublicOrderPageProps): JSX.E
     const currentTableData = tableData;
     if (!currentTableData) return;
 
-    const currentSessionId = currentTableData.session.id;
-    const currentSessionToken = currentTableData.session.sessionToken;
     let alive = true;
 
     async function loadOrder(): Promise<void> {
-      const accessToken = window.sessionStorage.getItem(`qrapido-access-${currentSessionId}`) ?? "";
-      const response = await fetch(
-        `/api/public/order/${encodeURIComponent(params.orderId)}?sessionToken=${encodeURIComponent(currentSessionToken)}`,
-        { headers: { "x-session-access-token": accessToken }, cache: "no-store" }
-      );
+      const response = await fetch(`/api/public/order/${encodeURIComponent(params.orderId)}`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!alive) return;
 

@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 
-import { createOperationalEvent, createSessionToken, resolveSettings, resolveTable } from "@/lib/server/public-session";
+import { createAttendanceCode, createOperationalEvent, createSessionToken, resolveSettings, resolveTable } from "@/lib/server/public-session";
 import { buildPublicTableUrl } from "@/lib/utils/public-url";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { requireStaffRequest, ADMIN_ROLES, forbiddenResource, logAdminFailure } from "@/lib/server/admin-auth";
@@ -53,6 +53,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const openedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + sessionDurationMinutes * 60_000).toISOString();
   const sessionToken = createSessionToken();
+  const attendanceCode = createAttendanceCode();
   const publicToken = table.publicToken ?? crypto.randomBytes(32).toString("base64url");
   const qrCodeValue = buildPublicTableUrl(publicToken, request.nextUrl.origin);
   const tableRef = db.collection("tables").doc(table.id);
@@ -104,7 +105,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         openedByStaffId: staff.staffUser.id,
         notes: parsed.data.notes ?? null,
         createdAt: openedAt,
-        updatedAt: openedAt
+        updatedAt: openedAt,
+        accessCodeHash: attendanceCode.hash,
+        accessCodeSalt: attendanceCode.salt,
+        accessFailedAttempts: 0,
+        accessLockedUntil: null
       });
 
       transaction.set(
@@ -115,7 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           capacity: parsed.data.capacity,
           currentPeopleCount: parsed.data.currentPeopleCount,
           activeSessionLimit: parsed.data.activeSessionLimit,
-          pinCode: parsed.data.pinCode ?? null,
+          pinCode: null,
           status: "active",
           openedAt,
           openedAtServer: FieldValue.serverTimestamp(),
@@ -154,5 +159,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     metadata: { expiresAt }
   });
 
-  return NextResponse.json({ ok: true, sessionId: sessionRef.id, sessionToken, qrCodeValue, requestId: staff.requestId }, { status: 201, headers: { "x-request-id": staff.requestId } });
+  return NextResponse.json({ ok: true, sessionId: sessionRef.id, attendanceCode: attendanceCode.code, qrCodeValue, requestId: staff.requestId }, { status: 201, headers: { "x-request-id": staff.requestId, "Cache-Control": "no-store" } });
 }

@@ -8,6 +8,9 @@ const DEFAULT_WINDOW_SECONDS = 45;
 const DEFAULT_MAX_ORDERS = 3;
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
 const ACCESS_TOKEN_TTL_MINUTES = 180;
+export const PUBLIC_ACCESS_COOKIE = "qrapido_table_access";
+export const MAX_ACCESS_ATTEMPTS = 5;
+const ACCESS_LOCK_MINUTES = 15;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -19,6 +22,16 @@ function toMillis(value: string): number {
 
 function hashValue(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+export function hashAttendanceCode(code: string, salt: string): string {
+  return crypto.scryptSync(code, salt, 32).toString("hex");
+}
+
+export function createAttendanceCode(): { code: string; salt: string; hash: string } {
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const salt = crypto.randomBytes(16).toString("hex");
+  return { code, salt, hash: hashAttendanceCode(code, salt) };
 }
 
 export function createSessionToken(): string {
@@ -71,34 +84,80 @@ export async function markSessionExpired(sessionId: string): Promise<void> {
   await db.collection("tableSessions").doc(sessionId).set({ status: "expired", updatedAt: nowIso() }, { merge: true });
 }
 
-export async function createSessionAccessGrant(session: any): Promise<{ accessToken: string; expiresAt: string }> {
+export async function createSessionAccessGrant(session: any): Promise<{ cookieValue: string; csrfToken: string; expiresAt: string }> {
   const db = getAdminFirestore() as any;
-  const accessToken = crypto.randomBytes(32).toString("base64url");
+  const grantId = crypto.randomBytes(18).toString("base64url");
+  const secret = crypto.randomBytes(32).toString("base64url");
+  const csrfToken = crypto.randomBytes(24).toString("base64url");
   const expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MINUTES * 60_000).toISOString();
-  await db.collection("sessionAccessGrants").doc(session.id).set(
+  await db.collection("sessionAccessGrants").doc(grantId).set(
     {
       sessionId: session.id,
-      sessionToken: session.sessionToken,
-      tokenHash: hashValue(accessToken),
+      restaurantId: session.restaurantId,
+      tableId: session.tableId,
+      tokenHash: hashValue(secret),
+      csrfHash: hashValue(csrfToken),
       expiresAt,
+      revokedAt: null,
+      createdAt: nowIso(),
       updatedAt: nowIso()
-    },
-    { merge: true }
+    }
   );
 
   await db.collection("tableSessions").doc(session.id).set({ lastActivityAt: nowIso(), updatedAt: nowIso() }, { merge: true });
 
-  return { accessToken, expiresAt };
+  return { cookieValue: `${grantId}.${secret}`, csrfToken, expiresAt };
 }
 
-export async function validateAccessGrant(session: any, accessToken: string | null): Promise<boolean> {
-  if (!accessToken) return false;
+export async function validateAccessGrant(session: any, cookieValue: string | null, csrfToken?: string | null): Promise<boolean> {
+  if (!cookieValue) return false;
+  const [grantId, secret, ...extra] = cookieValue.split(".");
+  if (!grantId || !secret || extra.length) return false;
   const db = getAdminFirestore() as any;
-  const doc = await db.collection("sessionAccessGrants").doc(session.id).get();
+  const doc = await db.collection("sessionAccessGrants").doc(grantId).get();
   if (!doc.exists) return false;
   const data = doc.data();
-  if (!data || toMillis(data.expiresAt) <= Date.now()) return false;
-  return data.tokenHash === hashValue(accessToken);
+  if (!data || data.revokedAt || toMillis(data.expiresAt) <= Date.now()) return false;
+  if (computeSessionStatus(session) !== "active") return false;
+  if (data.sessionId !== session.id || data.restaurantId !== session.restaurantId || data.tableId !== session.tableId) return false;
+  if (data.tokenHash !== hashValue(secret)) return false;
+  const table = await resolveTable(session.tableId);
+  if (!table || table.restaurantId !== session.restaurantId || table.status !== "active" || table.isActive === false) return false;
+  return csrfToken === undefined || Boolean(csrfToken && data.csrfHash === hashValue(csrfToken));
+}
+
+export async function resolveAuthorizedSession(cookieValue: string | null, csrfToken?: string | null): Promise<any | null> {
+  if (!cookieValue) return null;
+  const grantId = cookieValue.split(".")[0];
+  if (!grantId) return null;
+  const grant = await (getAdminFirestore() as any).collection("sessionAccessGrants").doc(grantId).get();
+  if (!grant.exists) return null;
+  const sessionDoc = await (getAdminFirestore() as any).collection("tableSessions").doc(grant.data().sessionId).get();
+  if (!sessionDoc.exists) return null;
+  const session = { id: sessionDoc.id, ...sessionDoc.data() };
+  return await validateAccessGrant(session, cookieValue, csrfToken) ? session : null;
+}
+
+export async function verifyAttendanceCode(session: any, code: string): Promise<{ ok: true } | { ok: false; limited: boolean }> {
+  const db = getAdminFirestore() as any;
+  const ref = db.collection("tableSessions").doc(session.id);
+  return db.runTransaction(async (tx: any) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { ok: false, limited: false };
+    const fresh = snap.data();
+    if (computeSessionStatus(fresh) !== "active") return { ok: false, limited: false };
+    const lockedUntil = fresh.accessLockedUntil ? toMillis(fresh.accessLockedUntil) : 0;
+    if (lockedUntil > Date.now()) return { ok: false, limited: true };
+    const valid = Boolean(fresh.accessCodeHash && fresh.accessCodeSalt) &&
+      crypto.timingSafeEqual(Buffer.from(hashAttendanceCode(code, fresh.accessCodeSalt), "hex"), Buffer.from(fresh.accessCodeHash, "hex"));
+    if (valid) {
+      tx.update(ref, { accessFailedAttempts: 0, accessLockedUntil: null, updatedAt: nowIso() });
+      return { ok: true };
+    }
+    const attempts = (fresh.accessFailedAttempts ?? 0) + 1;
+    tx.update(ref, { accessFailedAttempts: attempts, accessLockedUntil: attempts >= MAX_ACCESS_ATTEMPTS ? new Date(Date.now() + ACCESS_LOCK_MINUTES * 60_000).toISOString() : null, updatedAt: nowIso() });
+    return { ok: false, limited: attempts >= MAX_ACCESS_ATTEMPTS };
+  });
 }
 
 export async function createOperationalEvent(input: {

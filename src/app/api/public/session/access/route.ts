@@ -1,69 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { computeSessionStatus, createOperationalEvent, createSessionAccessGrant, markSessionExpired, resolveSession, resolveSettings, resolveTable } from "@/lib/server/public-session";
+import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { computeSessionStatus, createSessionAccessGrant, markSessionExpired, PUBLIC_ACCESS_COOKIE, verifyAttendanceCode } from "@/lib/server/public-session";
 
-const payloadSchema = z.object({
-  sessionToken: z.string().min(16).max(128),
-  pinCode: z.string().length(4).optional()
-});
+const schema = z.object({ publicToken: z.string().regex(/^[a-zA-Z0-9_-]{24,128}$/), accessCode: z.string().regex(/^\d{6}$/) });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const parsed = payloadSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
+  const parsed = schema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Informe o código de 6 dígitos do atendimento." }, { status: 400 });
+  const db = getAdminFirestore() as any;
+  const tables = await db.collection("tables").where("publicToken", "==", parsed.data.publicToken).limit(1).get();
+  if (tables.empty) return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
+  const tableDoc = tables.docs[0];
+  const table = { id: tableDoc.id, ...tableDoc.data() } as any;
+  if (table.isActive === false || table.status !== "active") return NextResponse.json({ error: "Mesa indisponível. Solicite a liberação a um funcionário." }, { status: 403 });
+  const sessions = await db.collection("tableSessions").where("tableId", "==", table.id).where("status", "==", "active").limit(1).get();
+  if (sessions.empty) return NextResponse.json({ error: "Atendimento não está aberto." }, { status: 409 });
+  const doc = sessions.docs[0];
+  const session = { id: doc.id, ...doc.data() } as any;
+  if (session.restaurantId !== table.restaurantId || computeSessionStatus(session) !== "active") {
+    if (computeSessionStatus(session) === "expired") await markSessionExpired(session.id);
+    return NextResponse.json({ error: "Atendimento indisponível." }, { status: 403 });
   }
-
-  const session = await resolveSession(parsed.data.sessionToken);
-  if (!session) {
-    return NextResponse.json({ error: "Sessão não encontrada." }, { status: 404 });
-  }
-
-  const table = await resolveTable(session.tableId);
-  if (!table) {
-    return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
-  }
-
-  const status = computeSessionStatus(session);
-  if (status === "expired") {
-    await markSessionExpired(session.id);
-    return NextResponse.json({ error: "Sessão expirada." }, { status: 410 });
-  }
-
-  if (status !== "active") {
-    return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
-  }
-
-  const settings = await resolveSettings(session.restaurantId);
-  const requiresPin = Boolean(settings?.allowSessionPin && table.pinCode);
-
-  if (requiresPin && parsed.data.pinCode !== table.pinCode) {
-    await createOperationalEvent({
-      restaurantId: session.restaurantId,
-      tableId: table.id,
-      sessionId: session.id,
-      type: "session_closed",
-      message: "Tentativa inválida de acesso por PIN incorreto",
-      metadata: { reason: "invalid_pin" }
-    });
-    return NextResponse.json({ error: "PIN inválido." }, { status: 401 });
-  }
-
-  const access = await createSessionAccessGrant(session);
-
-  return NextResponse.json({
-    session: {
-      id: session.id,
-      restaurantId: session.restaurantId,
-      tableId: session.tableId,
-      tableNumber: session.tableNumber,
-      customerName: session.customerName,
-      status: session.status,
-      expiresAt: session.expiresAt
-    },
-    requiresPin,
-    accessToken: access.accessToken,
-    accessTokenExpiresAt: access.expiresAt,
-    tableStatus: table.status
-  });
+  const verified = await verifyAttendanceCode(session, parsed.data.accessCode);
+  if (!verified.ok) return NextResponse.json({ error: verified.limited ? "Muitas tentativas. Aguarde ou solicite um novo código à equipe." : "Código inválido." }, { status: verified.limited ? 429 : 401 });
+  const grant = await createSessionAccessGrant(session);
+  const response = NextResponse.json({ ok: true, csrfToken: grant.csrfToken, expiresAt: grant.expiresAt });
+  response.cookies.set(PUBLIC_ACCESS_COOKIE, grant.cookieValue, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", expires: new Date(grant.expiresAt) });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
