@@ -76,6 +76,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Credenciais públicas e contadores de tentativa são acessíveis somente pelo
+    // servidor Admin; nem clientes anônimos nem SDKs de staff recebem esses dados.
+    match /sessionAccessGrants/{grantId} {
+      allow read, write: if false;
+    }
+
     match /orders/{orderId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
       allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);

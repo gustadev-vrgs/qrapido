@@ -485,12 +485,6 @@ export default function MesasPage(): JSX.Element {
       return;
     }
 
-    const pinCode = allowSessionPin ? openTableForm.pinCode.trim() || null : null;
-    if (allowSessionPin && pinCode && !/^\d{4}$/.test(pinCode)) {
-      appToast.error("PIN inválido", "Use 4 dígitos numéricos.");
-      return;
-    }
-
     try {
       setOpeningTableId(table.id);
       const response = await fetchAdminJson("/api/admin/table/open", {
@@ -500,7 +494,7 @@ export default function MesasPage(): JSX.Element {
         capacity,
         currentPeopleCount,
         activeSessionLimit,
-        pinCode,
+        pinCode: null,
         notes: openTableForm.operationalNotes.trim() || undefined
       });
 
@@ -508,7 +502,8 @@ export default function MesasPage(): JSX.Element {
         throw new Error(await readApiError(response, "Falha ao abrir mesa"));
       }
 
-      appToast.success("Mesa aberta com sucesso", "Mesa pronta para receber sessões e pedidos.");
+      const opened = await response.json() as { attendanceCode: string };
+      appToast.success("Mesa aberta com sucesso", `Código temporário: ${opened.attendanceCode}. Informe-o presencialmente aos clientes.`);
       if (openTableForm.operationalNotes.trim()) {
         appToast.info("Observação operacional registrada no fluxo", openTableForm.operationalNotes.trim());
       }
@@ -783,16 +778,9 @@ export default function MesasPage(): JSX.Element {
                 </AppSelect>
               </AppFormField>
 
-              <AppFormField label="PIN de acesso" hint={allowSessionPin ? "Use 4 dígitos numéricos." : "PIN desabilitado nas configurações."}>
-                <AppTextInput
-                  type="password"
-                  placeholder={allowSessionPin ? "Ex.: 1234" : "PIN opcional"}
-                  value={openTableForm.pinCode}
-                  onChange={(event) => setOpenTableForm((prev) => ({ ...prev, pinCode: event.target.value }))}
-                  disabled={!allowSessionPin}
-                  maxLength={4}
-                />
-              </AppFormField>
+              <AppSurface className="p-3 text-sm text-[hsl(var(--foreground-muted))]">
+                Ao abrir, será gerado um novo código temporário de 6 dígitos. Informe-o presencialmente aos clientes; ele não faz parte do QR fixo.
+              </AppSurface>
 
               <div className="md:col-span-2">
                 <AppFormField label="Observações operacionais" hint="Opcional: use para comunicar alguma informação para a equipe.">

@@ -3,12 +3,11 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { computeSessionStatus, createOperationalEvent, guardOrderAbuse, markSessionExpired, resolveSession, resolveTable, validateAccessGrant } from "@/lib/server/public-session";
+import { computeSessionStatus, createOperationalEvent, guardOrderAbuse, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 
 const itemSchema = z.object({ menuItemId: z.string().min(1), quantity: z.number().int().positive().max(99), notes: z.string().max(280).nullable().optional() });
 const payloadSchema = z.object({
-  sessionToken: z.string().min(16).max(128),
   items: z.array(itemSchema).min(1),
   duplicateFingerprint: z.string().min(8).max(280),
   customerName: z.string().max(80).nullable().optional(),
@@ -30,11 +29,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const parsed = payloadSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
 
-  const session = await resolveSession(parsed.data.sessionToken);
-  if (!session) return NextResponse.json({ error: "Sessão não encontrada." }, { status: 404 });
-
-  const accessToken = request.headers.get("x-session-access-token");
-  if (!(await validateAccessGrant(session, accessToken))) return NextResponse.json({ error: "Acesso não autorizado para essa sessão." }, { status: 401 });
+  const session = await resolveAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null, request.headers.get("x-csrf-token"));
+  if (!session) return NextResponse.json({ error: "Acesso não autorizado para essa mesa." }, { status: 401 });
 
   const table = await resolveTable(session.tableId);
   if (!table || table.status !== "active") return NextResponse.json({ error: "Mesa não está ativa para pedidos." }, { status: 409 });
@@ -44,7 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (status !== "active") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
 
   const db = getAdminFirestore() as any;
-  const duplicateGuardHash = crypto.createHash("sha256").update(`${parsed.data.sessionToken}:${parsed.data.duplicateFingerprint}`).digest("hex");
+  const duplicateGuardHash = crypto.createHash("sha256").update(`${session.id}:${parsed.data.duplicateFingerprint}`).digest("hex");
   const abuseCheck = await guardOrderAbuse({ restaurantId: session.restaurantId, sessionId: session.id, duplicateGuardHash });
   if (!abuseCheck.ok) return NextResponse.json({ error: abuseCheck.reason }, { status: 429 });
 

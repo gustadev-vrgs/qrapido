@@ -19,14 +19,15 @@ Plataforma web de atendimento em restaurante via QR Code, com fluxo completo par
 ### Públicas
 - `/` landing inicial
 - `/login` autenticação de staff/admin
-- `/m/[sessionToken]` experiência do cliente na mesa
+- `/mesa/[publicToken]` fluxo público principal pelo QR fixo da mesa
+- `/m/[sessionToken]` rota legada controlada: não aceita o token antigo e redireciona ao início
 
 ### APIs
 - `GET /api/health`
 - `POST /api/public/session/access`
 - `POST /api/public/order`
 - `POST /api/public/session/action`
-- `GET /api/public/session/state/[sessionToken]`
+- `GET /api/public/session/state/[sessionToken]` (legado; responde `410` sem consultar dados)
 - `POST /api/admin/table/open`
 - `POST /api/admin/table/close`
 
@@ -47,7 +48,7 @@ npm run dev
 
 Aplicação:
 - Admin: `http://localhost:3000/login`
-- Cliente (exemplo): `http://localhost:3000/m/<sessionToken>`
+- Cliente (exemplo): `http://localhost:3000/mesa/<publicToken>`
 
 ## Variáveis de ambiente
 Preencha `.env.local` com:
@@ -119,18 +120,26 @@ npm run build
 
 ## Fluxo do cliente
 1. O cliente lê o QR Code da mesa em `/mesa/[token]`.
-2. A API pública valida token, mesa ativa e sessão aberta sem exigir login.
-3. O cliente visualiza apenas categorias e itens públicos ativos/disponíveis.
-4. O carrinho é calculado na interface, mas preços e totais são recalculados no servidor antes da criação do pedido.
-5. O pagamento exibido é simulado; PIX/cartão não geram transação bancária real.
+2. O QR fixo identifica somente a mesa. Para liberar cada celular, o cliente solicita presencialmente o código temporário de 6 dígitos gerado a cada abertura.
+3. A API valida o código armazenado com hash, limita tentativas de forma persistente e cria uma autorização independente em cookie `HttpOnly`, `SameSite=Strict` e `Secure` em produção.
+4. O cliente autorizado visualiza apenas campos públicos explicitamente selecionados de categorias e itens ativos/disponíveis.
+5. Operações mutáveis exigem também cabeçalho CSRF; IDs enviados pelo navegador nunca substituem o vínculo servidor–restaurante–mesa–atendimento.
+6. O carrinho é calculado na interface, mas preços e totais são recalculados no servidor antes da criação do pedido.
+7. Ao fechar, bloquear ou expirar o atendimento, autorizações anteriores deixam de ser válidas; o código antigo não é reaproveitado na reabertura.
 
 ## Como gerar QR Code e testar uma mesa
 1. Crie ou selecione uma mesa no painel administrativo.
-2. Abra o atendimento informando quantidade de pessoas e, se habilitado, PIN.
+2. Abra o atendimento; copie o código temporário exibido uma única vez e informe-o presencialmente aos clientes da mesa.
 3. Use a ação de QR Code da mesa para copiar/baixar o QR.
 4. Abra a URL gerada em uma janela anônima ou celular.
 5. Confirme que a mesa sem sessão mostra o estado vazio apropriado e que mesa ativa carrega o cardápio.
 6. Crie pedidos até o limite configurado e valide o bloqueio após atingir o limite.
+
+## Limites e riscos residuais do acesso presencial
+- O código vigente pode ser compartilhado por um cliente com terceiros durante o atendimento. O sistema reduz reutilização de QR fotografado, mas não comprova presença física e não promete segurança absoluta.
+- Um terceiro que obtenha simultaneamente o QR e o código vigente pode obter sua própria autorização até o atendimento ser encerrado, bloqueado ou expirar.
+- O limite persistente de tentativas reduz adivinhação, mas pode ser abusado para bloquear temporariamente novas liberações; a equipe pode encerrar e reabrir o atendimento para renovar o código.
+- Não se usa geolocalização, fingerprint ou IP como prova única de presença, e clientes não precisam de login de funcionário.
 
 ## Deploy na Vercel
 1. Configure todas as variáveis de ambiente no projeto da Vercel.
