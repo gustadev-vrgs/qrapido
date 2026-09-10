@@ -101,10 +101,19 @@ do servidor informa apenas quais campos estão ausentes ou mal formatados, nunca
 
 ## Qualidade e validação
 ```bash
+npm ci
 npm run lint
 npm run typecheck
+npm run test:unit
+npm run test:emulator
+npm run test:e2e
+npm run security:secrets
 npm run build
 ```
+
+Os testes de emulador e E2E usam exclusivamente o projeto descartável `qrapido-ci`.
+Nunca forneça credenciais reais a esses comandos. O procedimento completo de configuração,
+homologação pós-deploy e rollback está em [`docs/deployment-runbook.md`](docs/deployment-runbook.md).
 
 ## Observações
 - O painel usa dados reais do Firebase. Quando não há registros, as telas exibem estados vazios apropriados.
@@ -146,6 +155,7 @@ npm run build
 2. Publique `firestore/firestore.rules` e `firestore/firestore.indexes.json` no Firebase antes do uso real.
 3. Execute `npm run build` localmente ou acompanhe o build da Vercel.
 4. Defina `NEXT_PUBLIC_APP_URL` com a URL pública de produção para QR Codes corretos.
+5. Execute o checklist de homologação e mantenha o deployment anterior disponível para rollback.
 
 ## Limitações dos pagamentos simulados
 - O QR PIX apresentado é acadêmico e não deve ser usado como comprovante bancário.

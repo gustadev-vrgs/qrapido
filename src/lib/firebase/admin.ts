@@ -9,7 +9,7 @@ type FirebaseAdminModules = {
     }) => unknown;
     getApp: () => unknown;
     getApps: () => unknown[];
-    initializeApp: (options: { credential: unknown }) => unknown;
+    initializeApp: (options: { credential?: unknown; projectId?: string }) => unknown;
   };
   auth: {
     getAuth: (app?: unknown) => unknown;
@@ -64,6 +64,15 @@ export function getFirebaseAdminApp() {
 
   if (app.getApps().length > 0) {
     return app.getApp();
+  }
+
+  // The Admin SDK deliberately uses Application Default Credentials against
+  // emulators. Requiring a production-looking private key here made local/CI
+  // integration tests either impossible or dangerously dependent on secrets.
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT;
+    if (!projectId) throw new Error("FIREBASE_PROJECT_ID is required when using the Firestore emulator.");
+    return app.initializeApp({ projectId });
   }
 
   const { projectId, clientEmail, privateKey } = assertAdminEnv();
