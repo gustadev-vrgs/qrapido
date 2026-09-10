@@ -26,6 +26,16 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
   assert.match(page, /allowCustomerNotes !== false/);
 });
 
+test("mapper de pedidos mantém campos obrigatórios na saída do schema", () => {
+  const schema = source("src/lib/schemas/domain.ts");
+  const api = source("src/app/api/public/order/route.ts");
+  assert.match(schema, /sessionToken: z\.string\(\)\.min\(16\)\.max\(128\)\.default/);
+  assert.doesNotMatch(schema, /sessionToken:.*optional\(\).*default/);
+  assert.match(schema, /duplicateGuardHash: z\.string\(\)\.min\(8\)\.max\(128\)\.default/);
+  assert.match(api, /sessionToken: session\.sessionToken/);
+  assert.match(api, /duplicateGuardHash: contentHash/);
+});
+
 test("relatórios paginam além de 500 e exportam a mesma coleção integral", () => {
   const io = source("src/lib/data/helpers/firestore-io.ts");
   const report = source("src/app/(dashboard)/dashboard/relatorios/page.tsx");
