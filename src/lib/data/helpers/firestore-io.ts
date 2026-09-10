@@ -11,6 +11,10 @@ import {
   getDoc,
   getDocs,
   query,
+  limit,
+  orderBy,
+  startAfter,
+  where,
   setDoc,
   updateDoc
 } from "firebase/firestore";
@@ -21,6 +25,26 @@ import type { CollectionName } from "@/lib/data/constants/collections";
 
 export function getCollection<T extends DocumentData>(db: Firestore, name: CollectionName): CollectionReference<T> {
   return collection(db, name) as CollectionReference<T>;
+}
+
+/** Reads a bounded date range in small pages, avoiding silent 500-row truncation. */
+export async function readPeriodPaginated<T>(
+  ref: CollectionReference<DocumentData>, restaurantId: string, field: string,
+  startIso: string, endIso: string, mapper: (id: string, data: DocumentData) => T,
+  pageSize = 250, maximum = 10_000,
+): Promise<T[]> {
+  const results: T[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  do {
+    const constraints: QueryConstraint[] = [where("restaurantId", "==", restaurantId), where(field, ">=", startIso), where(field, "<=", endIso), orderBy(field, "desc")];
+    if (cursor) constraints.push(startAfter(cursor));
+    constraints.push(limit(Math.min(pageSize, maximum - results.length)));
+    const snapshot = await getDocs(query(ref, ...constraints));
+    results.push(...snapshot.docs.map((item) => mapSnapshot(item, mapper)));
+    cursor = snapshot.docs.at(-1) ?? null;
+    if (snapshot.size < pageSize || results.length >= maximum) break;
+  } while (cursor);
+  return results;
 }
 
 export function getDocumentRef<T extends DocumentData>(db: Firestore, name: CollectionName, id: string): DocumentReference<T> {
