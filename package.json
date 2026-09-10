@@ -11,7 +11,7 @@
     "seed:staff-admin": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/bootstrap-staff-admin.ts --outDir .tmp/scripts && node .tmp/scripts/bootstrap-staff-admin.js",
     "audit:staff": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/audit-staff-users.ts --outDir .tmp/scripts && node .tmp/scripts/audit-staff-users.js",
     "test": "npm run test:unit",
-    "test:compile": "rm -rf .tmp/tests && tsc src/lib/utils/report-calculations.ts src/lib/auth/roles.ts src/lib/utils/public-url.ts --outDir .tmp/tests --module commonjs --target es2022 --moduleResolution node --esModuleInterop --skipLibCheck --baseUrl src",
+    "test:compile": "rm -rf .tmp/tests && tsc -p tsconfig.tests.json",
     "test:unit": "npm run test:compile && node --test tests/*.test.mjs",
     "test:emulator": "npx --yes firebase-tools@14.16.0 emulators:exec --project qrapido-ci --only auth,firestore \"node --test tests/emulator/*.test.mjs\"",
     "test:e2e": "npx --yes firebase-tools@14.16.0 emulators:exec --project qrapido-ci --only auth,firestore \"npm run build && node tests/e2e/main-flow.mjs\"",

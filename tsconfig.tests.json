@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "rootDir": "src/lib",
+    "outDir": ".tmp/tests",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/lib/auth/roles.ts",
+    "src/lib/utils/public-url.ts",
+    "src/lib/utils/report-calculations.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
