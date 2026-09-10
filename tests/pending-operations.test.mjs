@@ -29,11 +29,13 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
 test("mapper de pedidos mantém campos obrigatórios na saída do schema", () => {
   const schema = source("src/lib/schemas/domain.ts");
   const api = source("src/app/api/public/order/route.ts");
+  const mapper = source("src/lib/data/mappers/domain-mappers.ts");
   assert.match(schema, /sessionToken: z\.string\(\)\.min\(16\)\.max\(128\)\.default/);
   assert.doesNotMatch(schema, /sessionToken:.*optional\(\).*default/);
   assert.match(schema, /duplicateGuardHash: z\.string\(\)\.min\(8\)\.max\(128\)\.default/);
   assert.match(api, /sessionToken: session\.sessionToken/);
   assert.match(api, /duplicateGuardHash: contentHash/);
+  assert.match(mapper, /parseWithSchema\(orderSchema[\s\S]*\) as Order/);
 });
 
 test("relatórios paginam além de 500 e exportam a mesma coleção integral", () => {
