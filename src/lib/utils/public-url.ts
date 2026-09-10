@@ -23,6 +23,7 @@ export function isLocalhostUrl(value: string | null | undefined): boolean {
 }
 
 export function resolvePublicTableUrl(input: { publicToken: string; qrCodeValue?: string | null }, origin?: string): string {
-  if (input.qrCodeValue && !isLocalhostUrl(input.qrCodeValue)) return input.qrCodeValue;
+  // Tokens are the durable identity. Always rebuild the URL from the configured
+  // public domain so preview/deployment links are never silently retained.
   return buildPublicTableUrl(input.publicToken, origin);
 }

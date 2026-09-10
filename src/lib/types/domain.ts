@@ -128,6 +128,16 @@ export interface PublicTableData {
   session: Pick<TableSession, "id" | "tableId" | "tableNumber" | "sessionToken" | "status" | "peopleCount" | "maxOrdersAllowed" | "completedOrdersCount" | "startedAt">;
   categories: MenuCategory[];
   items: MenuItem[];
+  settings: {
+    acceptedPaymentMethods: PaymentMethod[];
+    allowCustomerNotes: boolean;
+    allowWaiterCall: boolean;
+    billRequestEnabled: boolean;
+    requireCustomerName: boolean;
+    serviceFeePercent: number;
+    pixKey?: string | null;
+    pixReceiverName?: string | null;
+  } | null;
 }
 
 export interface CartItem {
@@ -146,6 +156,8 @@ export interface OrderItem {
   quantity: number;
   notes: string | null;
   total: number;
+  categoryIdSnapshot?: string | null;
+  categoryNameSnapshot?: string | null;
 }
 
 export interface Order extends BaseEntity {
@@ -159,6 +171,11 @@ export interface Order extends BaseEntity {
   serviceFee: number;
   total: number;
   paymentMethod: PaymentMethod;
+  paymentMode?: "system_simulated" | "counter" | "waiter";
+  paymentStatus?: string;
+  financialReceiptConfirmed?: boolean;
+  simulation?: boolean;
+  changeFor?: number | null;
   status: OrderStatus;
   notes: string | null;
   duplicateGuardHash: string;
@@ -205,8 +222,24 @@ export interface RestaurantSettings extends BaseEntity {
   defaultSessionDurationMinutes: number;
   allowSessionPin: boolean;
   requireCustomerName: boolean;
+  allowCustomerNotes: boolean;
+  serviceFeePercent: number;
   waiterCallEnabled: boolean;
   billRequestEnabled: boolean;
+}
+
+export const WAITER_CALL_STATUSES = ["pending", "attending", "completed"] as const;
+export type WaiterCallStatus = (typeof WAITER_CALL_STATUSES)[number];
+export interface WaiterCall extends BaseEntity {
+  tableId: string;
+  tableNumber: number;
+  sessionId: string;
+  reason: string;
+  status: WaiterCallStatus;
+  attendedAt: ISODateTimeString | null;
+  attendedBy: string | null;
+  completedAt: ISODateTimeString | null;
+  completedBy: string | null;
 }
 
 export interface TopItemMetric {
@@ -266,7 +299,8 @@ export const COLLECTION_NAMES = {
   orders: "orders",
   orderEvents: "orderEvents",
   restaurantSettings: "restaurantSettings",
-  dailyMetrics: "dailyMetrics"
+  dailyMetrics: "dailyMetrics",
+  waiterCalls: "waiterCalls"
 } as const;
 
 export type CollectionName = (typeof COLLECTION_NAMES)[keyof typeof COLLECTION_NAMES];

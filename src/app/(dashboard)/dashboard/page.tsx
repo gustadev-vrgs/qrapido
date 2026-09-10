@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChefHat, RotateCcw, Timer, Users } from "lucide-react";
+import { BellRing, ChefHat, RotateCcw, Timer, Users } from "lucide-react";
 
 import {
   AppDataCard,
+  AppActionButton,
   AppEmptyState,
   AppFilterBar,
   AppSectionCard,
@@ -17,8 +18,8 @@ import { ReportsService } from "@/lib/data/services/reports-service";
 import { OrdersService } from "@/lib/data/services/orders-service";
 import { TablesService } from "@/lib/data/services/tables-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import type { DailyMetric, Order, Table } from "@/lib/types/domain";
-import { formatCurrency } from "@/lib/utils/formatters";
+import type { DailyMetric, Order, Table, WaiterCall } from "@/lib/types/domain";
+import { formatCurrency, formatDateTime } from "@/lib/utils/formatters";
 import { calculateSummary } from "@/lib/utils/report-calculations";
 
 const ORDER_STATUS_LABEL: Record<Order["status"], string> = {
@@ -31,11 +32,12 @@ const ORDER_STATUS_LABEL: Record<Order["status"], string> = {
 };
 
 export default function DashboardPage(): JSX.Element {
-  const { user } = useAdminAuth();
+  const { user, firebaseUser } = useAdminAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [metrics, setMetrics] = useState<DailyMetric[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [waiterCalls, setWaiterCalls] = useState<WaiterCall[]>([]);
 
   const reportsService = useMemo(() => new ReportsService({ scope: "admin" }), []);
   const ordersService = useMemo(() => new OrdersService({ scope: "admin" }), []);
@@ -66,6 +68,30 @@ export default function DashboardPage(): JSX.Element {
 
     void load();
   }, [ordersService, reportsService, tablesService, user?.restaurantId]);
+
+  useEffect(() => {
+    if (!firebaseUser || !user || user.role === "kitchen") return;
+    let active = true;
+    const loadCalls = async () => {
+      try {
+        const token = await firebaseUser.getIdToken();
+        const response = await fetch("/api/admin/waiter-calls", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
+        const payload = await response.json();
+        if (active && response.ok) setWaiterCalls(payload.calls ?? []);
+      } catch { /* polling retries automatically */ }
+    };
+    void loadCalls();
+    const interval = window.setInterval(() => void loadCalls(), 10_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [firebaseUser, user]);
+
+  const updateCall = async (callId: string, action: "attend" | "complete") => {
+    if (!firebaseUser) return;
+    const response = await fetch("/api/admin/waiter-calls", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await firebaseUser.getIdToken()}` }, body: JSON.stringify({ callId, action }) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Não foi possível atualizar o chamado.");
+    setWaiterCalls((current) => current.map((call) => call.id === callId ? { ...call, status: payload.status, updatedAt: new Date().toISOString() } : call));
+  };
 
   const todayMetric = metrics[0];
   const dashboardSummary = calculateSummary(orders, []);
@@ -125,6 +151,14 @@ export default function DashboardPage(): JSX.Element {
           </AppFilterBar>
 
           <div className="grid gap-4 xl:grid-cols-2">
+            {user && user.role !== "kitchen" ? <AppSectionCard title="Chamados de garçom" description="Fila atualizada automaticamente a cada 10 segundos.">
+              <div className="space-y-2">
+                {waiterCalls.filter((call) => call.status !== "completed").length === 0 ? <p className="text-sm text-[hsl(var(--foreground-muted))]">Nenhum chamado aberto.</p> : waiterCalls.filter((call) => call.status !== "completed").map((call) => <AppSurface key={call.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div><strong className="flex items-center gap-2"><BellRing className="h-4 w-4" />Mesa {call.tableNumber}</strong><p className="text-sm">{call.reason}</p><p className="text-xs text-[hsl(var(--foreground-muted))]">{formatDateTime(call.createdAt)} • {call.status === "pending" ? "Pendente" : "Em atendimento"}</p></div>
+                  <AppActionButton onClick={() => void updateCall(call.id, call.status === "pending" ? "attend" : "complete")}>{call.status === "pending" ? "Atender" : "Concluir"}</AppActionButton>
+                </AppSurface>)}
+              </div>
+            </AppSectionCard> : null}
             <AppSectionCard title="Pedidos por status" description="Distribuição operacional em tempo real.">
               <div className="grid gap-2 sm:grid-cols-2">
                 {Object.entries(statusSummary).map(([status, amount]) => (

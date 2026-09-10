@@ -116,5 +116,10 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'updatedAt']);
       allow delete: if false;
     }
+
+    // Criados pelo cliente e operados pela equipe exclusivamente por APIs
+    // autenticadas no servidor, que também registram a trilha de auditoria.
+    match /waiterCalls/{callId} { allow read, write: if false; }
+    match /waiterCallLocks/{lockId} { allow read, write: if false; }
   }
 }

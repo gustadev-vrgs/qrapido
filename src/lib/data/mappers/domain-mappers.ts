@@ -56,7 +56,12 @@ export function mapOrder(id: string, data: DocumentData): Order {
     cancelledAt: ensureIsoTimestamp(data.cancelledAt)
   };
 
-  return parseWithSchema(orderSchema, id, normalized, "order");
+  // ZodDefault accepts `undefined` as input so Zod exposes that optionality in
+  // the schema's input-facing inferred type. `safeParse` has already converted
+  // defaults and validated the output at this point; the domain mapper exposes
+  // the post-parse contract, in which sessionToken and duplicateGuardHash are
+  // always strings.
+  return parseWithSchema(orderSchema, id, normalized, "order") as Order;
 }
 
 export function mapOrderEvent(id: string, data: DocumentData): OrderEvent {
@@ -69,5 +74,6 @@ export function mapDailyMetric(id: string, data: DocumentData): DailyMetric {
 }
 
 export function mapSettings(id: string, data: DocumentData): RestaurantSettings {
-  return parseWithSchema(restaurantSettingsSchema, id, data, "restaurantSettings");
+  // Settings defaults are likewise materialized by safeParse before returning.
+  return parseWithSchema(restaurantSettingsSchema, id, data, "restaurantSettings") as RestaurantSettings;
 }

@@ -8,7 +8,7 @@ export interface Comparison { direction: "up" | "down" | "neutral" | "unknown"; 
 export interface SummaryMetrics { revenue: number; validOrders: number; averageTicket: number; soldItems: number; attendances: number; usedTables: number; cancelledOrders: number; cancellationRate: number; totalOrders: number }
 export interface ProductMetric { key: string; name: string; category: string; quantity: number; revenue: number; share: number }
 export interface CategoryMetric { name: string; quantity: number; revenue: number; share: number }
-export interface PaymentMetric { method: PaymentMethod | "other"; orders: number; total: number; share: number; pending: number; confirmed: number; cancelled: number }
+export interface PaymentMetric { method: PaymentMethod | "other"; orders: number; total: number; share: number; pending: number; confirmed: number; simulated: number; delivered: number; cancelled: number }
 export interface TableMetric { tableId: string; tableNumber: number; attendances: number; orders: number; revenue: number; averageTicket: number; averageDurationMinutes: number; openSessions: number; waiterCalls: number }
 export interface SessionMetric { session: TableSession; orders: number; total: number; durationMinutes: number | null; waiterCalls: number }
 
@@ -72,7 +72,7 @@ export function groupProducts(orders: Order[], menuItems: MenuItem[], categories
   const billable = orders.filter(isBillableOrder);
   const totalQuantity = billable.flatMap((order) => order.items).reduce((sum, item) => sum + item.quantity, 0);
   const map = new Map<string, ProductMetric>();
-  billable.forEach((order) => order.items.forEach((item) => { const key = item.menuItemId || item.nameSnapshot; const current = map.get(key) ?? { key, name: item.nameSnapshot, category: categoryFor(item.menuItemId, menuItems, categories), quantity: 0, revenue: 0, share: 0 }; current.quantity += item.quantity; current.revenue += item.total; current.share = safePercent(current.quantity, totalQuantity); map.set(key, current); }));
+  billable.forEach((order) => order.items.forEach((item) => { const key = item.menuItemId || item.nameSnapshot; const current = map.get(key) ?? { key, name: item.nameSnapshot, category: item.categoryNameSnapshot ?? categoryFor(item.menuItemId, menuItems, categories), quantity: 0, revenue: 0, share: 0 }; current.quantity += item.quantity; current.revenue += item.total; current.share = safePercent(current.quantity, totalQuantity); map.set(key, current); }));
   return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue);
 }
 
@@ -86,7 +86,7 @@ export function groupCategories(products: ProductMetric[]): CategoryMetric[] {
 export function groupPayments(orders: Order[]): PaymentMetric[] {
   const totalRevenue = orders.filter(isBillableOrder).reduce((sum, order) => sum + order.total, 0);
   const map = new Map<PaymentMethod | "other", PaymentMetric>();
-  orders.forEach((order) => { const key = order.paymentMethod; const current = map.get(key) ?? { method: key, orders: 0, total: 0, share: 0, pending: 0, confirmed: 0, cancelled: 0 }; current.orders += 1; if (isBillableOrder(order)) { current.total += order.total; current.confirmed += 1; } else if (isCancelledOrder(order)) current.cancelled += 1; else current.pending += 1; current.share = safePercent(current.total, totalRevenue); map.set(key, current); });
+  orders.forEach((order) => { const key = order.paymentMethod; const current = map.get(key) ?? { method: key, orders: 0, total: 0, share: 0, pending: 0, confirmed: 0, simulated: 0, delivered: 0, cancelled: 0 }; current.orders += 1; if (isCancelledOrder(order)) current.cancelled += 1; else { if (isBillableOrder(order)) { current.total += order.total; current.delivered += 1; } if (order.simulation || order.paymentMode === "system_simulated") current.simulated += 1; else if (order.financialReceiptConfirmed === true) current.confirmed += 1; else current.pending += 1; } current.share = safePercent(current.total, totalRevenue); map.set(key, current); });
   return Array.from(map.values()).sort((a, b) => b.total - a.total);
 }
 

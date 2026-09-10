@@ -114,23 +114,30 @@ export const orderItemSchema = z.object({
   priceSnapshot: moneySchema,
   quantity: z.number().int().positive().max(30),
   notes: z.string().max(280).nullable(),
-  total: moneySchema
+  total: moneySchema,
+  categoryIdSnapshot: entityIdSchema.nullable().optional(),
+  categoryNameSnapshot: z.string().max(80).nullable().optional()
 });
 
 export const orderSchema = baseEntitySchema.extend({
   tableId: entityIdSchema,
   tableNumber: z.number().int().positive(),
   sessionId: entityIdSchema,
-  sessionToken: z.string().min(16).max(128),
+  sessionToken: z.string().min(16).max(128).default("legacy-session-token"),
   customerName: z.string().min(2).max(80).nullable(),
   items: z.array(orderItemSchema).min(1),
   subtotal: moneySchema,
   serviceFee: moneySchema,
   total: moneySchema,
   paymentMethod: paymentMethodSchema,
+  paymentMode: z.enum(["system_simulated", "counter", "waiter"]).optional(),
+  paymentStatus: z.string().max(120).optional(),
+  financialReceiptConfirmed: z.boolean().optional().default(false),
+  simulation: z.boolean().optional().default(false),
+  changeFor: moneySchema.nullable().optional(),
   status: orderStatusSchema,
   notes: z.string().max(500).nullable(),
-  duplicateGuardHash: z.string().min(8).max(128),
+  duplicateGuardHash: z.string().min(8).max(128).default("legacy-order"),
   receivedAt: isoDateTimeSchema,
   deliveredAt: isoDateTimeSchema.nullable(),
   cancelledAt: isoDateTimeSchema.nullable(),
@@ -180,6 +187,8 @@ export const restaurantSettingsSchema = baseEntitySchema.extend({
   defaultSessionDurationMinutes: z.number().int().positive().max(360),
   allowSessionPin: z.boolean(),
   requireCustomerName: z.boolean(),
+  allowCustomerNotes: z.boolean().default(true),
+  serviceFeePercent: z.number().min(0).max(100).default(0),
   waiterCallEnabled: z.boolean(),
   billRequestEnabled: z.boolean()
 });

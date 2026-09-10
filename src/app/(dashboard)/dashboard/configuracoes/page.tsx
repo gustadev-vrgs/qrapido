@@ -113,6 +113,8 @@ export default function ConfiguracoesPage(): JSX.Element {
         defaultSessionDurationMinutes: 90,
         allowSessionPin: false,
         requireCustomerName: false,
+        allowCustomerNotes: true,
+        serviceFeePercent: 10,
         waiterCallEnabled: true,
         billRequestEnabled: true,
       });
@@ -193,6 +195,9 @@ export default function ConfiguracoesPage(): JSX.Element {
         antiSpamWindowSeconds: settings.antiSpamWindowSeconds,
         maxOrdersPerWindow: settings.maxOrdersPerWindow,
         allowSessionPin: settings.allowSessionPin,
+        requireCustomerName: settings.requireCustomerName,
+        allowCustomerNotes: settings.allowCustomerNotes,
+        serviceFeePercent: settings.serviceFeePercent,
         waiterCallEnabled: settings.waiterCallEnabled,
         billRequestEnabled: settings.billRequestEnabled,
         businessHours: settings.businessHours,
@@ -399,6 +404,15 @@ export default function ConfiguracoesPage(): JSX.Element {
                 })
               }
             />
+          </AppFormField>
+          <AppFormField label="Taxa de serviço (%)" hint="Calculada novamente e aplicada pelo servidor.">
+            <AppTextInput type="number" min={0} max={100} step="0.01" value={settings.serviceFeePercent} onChange={(event) => setSettings({ ...settings, serviceFeePercent: Number(event.target.value) || 0 })} />
+          </AppFormField>
+          <AppFormField label="Observações do cliente">
+            <AppSelect value={settings.allowCustomerNotes ? "enabled" : "disabled"} onChange={(event) => setSettings({ ...settings, allowCustomerNotes: event.target.value === "enabled" })}><option value="enabled">Habilitadas</option><option value="disabled">Desabilitadas</option></AppSelect>
+          </AppFormField>
+          <AppFormField label="Nome do cliente">
+            <AppSelect value={settings.requireCustomerName ? "required" : "optional"} onChange={(event) => setSettings({ ...settings, requireCustomerName: event.target.value === "required" })}><option value="optional">Opcional</option><option value="required">Obrigatório</option></AppSelect>
           </AppFormField>
           <AppFormField
             label="Métodos de pagamento aceitos"
