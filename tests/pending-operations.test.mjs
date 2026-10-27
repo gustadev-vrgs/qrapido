@@ -12,7 +12,7 @@ test("ciclo de chamados protege duplicatas, permissões e permite novo após con
   assert.match(publicRoute, /waiterCallEnabled === false/);
   assert.match(adminRoute, /FLOOR_ROLES/);
   assert.match(adminRoute, /action: z\.enum\(\["attend", "complete"\]\)/);
-  assert.match(adminRoute, /call\.status !== expected/);
+  assert.match(adminRoute, /expected\.includes\(call\.status\)/);
   assert.match(adminRoute, /tx\.delete\(db\.collection\("waiterCallLocks"\)/);
 });
 

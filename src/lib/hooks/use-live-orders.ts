@@ -72,13 +72,22 @@ export function useLiveOrders(restaurantId: string | undefined, onNewOrder?: (or
   return state;
 }
 
-/** Short two-tone chime for new orders, generated with Web Audio (no asset needed). */
-export function playNewOrderChime(): void {
+const CHIMES = {
+  /** New order for the kitchen: two rising notes. */
+  order: [880, 1320],
+  /** Something ready to take to a table: three quick notes. */
+  ready: [988, 1319, 1568],
+  /** Customer called the waiter: low-high-low, distinct from orders. */
+  call: [660, 990, 660]
+} as const;
+
+/** Short chime generated with Web Audio (no asset needed). Browsers only play it after the first tap on the page. */
+export function playChime(kind: keyof typeof CHIMES = "order"): void {
   try {
     const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
     const context = new AudioContextClass();
-    [880, 1320].forEach((frequency, index) => {
+    CHIMES[kind].forEach((frequency, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.frequency.value = frequency;
@@ -86,13 +95,17 @@ export function playNewOrderChime(): void {
       gain.connect(context.destination);
       const start = context.currentTime + index * 0.18;
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
       oscillator.start(start);
       oscillator.stop(start + 0.17);
     });
-    window.setTimeout(() => void context.close(), 800);
+    window.setTimeout(() => void context.close(), 1000);
   } catch {
     /* sound is a convenience only */
   }
+}
+
+export function playNewOrderChime(): void {
+  playChime("order");
 }
