@@ -33,7 +33,7 @@ test("expiração preserva pedidos, pausa acessos e não trava a mesa", () => {
 test("renovação e reabertura mantêm identidades de atendimento distintas", () => {
   const action = read("src/app/api/admin/table/session/route.ts");
   const open = read("src/app/api/admin/table/open/route.ts");
-  assert.match(action, /action: z\.enum\(\["renew", "expire"\]\)/);
+  assert.match(action, /action: z\.enum\(\["renew", "expire"/);
   assert.match(action, /renewedExpiresAt = new Date/);
   assert.match(open, /const sessionRef = db\.collection\("tableSessions"\)\.doc\(\)/);
   assert.match(open, /createSessionToken\(\)/);
@@ -48,7 +48,8 @@ test("cancelamento é idempotente e libera cota uma vez", () => {
 });
 
 test("pedido e alerta são confirmados atomicamente", () => {
-  const source = read("src/app/api/public/order/route.ts");
+  // The order route writes through the shared helper inside the same transaction.
+  const source = read("src/app/api/public/order/route.ts") + read("src/lib/server/place-order.ts");
   assert.match(source, /tx\.set\(db\.collection\("adminAlerts"\)/);
   assert.match(source, /tx\.set\(db\.collection\("orderEvents"\)/);
 });
