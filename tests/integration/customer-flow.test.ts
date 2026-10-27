@@ -54,7 +54,7 @@ test("QR de mesa ainda não aberta mostra o cardápio e pede para chamar a equip
   assert.equal(status, 200);
   assert.equal(body.access, "no_session");
   assert.equal(body.restaurantName, "Cantina Teste");
-  assert.deepEqual(body.items.map((item: { id: string }) => item.id), ["item-1", "item-2"], "itens de categoria desativada não aparecem");
+  assert.deepEqual(body.items.map((item: { id: string }) => item.id), ["item-1", "item-2", "drink-1"], "itens de categoria desativada não aparecem");
   assert.equal(body.session, null);
 });
 
@@ -96,7 +96,9 @@ test("fluxo completo: abrir mesa, código, vários pedidos, cozinha, encerrar", 
 
   const blocked = await closeTable(staffRequest("/api/admin/table/close", ADMIN_UID, { tableId: "table-1" }));
   assert.equal(blocked.status, 409);
-  assert.match((await json(blocked)).error, /em andamento/);
+  const blockedBody = await json(blocked);
+  assert.equal(blockedBody.code, "kitchen_pending");
+  assert.match(blockedBody.error, /Ainda na cozinha/);
 
   for (const pendingOrder of [second, third]) {
     await transition(staffRequest("/api/admin/order/transition", ADMIN_UID, { orderId: pendingOrder.body.orderId, nextStatus: "cancelled", reason: "Cliente desistiu" }));

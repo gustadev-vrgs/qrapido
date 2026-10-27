@@ -41,6 +41,7 @@ async function diagnose(request: NextRequest): Promise<NextResponse> {
   const liveSessions = new Map<string, Db>(sessions.docs.map((doc: Db) => [doc.id, doc.data()]));
   for (const doc of tables.docs) {
     const table = doc.data();
+    if (table.archivedAt) continue;
     const name = table.label || `Mesa ${table.number}`;
     if (!isValidPublicTableToken(table.publicToken)) issues.push({ code: "TABLE_QR_INVALID", severity: "error", tableId: doc.id, message: `${name}: o QR Code desta mesa não tem um identificador válido, por isso a leitura dá "mesa não encontrada".`, fix: "Clique em \"Corrigir automaticamente\" e imprima o QR novamente." });
     if (table.status === "active" && !liveSessions.has(table.currentSessionGroupId)) issues.push({ code: "TABLE_ACTIVE_WITHOUT_SESSION", severity: "warning", tableId: doc.id, message: `${name} aparece ocupada, mas não tem atendimento válido.`, fix: "Em Mesas, use \"Encerrar mesa\" para liberá-la." });

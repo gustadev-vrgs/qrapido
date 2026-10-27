@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ChefHat, Clock3, KeyRound, Loader2, Minus, Plus, ReceiptText, RefreshCw, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
 import { AppActionButton, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
-import { orderStatusLabels } from "@/lib/constants/status-labels";
+import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { CartItem, PaymentMethod, PublicMenuItem, PublicOrder, PublicTableData } from "@/lib/types/domain";
 import { randomKey, readStored, storageKeys, writeStored } from "@/lib/utils/customer-storage";
 import { formatCurrency } from "@/lib/utils/formatters";
@@ -57,7 +57,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
   const [changeFor, setChangeFor] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState("");
-  const [lastOrder, setLastOrder] = useState<{ id: string; code: string } | null>(null);
+  const [lastOrder, setLastOrder] = useState<{ id: string; code: string; split: boolean; drinksOnly: boolean } | null>(null);
   const [orders, setOrders] = useState<PublicOrder[]>([]);
   const [waiterReason, setWaiterReason] = useState<(typeof WAITER_REASONS)[number]>("pedir ajuda");
   const [notice, setNotice] = useState("");
@@ -224,7 +224,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
         return;
       }
       writeStored(storageKeys.attempt(token), null);
-      setLastOrder({ id: payload.orderId, code: payload.orderCode });
+      const parts = Array.isArray(payload.orders) ? payload.orders as Array<{ station: string }> : [];
+      setLastOrder({ id: payload.orderId, code: payload.groupCode ?? payload.orderCode, split: parts.length > 1, drinksOnly: parts.length === 1 && parts[0].station === "ready" });
       setCart([]);
       setOrderNotes("");
       setChangeFor("");
@@ -420,7 +421,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
           {lastOrder ? (
             <div className="space-y-3 text-center">
               <CheckCircle2 className="mx-auto h-12 w-12 text-[hsl(var(--success))]" />
-              <p className="text-lg">Pedido <strong className="font-mono">{lastOrder.code}</strong> recebido pela cozinha.</p>
+              <p className="text-lg">Pedido <strong className="font-mono">{lastOrder.code}</strong> recebido!</p>
+              <p className="text-sm text-[hsl(var(--foreground-muted))]">{lastOrder.split ? "Os pratos foram para a cozinha e as bebidas já estão a caminho." : lastOrder.drinksOnly ? "Já está a caminho da sua mesa." : "Já está na cozinha. Avisamos aqui quando ficar pronto."}</p>
               <Link href={`/mesa/${encodeURIComponent(token)}/pedido/${lastOrder.id}`} className="block"><AppActionButton className="w-full">Acompanhar pedido</AppActionButton></Link>
               <AppActionButton variant="secondary" className="w-full" onClick={() => { setLastOrder(null); setPanel("none"); }}>Continuar pedindo</AppActionButton>
             </div>
@@ -463,7 +465,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
             {orders.map((order) => (
               <Link key={order.id} href={`/mesa/${encodeURIComponent(token)}/pedido/${order.id}`} className="block">
                 <AppSurface className="space-y-1 p-3">
-                  <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-semibold">{order.orderCode}</span><AppStatusBadge tone={ORDER_TONE[order.status] ?? "info"}>{orderStatusLabels[order.status]}</AppStatusBadge></div>
+                  <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-semibold">{order.orderCode}</span><AppStatusBadge tone={ORDER_TONE[order.status] ?? "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge></div>
                   <p className="text-sm text-[hsl(var(--foreground-muted))]">{order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", ")}</p>
                   <p className="text-sm font-semibold">{formatCurrency(order.total)}</p>
                 </AppSurface>

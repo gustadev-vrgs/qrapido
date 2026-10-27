@@ -85,7 +85,8 @@ export function mapTable(id: string, data: DocumentData): Table {
     publicToken: str(data.publicToken),
     isActive: bool(data.isActive, true),
     openedAt: nullableIso(data.openedAt),
-    closedAt: nullableIso(data.closedAt)
+    closedAt: nullableIso(data.closedAt),
+    archivedAt: nullableIso(data.archivedAt)
   };
 }
 
@@ -132,7 +133,8 @@ export function mapMenuItem(id: string, data: DocumentData): MenuItem {
     isActive: bool(data.isActive, true),
     isAvailable: bool(data.isAvailable, true),
     isFeatured: bool(data.isFeatured, false),
-    sortOrder: num(data.sortOrder, 0)
+    sortOrder: num(data.sortOrder, 0),
+    station: data.station === "kitchen" || data.station === "ready" ? data.station : null
   };
 }
 
@@ -146,7 +148,8 @@ function mapOrderItem(raw: unknown): OrderItem {
     notes: nullableStr(item.notes),
     total: num(item.total, num(item.priceSnapshot ?? item.price, 0) * Math.max(1, num(item.quantity, 1))),
     categoryIdSnapshot: nullableStr(item.categoryIdSnapshot),
-    categoryNameSnapshot: nullableStr(item.categoryNameSnapshot)
+    categoryNameSnapshot: nullableStr(item.categoryNameSnapshot),
+    station: item.station === "ready" ? "ready" : "kitchen"
   };
 }
 
@@ -156,6 +159,10 @@ export function mapOrder(id: string, data: DocumentData): Order {
     ...base(id, data),
     orderCode: str(data.orderCode) || `#${id.slice(-6).toUpperCase()}`,
     dateKey: nullableStr(data.dateKey) ?? undefined,
+    station: data.station === "ready" ? "ready" : "kitchen",
+    groupCode: nullableStr(data.groupCode) ?? undefined,
+    readyAt: nullableIso(data.readyAt),
+    autoDelivered: bool(data.autoDelivered, false),
     tableId: str(data.tableId),
     tableNumber: num(data.tableNumber, 0),
     sessionId: str(data.sessionId),

@@ -15,15 +15,17 @@ import { appToast } from "@/lib/utils/toast";
 type View = "open" | "ready" | "delivered" | "cancelled" | "today";
 
 const VIEWS: Array<{ value: View; label: string; match: (order: Order, todayKey: string) => boolean }> = [
-  { value: "open", label: "Em andamento", match: (order) => ["received", "confirmed", "in_preparation"].includes(order.status) },
-  { value: "ready", label: "Prontos", match: (order) => order.status === "ready" },
+  { value: "open", label: "Cozinha", match: (order) => ["received", "confirmed", "in_preparation"].includes(order.status) },
+  { value: "ready", label: "Para levar", match: (order) => order.status === "ready" },
   { value: "delivered", label: "Entregues hoje", match: (order, today) => order.status === "delivered" && order.dateKey === today },
   { value: "cancelled", label: "Cancelados hoje", match: (order, today) => order.status === "cancelled" && order.dateKey === today },
   { value: "today", label: "Todos de hoje", match: (order, today) => order.dateKey === today }
 ];
 
-const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = { received: "in_preparation", confirmed: "in_preparation", in_preparation: "ready", ready: "delivered" };
-const NEXT_LABEL: Partial<Record<OrderStatus, string>> = { in_preparation: "Começar preparo", ready: "Marcar pronto", delivered: "Marcar entregue" };
+// One tap per person: the kitchen marks "Pronto"; the waiter may mark "Entregue"
+// (optional: closing the table marks everything delivered automatically).
+const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = { received: "ready", confirmed: "ready", in_preparation: "ready", ready: "delivered" };
+const NEXT_LABEL: Partial<Record<OrderStatus, string>> = { ready: "Pronto", delivered: "Levei à mesa" };
 const TONE: Record<OrderStatus, "info" | "warning" | "success" | "neutral" | "danger"> = { received: "info", confirmed: "info", in_preparation: "warning", ready: "success", delivered: "neutral", cancelled: "danger" };
 const SOUND_KEY = "qrapido-sound-enabled";
 
@@ -105,11 +107,11 @@ export default function PedidosPage(): JSX.Element {
         <AppActionButton variant="secondary" className="gap-2" onClick={toggleSound} aria-pressed={soundOn}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}{soundOn ? "Som ligado" : "Som desligado"}</AppActionButton>
       </AppFilterBar>
 
-      <AppSectionCard title="Pedidos" description="Atualiza sozinho. Novos pedidos tocam um aviso sonoro (mantenha esta aba aberta).">
+      <AppSectionCard title={view === "open" ? "Para a cozinha preparar" : view === "ready" ? "Prontos para levar à mesa" : "Pedidos"} description={view === "open" ? "Toque em \"Pronto\" quando o prato sair. Bebidas e itens de pronta entrega não aparecem aqui: vão direto para \"Para levar\"." : view === "ready" ? "\"Levei à mesa\" é opcional: ao encerrar a mesa, tudo vira entregue sozinho." : "Atualiza sozinho. Novos pedidos tocam um aviso sonoro (mantenha esta aba aberta)."}>
         {loading ? (
           <div className="space-y-3">{[0, 1, 2].map((index) => <AppSkeleton key={index} className="h-36 w-full" />)}</div>
         ) : visible.length === 0 ? (
-          <AppEmptyState title={view === "open" ? "Nenhum pedido em andamento" : "Nada por aqui"} description={view === "open" ? "Quando um cliente pedir pelo QR Code, o pedido aparece aqui na hora." : "Escolha outro filtro."} />
+          <AppEmptyState title={view === "open" ? "Nada para preparar agora" : view === "ready" ? "Nada esperando para ser levado" : "Nada por aqui"} description={view === "open" ? "Quando um cliente pedir um prato pelo QR Code, ele aparece aqui na hora." : "Escolha outro filtro."} />
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
             {visible.map((order) => {
@@ -119,7 +121,7 @@ export default function PedidosPage(): JSX.Element {
                 <AppSurface key={order.id} className="space-y-3 border border-[hsl(var(--border-strong))] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-mono text-sm font-semibold">{order.orderCode}</p>
+                      <p className="flex flex-wrap items-center gap-2 font-mono text-sm font-semibold">{order.orderCode}<span className={`rounded-full px-2 py-0.5 font-sans text-[11px] font-semibold ${order.station === "ready" ? "bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]" : "bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))]"}`}>{order.station === "ready" ? "Pronta entrega" : "Cozinha"}</span></p>
                       <h3 className="text-lg font-semibold">Mesa {order.tableNumber}{order.customerName ? ` · ${order.customerName}` : ""}</h3>
                       <p className="text-xs text-[hsl(var(--foreground-muted))]">{formatTime(order.receivedAt)} · {minutesAgo(order.receivedAt)}</p>
                     </div>
@@ -134,7 +136,7 @@ export default function PedidosPage(): JSX.Element {
                   {order.status === "cancelled" && order.cancellationReason ? <p className="text-sm text-[hsl(var(--danger))]">Cancelado: {order.cancellationReason}</p> : null}
                   <p className="text-sm text-[hsl(var(--foreground-muted))]">{formatCurrency(order.total)} · {paymentMethodLabels[order.paymentMethod]}{order.changeFor ? ` · troco para ${formatCurrency(order.changeFor)}` : ""}</p>
                   <div className="flex flex-wrap gap-2">
-                    {next ? <AppActionButton className="gap-2" disabled={busy} onClick={() => void move(order, next)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{NEXT_LABEL[next]}</AppActionButton> : null}
+                    {next ? <AppActionButton className={`gap-2 ${next === "ready" ? "h-12 min-w-40 text-base" : ""}`} variant={next === "ready" ? "primary" : "secondary"} disabled={busy} onClick={() => void move(order, next)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{NEXT_LABEL[next]}</AppActionButton> : null}
                     {next ? <AppActionButton variant="ghost" className="gap-2 text-[hsl(var(--danger))]" disabled={busy} onClick={() => setCancel({ order, reason: "" })}><XCircle className="h-4 w-4" />Cancelar</AppActionButton> : null}
                     <AppActionButton variant="ghost" className="gap-1" onClick={() => setDetails(order)}>Detalhes<ChevronRight className="h-4 w-4" /></AppActionButton>
                   </div>

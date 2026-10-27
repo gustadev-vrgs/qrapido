@@ -51,13 +51,15 @@ export default function DashboardPage(): JSX.Element {
   const today = useMemo(() => {
     const todays = orders.filter((order) => order.dateKey === dateKey);
     const valid = todays.filter((order) => order.status !== "cancelled");
-    const delivered = todays.filter((order) => order.status === "delivered");
-    const revenue = delivered.reduce((sum, order) => sum + order.total, 0);
+    // Sales = every order not cancelled (open tables included); a cart split into
+    // kitchen + drinks counts once for the average ticket.
+    const revenue = valid.reduce((sum, order) => sum + order.total, 0);
+    const carts = new Set(valid.map((order) => `${order.sessionId}:${order.groupCode ?? order.id}`)).size;
     return {
-      count: valid.length,
+      count: carts,
       cancelled: todays.length - valid.length,
       revenue,
-      ticket: delivered.length ? revenue / delivered.length : 0,
+      ticket: carts ? revenue / carts : 0,
       preparing: orders.filter((order) => ["received", "confirmed", "in_preparation"].includes(order.status)).length,
       ready: orders.filter((order) => order.status === "ready").length
     };
@@ -75,17 +77,17 @@ export default function DashboardPage(): JSX.Element {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <AppStatCard label="Pedidos hoje" value={String(today.count)} trend={today.cancelled ? `${today.cancelled} cancelado(s)` : "Nenhum cancelamento"} />
-          <AppStatCard label="Faturamento hoje" value={formatCurrency(today.revenue)} trend="Somente pedidos entregues" />
-          <AppStatCard label="Ticket médio" value={formatCurrency(today.ticket)} trend="Por pedido entregue" />
-          <AppStatCard label="Mesas ocupadas" value={`${occupied}/${tables.length}`} trend={`${people} pessoa(s) no salão`} />
+          <AppStatCard label="Vendas hoje" value={formatCurrency(today.revenue)} trend="Pedidos não cancelados" />
+          <AppStatCard label="Ticket médio" value={formatCurrency(today.ticket)} trend="Por pedido" />
+          <AppStatCard label="Mesas ocupadas" value={`${occupied}/${tables.filter((table) => !table.archivedAt).length}`} trend={`${people} pessoa(s) no salão`} />
         </div>
       )}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <AppSectionCard title="Cozinha agora" description="Pedidos ainda não entregues." action={<Link href="/dashboard/pedidos"><AppActionButton variant="secondary">Abrir pedidos</AppActionButton></Link>}>
+        <AppSectionCard title="Agora" description="O que está na cozinha e o que já pode ir para a mesa." action={<Link href="/dashboard/pedidos"><AppActionButton variant="secondary">Abrir pedidos</AppActionButton></Link>}>
           <div className="grid grid-cols-2 gap-3">
-            <AppSurface className="p-4"><p className="flex items-center gap-2 text-sm text-[hsl(var(--foreground-muted))]"><ChefHat className="h-4 w-4" />Em preparo</p><p className="mt-1 text-3xl font-semibold">{today.preparing}</p></AppSurface>
-            <AppSurface className="p-4"><p className="flex items-center gap-2 text-sm text-[hsl(var(--foreground-muted))]"><Users className="h-4 w-4" />Prontos p/ entregar</p><p className="mt-1 text-3xl font-semibold">{today.ready}</p></AppSurface>
+            <AppSurface className="p-4"><p className="flex items-center gap-2 text-sm text-[hsl(var(--foreground-muted))]"><ChefHat className="h-4 w-4" />Na cozinha</p><p className="mt-1 text-3xl font-semibold">{today.preparing}</p></AppSurface>
+            <AppSurface className="p-4"><p className="flex items-center gap-2 text-sm text-[hsl(var(--foreground-muted))]"><Users className="h-4 w-4" />Para levar</p><p className="mt-1 text-3xl font-semibold">{today.ready}</p></AppSurface>
           </div>
         </AppSectionCard>
 

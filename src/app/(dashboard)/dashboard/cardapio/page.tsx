@@ -22,6 +22,7 @@ import {
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { MenuService } from "@/lib/data/services/menu-service";
 import { describeFirebaseError } from "@/lib/data/errors";
+import { resolveStation, STATION_LABELS } from "@/lib/utils/stations";
 import type { MenuCategory, MenuItem } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
 import { formatCurrency } from "@/lib/utils/formatters";
@@ -48,7 +49,8 @@ const itemFormSchema = z.object({
   description: z.string().max(600, "Máximo de 600 caracteres."),
   // Accepts "25,50" as typed in Brazil.
   price: z.preprocess(parsePrice, z.number({ invalid_type_error: "Informe o preço, ex.: 25,50" }).positive("O preço deve ser maior que zero.").transform((value) => Math.round(value * 100) / 100)),
-  preparationTimeMinutes: z.coerce.number().int().min(1, "Informe no mínimo 1 minuto.").max(180, "Máximo de 180 minutos."),
+  preparationTimeMinutes: z.coerce.number().int().min(0, "O tempo não pode ser negativo.").max(180, "Máximo de 180 minutos."),
+  station: z.enum(["auto", "kitchen", "ready"]),
   imageUrl: z
     .string()
     .trim()
@@ -119,6 +121,7 @@ export default function CardapioPage(): JSX.Element {
       description: "",
       price: 0,
       preparationTimeMinutes: 20,
+      station: "auto",
       imageUrl: "",
       sortOrder: 0,
       isActive: true,
@@ -176,6 +179,7 @@ export default function CardapioPage(): JSX.Element {
         description: selectedItem.description,
         price: selectedItem.price,
         preparationTimeMinutes: selectedItem.preparationTimeMinutes,
+        station: selectedItem.station ?? "auto",
         imageUrl: selectedItem.imageUrl ?? "",
         sortOrder: selectedItem.sortOrder,
         isActive: selectedItem.isActive,
@@ -189,6 +193,7 @@ export default function CardapioPage(): JSX.Element {
         description: "",
         price: 0,
         preparationTimeMinutes: 20,
+        station: "auto",
         imageUrl: "",
         sortOrder: items.length,
         isActive: true,
@@ -265,6 +270,8 @@ export default function CardapioPage(): JSX.Element {
       const payload = {
         ...values,
         imageUrl: values.imageUrl?.trim() ? values.imageUrl.trim() : null,
+        // "auto" = decided by the category (drinks skip the kitchen).
+        station: values.station === "auto" ? null : values.station,
         slug: slugify(values.name)
       };
 
@@ -476,7 +483,8 @@ export default function CardapioPage(): JSX.Element {
                         <AppStatusBadge tone={item.isActive ? "success" : "neutral"}>{item.isActive ? "Ativo" : "Inativo"}</AppStatusBadge>
                         <AppStatusBadge tone={item.isAvailable ? "info" : "warning"}>{item.isAvailable ? "Disponível" : "Indisponível"}</AppStatusBadge>
                         <AppStatusBadge tone={item.isFeatured ? "warning" : "neutral"}>{item.isFeatured ? "Destaque" : "Comum"}</AppStatusBadge>
-                        <AppStatusBadge tone="neutral">{item.preparationTimeMinutes} min</AppStatusBadge>
+                        <AppStatusBadge tone={resolveStation(item.station, categoryNameById[item.categoryId]) === "ready" ? "success" : "neutral"}>{STATION_LABELS[resolveStation(item.station, categoryNameById[item.categoryId])]}</AppStatusBadge>
+                        {resolveStation(item.station, categoryNameById[item.categoryId]) === "kitchen" ? <AppStatusBadge tone="neutral">{item.preparationTimeMinutes} min</AppStatusBadge> : null}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                         <p className="text-base font-semibold">{formatCurrency(item.price)}</p>
@@ -519,12 +527,19 @@ export default function CardapioPage(): JSX.Element {
             <AppFormField label="Descrição" error={itemForm.formState.errors.description?.message}>
               <AppTextarea placeholder="Detalhes que ajudam o cliente na decisão de compra." {...itemForm.register("description")} />
             </AppFormField>
+            <AppFormField label="Onde é preparado" hint={`Pronta entrega (bebidas, itens prontos) não passa pela cozinha: vai direto para o garçom levar. Automático: ${resolveStation(null, categoryNameById[itemForm.watch("categoryId")] ?? "") === "ready" ? "esta categoria é de pronta entrega" : "esta categoria vai para a cozinha"}.`}>
+              <AppSelect {...itemForm.register("station")}>
+                <option value="auto">Automático pela categoria</option>
+                <option value="kitchen">Cozinha (precisa de preparo)</option>
+                <option value="ready">Pronta entrega (bebidas, itens prontos)</option>
+              </AppSelect>
+            </AppFormField>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
               <AppFormField label="Preço (R$)" error={itemForm.formState.errors.price?.message}>
                 <AppTextInput inputMode="decimal" placeholder="25,50" {...itemForm.register("price")} />
               </AppFormField>
               <AppFormField label="Preparo (min)" error={itemForm.formState.errors.preparationTimeMinutes?.message}>
-                <AppTextInput type="number" min={1} max={180} {...itemForm.register("preparationTimeMinutes")} />
+                <AppTextInput type="number" min={0} max={180} {...itemForm.register("preparationTimeMinutes")} />
               </AppFormField>
               <AppFormField label="Ordem visual" error={itemForm.formState.errors.sortOrder?.message}>
                 <AppTextInput type="number" min={0} {...itemForm.register("sortOrder")} />

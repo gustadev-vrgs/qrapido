@@ -49,7 +49,7 @@ export function useLiveOrders(restaurantId: string | undefined, onNewOrder?: (or
       groups.forEach((group) => group.forEach((order, id) => merged.set(id, order)));
       const orders = [...merged.values()].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
       if (initialized) {
-        orders.filter((order) => !known.has(order.id) && order.status === "received").forEach((order) => onNewOrderRef.current?.(order));
+        orders.filter((order) => !known.has(order.id) && (order.status === "received" || order.status === "ready")).forEach((order) => onNewOrderRef.current?.(order));
       }
       orders.forEach((order) => known.add(order.id));
       if (ready.size === listeners.length) initialized = true;

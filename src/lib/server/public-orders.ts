@@ -9,6 +9,8 @@ export function toPublicOrder(id: string, d: Record<string, any>): PublicOrder {
     orderCode: d.orderCode ?? `#${id.slice(-6).toUpperCase()}`,
     tableNumber: d.tableNumber,
     items: (Array.isArray(d.items) ? d.items : []).map((item: Record<string, any>) => ({ menuItemId: item.menuItemId, nameSnapshot: item.nameSnapshot, priceSnapshot: item.priceSnapshot, quantity: item.quantity, notes: item.notes ?? null, total: item.total })),
+    station: d.station === "ready" ? "ready" : "kitchen",
+    groupCode: d.groupCode ?? null,
     subtotal: d.subtotal,
     serviceFee: d.serviceFee ?? 0,
     total: d.total,

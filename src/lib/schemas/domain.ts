@@ -101,11 +101,12 @@ export const menuItemSchema = baseEntitySchema.extend({
   description: z.string().max(600),
   price: moneySchema,
   imageUrl: z.string().url().nullable(),
-  preparationTimeMinutes: z.number().int().positive().max(180),
+  preparationTimeMinutes: z.number().int().min(0).max(180),
   isActive: z.boolean(),
   isAvailable: z.boolean(),
   isFeatured: z.boolean(),
-  sortOrder: z.number().int().nonnegative()
+  sortOrder: z.number().int().nonnegative(),
+  station: z.enum(["kitchen", "ready"]).nullable().optional()
 });
 
 export const orderItemSchema = z.object({

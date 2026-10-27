@@ -6,6 +6,7 @@ import { withApiErrors } from "@/lib/server/api-errors";
 import { MAX_PUBLIC_BODY_BYTES, payloadTooLargeResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
 import { computeSessionStatus, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
 import { toRestaurantDateKey } from "@/lib/utils/date-key";
+import { resolveStation } from "@/lib/utils/stations";
 
 const MAX_CART_LINES = 30;
 const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(20), notes: z.string().trim().max(180).nullable().optional() }).strict();
@@ -65,7 +66,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       if (idemSnap.exists) {
         const idem = idemSnap.data();
         if (idem.contentHash !== contentHash) throw new Error("IDEMPOTENCY_CONFLICT");
-        return { orderId: idem.orderId, orderCode: idem.orderCode, subtotal: idem.subtotal, serviceFee: idem.serviceFee, total: idem.total, replay: true };
+        return { orderId: idem.orderId, orderCode: idem.orderCode, groupCode: idem.groupCode ?? null, orders: idem.orders ?? [{ orderId: idem.orderId, orderCode: idem.orderCode, station: "kitchen" }], subtotal: idem.subtotal, serviceFee: idem.serviceFee, total: idem.total, replay: true };
       }
       const fresh = sessionSnap.data();
       if (!sessionSnap.exists || fresh.status !== "active" || new Date(fresh.expiresAt).getTime() <= nowMs) throw new Error("SESSION_INACTIVE");
@@ -82,21 +83,47 @@ async function handler(request: NextRequest): Promise<NextResponse> {
         const snap = menuSnaps[index]; const product = snap.exists ? snap.data() : null;
         if (!product || product.restaurantId !== session.restaurantId || product.isActive === false || product.isAvailable === false || !categoryNames.has(product.categoryId)) throw new Error("ITEM_UNAVAILABLE");
         const price = Number(product.price); if (!Number.isFinite(price) || price < 0) throw new Error("ITEM_INVALID");
-        return { menuItemId: snap.id, nameSnapshot: String(product.name ?? "").slice(0, 120), categoryIdSnapshot: product.categoryId ?? null, categoryNameSnapshot: categoryNames.get(product.categoryId) ?? "Sem categoria", priceSnapshot: money(price), quantity: input.quantity, notes: input.notes || null, total: money(price * input.quantity) };
+        const categoryName = categoryNames.get(product.categoryId) ?? "Sem categoria";
+        return { menuItemId: snap.id, nameSnapshot: String(product.name ?? "").slice(0, 120), categoryIdSnapshot: product.categoryId ?? null, categoryNameSnapshot: categoryName, station: resolveStation(product.station, categoryName), priceSnapshot: money(price), quantity: input.quantity, notes: input.notes || null, total: money(price * input.quantity) };
       });
-      const subtotal = money(items.reduce((sum, item) => sum + item.total, 0)); const serviceFee = money(subtotal * serviceFeePercent / 100); const total = money(subtotal + serviceFee);
-      if (parsed.data.changeFor != null && parsed.data.changeFor < total) throw new Error("INVALID_CHANGE");
-      const sequence = (fresh.completedOrdersCount ?? 0) + 1; const orderRef = db.collection("orders").doc();
-      const orderCode = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}-${orderRef.id.slice(-4).toUpperCase()}`;
-      tx.set(orderRef, { restaurantId: session.restaurantId, orderCode, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, sessionToken: session.sessionToken, customerName: parsed.data.customerName || session.customerName || null, items, subtotal, serviceFeePercent, serviceFee, total, paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, paymentStatus: paymentStatus(parsed.data.paymentMode), financialReceiptConfirmed: false, simulation: parsed.data.paymentMode === "system_simulated", changeFor: parsed.data.changeFor ?? null, status: "received", notes: parsed.data.notes || null, duplicateGuardHash: contentHash, dateKey: toRestaurantDateKey(new Date(nowMs)), receivedAt: now, deliveredAt: null, cancelledAt: null, createdAt: now, updatedAt: now });
-      tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, orderId: orderRef.id, orderCode, subtotal, serviceFee, total, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
+      const grandSubtotal = money(items.reduce((sum, item) => sum + item.total, 0));
+      const grandTotal = money(grandSubtotal + money(grandSubtotal * serviceFeePercent / 100));
+      if (parsed.data.changeFor != null && parsed.data.changeFor < grandTotal) throw new Error("INVALID_CHANGE");
+
+      // One cart may become two orders: dishes go to the kitchen, drinks and other
+      // ready items go straight to the waiter (already "ready", no kitchen step).
+      const sequence = (fresh.completedOrdersCount ?? 0) + 1;
+      const groupCode = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}`;
+      const dateKey = toRestaurantDateKey(new Date(nowMs));
+      const groups = (["kitchen", "ready"] as const).map((station) => ({ station, items: items.filter((item) => item.station === station) })).filter((group) => group.items.length > 0);
+      const created = groups.map((group, index) => {
+        const orderRef = db.collection("orders").doc();
+        const orderCode = `${groupCode}-${orderRef.id.slice(-4).toUpperCase()}`;
+        const subtotal = money(group.items.reduce((sum, item) => sum + item.total, 0));
+        const serviceFee = money(subtotal * serviceFeePercent / 100);
+        const total = money(subtotal + serviceFee);
+        const ready = group.station === "ready";
+        tx.set(orderRef, {
+          restaurantId: session.restaurantId, orderCode, groupCode, station: group.station, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, sessionToken: session.sessionToken,
+          customerName: parsed.data.customerName || session.customerName || null, items: group.items, subtotal, serviceFeePercent, serviceFee, total,
+          paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, paymentStatus: paymentStatus(parsed.data.paymentMode), financialReceiptConfirmed: false, simulation: parsed.data.paymentMode === "system_simulated",
+          // Change is for the whole cart: kept on the first order only.
+          changeFor: index === 0 ? parsed.data.changeFor ?? null : null,
+          status: ready ? "ready" : "received", readyAt: ready ? now : null, notes: index === 0 ? parsed.data.notes || null : null,
+          duplicateGuardHash: contentHash, dateKey, receivedAt: now, deliveredAt: null, cancelledAt: null,
+          // The table quota counts carts, not the internal split.
+          quotaCounted: index === 0, createdAt: now, updatedAt: now
+        });
+        tx.set(db.collection("orderEvents").doc(), { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: "customer", actorId: grantId || null, message: ready ? "Pedido de pronta entrega criado pelo cliente" : "Pedido criado pelo cliente", metadata: { orderCode, station: group.station }, createdAt: now });
+        tx.set(db.collection("adminAlerts").doc(), { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "new_order", message: `Novo pedido ${orderCode}`, read: false, createdAt: now, updatedAt: now });
+        return { orderId: orderRef.id, orderCode, station: group.station, subtotal, serviceFee, total };
+      });
+      const primary = created[0];
+      const summary = { orderId: primary.orderId, orderCode: primary.orderCode, groupCode, orders: created.map(({ orderId, orderCode, station }) => ({ orderId, orderCode, station })), subtotal: grandSubtotal, serviceFee: money(created.reduce((sum, order) => sum + order.serviceFee, 0)), total: money(created.reduce((sum, order) => sum + order.total, 0)) };
+      tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
       tx.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
-      const eventRef = db.collection("orderEvents").doc();
-      tx.set(eventRef, { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: "customer", actorId: grantId || null, message: "Pedido criado pelo cliente", metadata: { orderCode }, createdAt: now });
-      const alertRef = db.collection("adminAlerts").doc();
-      tx.set(alertRef, { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "new_order", message: `Novo pedido ${orderCode}`, read: false, createdAt: now, updatedAt: now });
       rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), updatedAt: now }, { merge: true }));
-      return { orderId: orderRef.id, orderCode, subtotal, serviceFee, total, replay: false };
+      return { ...summary, replay: false };
     });
     return NextResponse.json(result, { status: result.replay ? 200 : 201 });
   } catch (error) {

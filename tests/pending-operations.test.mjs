@@ -21,7 +21,7 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
   const page = source("src/app/mesa/[token]/page.tsx");
   for (const setting of ["serviceFeePercent", "acceptedPaymentMethods", "requireCustomerName", "allowCustomerNotes"]) assert.match(api, new RegExp(setting));
   assert.match(api, /paymentMethod !== "cash"/);
-  assert.match(api, /changeFor < total/);
+  assert.match(api, /changeFor < grandTotal/);
   assert.match(page, /serviceFee/);
   assert.match(page, /settings\.allowCustomerNotes \?/);
   assert.match(page, /settings\.requireCustomerName/);

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, Copy, DoorClosed, DoorOpen, Download, Edit2, ExternalLink, KeyRound, Loader2, Plus, Power, Printer, QrCode, RefreshCw, TriangleAlert, Users, X } from "lucide-react";
+import { ArchiveRestore, CheckCircle2, Clock3, Copy, DoorClosed, DoorOpen, Download, Edit2, ExternalLink, History, KeyRound, Loader2, Plus, Power, Printer, Trash2, QrCode, RefreshCw, TriangleAlert, Users, X } from "lucide-react";
 
 import { AppActionButton, AppEmptyState, AppFilterBar, AppFormField, AppSectionCard, AppSelect, AppStatusBadge, AppSurface, AppTextInput, AppTextarea } from "@/components/ui/app-design-system";
 import { describeFirebaseError } from "@/lib/data/errors";
@@ -16,8 +16,10 @@ import { formatTime } from "@/lib/utils/formatters";
 import { createQrDataUrl } from "@/lib/utils/qr";
 import { buildPublicTableUrl, describePublicUrlProblem, isValidPublicTableToken, resolvePublicTableUrl } from "@/lib/utils/public-url";
 import { appToast } from "@/lib/utils/toast";
+import { TableHistory } from "@/components/tables/table-history";
+import { AdminApiError } from "@/lib/hooks/use-admin-api";
 
-type TableView = "free" | "occupied" | "expired" | "disabled";
+type TableView = "free" | "occupied" | "expired" | "disabled" | "archived";
 type Filter = "all" | TableView;
 
 const FILTERS: Array<{ value: Filter; label: string }> = [
@@ -25,14 +27,16 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
   { value: "free", label: "Livres" },
   { value: "occupied", label: "Ocupadas" },
   { value: "expired", label: "Tempo esgotado" },
-  { value: "disabled", label: "Desativadas" }
+  { value: "disabled", label: "Desativadas" },
+  { value: "archived", label: "Excluídas" }
 ];
 
 const VIEW_META: Record<TableView, { label: string; tone: "success" | "info" | "warning" | "neutral"; accent: string }> = {
   free: { label: "Livre", tone: "success", accent: "border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)]" },
   occupied: { label: "Ocupada", tone: "info", accent: "border-[hsl(var(--info)/0.4)] bg-[hsl(var(--info)/0.07)]" },
   expired: { label: "Tempo esgotado", tone: "warning", accent: "border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.08)]" },
-  disabled: { label: "Desativada", tone: "neutral", accent: "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))]" }
+  disabled: { label: "Desativada", tone: "neutral", accent: "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))]" },
+  archived: { label: "Excluída", tone: "neutral", accent: "border-dashed border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] opacity-80" }
 };
 
 const DURATION_OPTIONS = [
@@ -44,6 +48,7 @@ const DURATION_OPTIONS = [
 ];
 
 function viewOf(table: Table, session: TableSession | undefined): TableView {
+  if (table.archivedAt) return "archived";
   if (table.isActive === false) return "disabled";
   if (session) return isSessionExpired(session) ? "expired" : "occupied";
   if (table.status === "active" || table.status === "blocked" || table.status === "awaiting_payment") return "expired"; // occupied without a live attendance: close it
@@ -95,7 +100,9 @@ export default function MesasPage(): JSX.Element {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [tableForm, setTableForm] = useState<{ id: string; number: string; label: string; capacity: string } | null>(null);
   const [openForm, setOpenForm] = useState<{ table: Table; people: string; limitEnabled: boolean; limit: string; duration: string; notes: string } | null>(null);
-  const [closeTarget, setCloseTarget] = useState<{ table: Table; reason: string } | null>(null);
+  const [closeTarget, setCloseTarget] = useState<{ table: Table; reason: string; kitchenPending?: string } | null>(null);
+  const [historyTable, setHistoryTable] = useState<Table | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Table | null>(null);
   const [codeShown, setCodeShown] = useState<{ table: Table; code: string } | null>(null);
   const [qrTable, setQrTable] = useState<Table | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
@@ -106,7 +113,8 @@ export default function MesasPage(): JSX.Element {
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(id); }, []);
 
   const views = useMemo(() => Object.fromEntries(tables.map((table) => [table.id, viewOf(table, sessionByTable[table.id])])) as Record<string, TableView>, [tables, sessionByTable, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const filtered = tables.filter((table) => filter === "all" || views[table.id] === filter);
+  // "Todas" never shows deleted tables; they have their own filter.
+  const filtered = tables.filter((table) => (filter === "all" ? views[table.id] !== "archived" : views[table.id] === filter));
   const ordersBySession = useMemo(() => orders.reduce<Record<string, number>>((acc, order) => { acc[order.sessionId] = (acc[order.sessionId] ?? 0) + (order.status === "cancelled" ? 0 : 1); return acc; }, {}), [orders]);
   const summary = {
     occupied: tables.filter((table) => views[table.id] === "occupied").length,
@@ -139,7 +147,7 @@ export default function MesasPage(): JSX.Element {
     const capacity = Number(tableForm.capacity);
     if (!Number.isInteger(number) || number < 1 || number > 9999) return appToast.error("Número inválido", "Use um número inteiro a partir de 1.");
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return appToast.error("Capacidade inválida", "Use de 1 a 20 lugares.");
-    if (tables.some((table) => table.number === number && table.id !== tableForm.id)) return appToast.error("Número repetido", `Já existe a Mesa ${number}.`);
+    if (tables.some((table) => table.number === number && table.id !== tableForm.id && !table.archivedAt)) return appToast.error("Número repetido", `Já existe a Mesa ${number}.`);
     const label = (tableForm.label.trim() || `Mesa ${number}`).slice(0, 30);
     const form = tableForm;
     void run(form.id || "new", async () => {
@@ -169,18 +177,34 @@ export default function MesasPage(): JSX.Element {
     }), (result) => { setOpenForm(null); setCodeShown({ table: target, code: result.attendanceCode }); });
   };
 
-  const confirmClose = () => {
+  const confirmClose = async () => {
     if (!closeTarget) return;
     const target = closeTarget;
-    void run(target.table.id, () => api("/api/admin/table/close", { tableId: target.table.id, ...(target.reason.trim() ? { reason: target.reason.trim() } : {}) }), () => { setCloseTarget(null); appToast.success("Mesa encerrada", `${target.table.label} está livre.`); });
+    setBusyId(target.table.id);
+    try {
+      // Ready orders become "entregue" automatically; orders still in the kitchen ask for confirmation first.
+      await api("/api/admin/table/close", { tableId: target.table.id, ...(target.reason.trim() ? { reason: target.reason.trim() } : {}), ...(target.kitchenPending ? { force: true } : {}) });
+      setCloseTarget(null);
+      appToast.success("Mesa encerrada", `${target.table.label} está livre.`);
+    } catch (failure) {
+      if (failure instanceof AdminApiError && failure.code === "kitchen_pending") setCloseTarget({ ...target, kitchenPending: failure.message });
+      else appToast.error("Não foi possível encerrar", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setBusyId(null);
+    }
   };
+
+  const confirmArchive = () => {
+    if (!archiveTarget) return;
+    const target = archiveTarget;
+    void run(target.id, () => api("/api/admin/table/archive", { tableId: target.id, archived: true }), () => { setArchiveTarget(null); appToast.success("Mesa excluída", "O histórico continua disponível em Mesas → Excluídas."); });
+  };
+  const restoreTable = (table: Table) => void run(table.id, () => api("/api/admin/table/archive", { tableId: table.id, archived: false }), () => appToast.success("Mesa restaurada", `${table.label} voltou para o salão.`));
 
   const renewCode = (table: Table) => void run(table.id, () => api<{ attendanceCode: string }>("/api/admin/table/code", { tableId: table.id }), (result) => setCodeShown({ table, code: result.attendanceCode }));
   const renewTime = (table: Table) => void run(table.id, () => api("/api/admin/table/session", { tableId: table.id, action: "renew" }), () => appToast.success("Atendimento renovado", "Os clientes já podem voltar a pedir."));
-  const toggleActive = (table: Table) => {
-    if (views[table.id] === "occupied" || views[table.id] === "expired") return appToast.error("Mesa em uso", "Encerre o atendimento antes de desativar.");
-    void run(table.id, () => tablesService.update(table.id, { isActive: table.isActive === false, status: "free", currentSessionGroupId: null }), () => appToast.success(table.isActive === false ? "Mesa ativada" : "Mesa desativada"));
-  };
+  /** Only for tables disabled by older versions; new tables use "Excluir". */
+  const reactivate = (table: Table) => void run(table.id, () => tablesService.update(table.id, { isActive: true, status: "free", currentSessionGroupId: null }), () => appToast.success("Mesa ativada"));
 
   const copy = (text: string, what: string) => { void navigator.clipboard?.writeText(text).then(() => appToast.success(`${what} copiado`)).catch(() => appToast.info(what, text)); };
 
@@ -279,9 +303,12 @@ export default function MesasPage(): JSX.Element {
                     {canOperate && view === "occupied" ? <AppActionButton variant="secondary" className="gap-2" disabled={busy} onClick={() => renewCode(table)}><KeyRound className="h-4 w-4" />Novo código</AppActionButton> : null}
                     {canOperate && view === "expired" && session ? <AppActionButton className="gap-2" disabled={busy} onClick={() => renewTime(table)}><RefreshCw className="h-4 w-4" />Renovar</AppActionButton> : null}
                     {canOperate && (view === "occupied" || view === "expired") ? <AppActionButton variant="destructive" className="gap-2" disabled={busy} onClick={() => setCloseTarget({ table, reason: "" })}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorClosed className="h-4 w-4" />}Encerrar</AppActionButton> : null}
-                    <AppActionButton variant="secondary" className="gap-2" onClick={() => setQrTable(table)} disabled={qrBroken}><QrCode className="h-4 w-4" />QR Code</AppActionButton>
+                    <AppActionButton variant="secondary" className={`gap-2 ${view === "archived" ? "hidden" : ""}`} onClick={() => setQrTable(table)} disabled={qrBroken}><QrCode className="h-4 w-4" />QR Code</AppActionButton>
                     {canManageTables ? <AppActionButton variant="ghost" className="gap-2" onClick={() => setTableForm({ id: table.id, number: String(table.number), label: table.label, capacity: String(table.capacity) })}><Edit2 className="h-4 w-4" />Editar</AppActionButton> : null}
-                    {canManageTables && (view === "free" || view === "disabled") ? <AppActionButton variant="ghost" className="gap-2" disabled={busy} onClick={() => toggleActive(table)}><Power className="h-4 w-4" />{table.isActive === false ? "Ativar" : "Desativar"}</AppActionButton> : null}
+                    {canManageTables && view === "free" ? <AppActionButton variant="ghost" className="gap-2 text-[hsl(var(--danger))]" disabled={busy} onClick={() => setArchiveTarget(table)}><Trash2 className="h-4 w-4" />Excluir</AppActionButton> : null}
+                    {canManageTables && view === "disabled" ? <AppActionButton variant="ghost" className="gap-2" disabled={busy} onClick={() => reactivate(table)}><Power className="h-4 w-4" />Ativar</AppActionButton> : null}
+                    {canManageTables && view === "archived" ? <AppActionButton variant="secondary" className="gap-2" disabled={busy} onClick={() => restoreTable(table)}><ArchiveRestore className="h-4 w-4" />Restaurar</AppActionButton> : null}
+                    <AppActionButton variant="ghost" className="gap-2" onClick={() => setHistoryTable(table)}><History className="h-4 w-4" />Histórico</AppActionButton>
                   </div>
                 </article>
               );
@@ -328,9 +355,26 @@ export default function MesasPage(): JSX.Element {
 
       {closeTarget ? (
         <Modal title={`Encerrar ${closeTarget.table.label}?`} onClose={() => setCloseTarget(null)}>
-          <p className="text-sm text-[hsl(var(--foreground-muted))]">Os celulares da mesa deixam de fazer pedidos e a mesa fica livre. Pedidos em andamento precisam ser entregues ou cancelados antes.</p>
-          <AppTextInput value={closeTarget.reason} maxLength={300} onChange={(event) => setCloseTarget({ ...closeTarget, reason: event.target.value })} placeholder="Motivo (opcional), ex.: conta paga" />
-          <div className="flex justify-end gap-2"><AppActionButton variant="secondary" onClick={() => setCloseTarget(null)}>Voltar</AppActionButton><AppActionButton variant="destructive" disabled={busyId === closeTarget.table.id} onClick={confirmClose}>Encerrar mesa</AppActionButton></div>
+          {closeTarget.kitchenPending ? (
+            <p className="rounded-xl border border-[hsl(var(--warning)/0.5)] bg-[hsl(var(--warning)/0.1)] p-3 text-sm">{closeTarget.kitchenPending}</p>
+          ) : (
+            <p className="text-sm text-[hsl(var(--foreground-muted))]">A conta foi paga? Os celulares da mesa param de pedir, os pedidos prontos ficam como entregues e a mesa fica livre.</p>
+          )}
+          <AppTextInput value={closeTarget.reason} maxLength={300} onChange={(event) => setCloseTarget({ ...closeTarget, reason: event.target.value })} placeholder="Observação (opcional), ex.: conta paga no PIX" />
+          <div className="flex justify-end gap-2"><AppActionButton variant="secondary" onClick={() => setCloseTarget(null)}>Voltar</AppActionButton><AppActionButton variant="destructive" disabled={busyId === closeTarget.table.id} onClick={() => void confirmClose()}>{closeTarget.kitchenPending ? "Encerrar mesmo assim" : "Encerrar mesa"}</AppActionButton></div>
+        </Modal>
+      ) : null}
+
+      {archiveTarget ? (
+        <Modal title={`Excluir ${archiveTarget.label}?`} onClose={() => setArchiveTarget(null)}>
+          <p className="text-sm text-[hsl(var(--foreground-muted))]">A mesa sai do salão e o QR Code dela para de funcionar. O histórico de pedidos é mantido e você pode restaurá-la em Mesas → Excluídas.</p>
+          <div className="flex justify-end gap-2"><AppActionButton variant="secondary" onClick={() => setArchiveTarget(null)}>Voltar</AppActionButton><AppActionButton variant="destructive" disabled={busyId === archiveTarget.id} onClick={confirmArchive}>Excluir mesa</AppActionButton></div>
+        </Modal>
+      ) : null}
+
+      {historyTable && user?.restaurantId ? (
+        <Modal title={`Histórico · ${historyTable.label}`} onClose={() => setHistoryTable(null)}>
+          <TableHistory table={historyTable} restaurantId={user.restaurantId} />
         </Modal>
       ) : null}
 
