@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState } from "react";
-import { ArchiveRestore, ArrowLeft, ChefHat, Copy, CupSoda, DoorOpen, Edit2, History, KeyRound, Loader2, Power, QrCode, ReceiptText, RefreshCw, Trash2, TriangleAlert, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, ChefHat, ClipboardPen, Copy, CupSoda, DoorOpen, Edit2, History, KeyRound, Loader2, Power, QrCode, ReceiptText, RefreshCw, Trash2, TriangleAlert, Users, Wallet } from "lucide-react";
 
-import { ArchiveTableDialog, CloseTableDialog, CodeDialog, OpenTableDialog, QrDialog, TableFormDialog } from "@/components/tables/table-dialogs";
+import { ArchiveTableDialog, CloseTableDialog, CodeDialog, OpenTableDialog, openTableNow, QrDialog, TableFormDialog } from "@/components/tables/table-dialogs";
 import { TableHistory } from "@/components/tables/table-history";
 import { AppActionButton, AppEmptyState, AppSectionCard, AppSkeleton, AppStatusBadge, AppSurface } from "@/components/ui/app-design-system";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
@@ -42,7 +43,7 @@ export default function MesaDetailPage({ params }: { params: { tableId: string }
 
   const [now, setNow] = useState(0);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [codeShown, setCodeShown] = useState<string | null>(null);
+  const [codeShown, setCodeShown] = useState<{ code: string; askPeople: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -77,9 +78,20 @@ export default function MesaDetailPage({ params }: { params: { tableId: string }
     setBusy(true);
     try {
       const result = await api<{ attendanceCode: string }>("/api/admin/table/code", { tableId: table.id });
-      setCodeShown(result.attendanceCode);
+      setCodeShown({ code: result.attendanceCode, askPeople: false });
     } catch (failure) {
       appToast.error("Não foi possível gerar o código", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openNow = async () => {
+    setBusy(true);
+    try {
+      setCodeShown({ code: await openTableNow(api, table), askPeople: true });
+    } catch (failure) {
+      appToast.error("Não foi possível abrir", failure instanceof Error ? failure.message : "Tente novamente.");
     } finally {
       setBusy(false);
     }
@@ -104,7 +116,13 @@ export default function MesaDetailPage({ params }: { params: { tableId: string }
               {live && session ? <><span className="inline-flex items-center gap-1"><Users className="h-4 w-4" />{session.peopleCount}</span><span>aberta {formatTime(session.startedAt)} · {now ? timeLeft(session, now) : ""}</span></> : <span>{table.capacity} lugares</span>}
             </p>
           </div>
-          {view === "free" && canOperate ? <AppActionButton className="h-12 w-full gap-2 text-base sm:w-auto" onClick={() => setDialog("open")}><DoorOpen className="h-5 w-5" />Abrir mesa</AppActionButton> : null}
+          {view === "free" && canOperate ? (
+            <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
+              <AppActionButton className="h-12 gap-2 text-base" disabled={busy} onClick={() => void openNow()}>{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <DoorOpen className="h-5 w-5" />}Abrir mesa</AppActionButton>
+              <button type="button" className="text-sm text-[hsl(var(--foreground-muted))] underline-offset-2 hover:underline" onClick={() => setDialog("open")}>Abrir com tempo ou limite de pedidos</button>
+            </div>
+          ) : null}
+          {live && canOperate ? <Link href={`/dashboard/mesas/${table.id}/pedido` as Route} className="w-full sm:w-auto"><AppActionButton className="h-12 w-full gap-2 text-base"><ClipboardPen className="h-5 w-5" />Lançar pedido</AppActionButton></Link> : null}
         </div>
 
         {live && session ? (
@@ -169,12 +187,12 @@ export default function MesaDetailPage({ params }: { params: { tableId: string }
         {live && session && now ? <p className="mt-3 text-xs text-[hsl(var(--foreground-muted))]">Aberta {elapsedLabel(session.startedAt, now)}.</p> : null}
       </AppSectionCard>
 
-      {dialog === "open" ? <OpenTableDialog table={table} onClose={() => setDialog(null)} onOpened={(code) => { setDialog(null); setCodeShown(code); }} /> : null}
+      {dialog === "open" ? <OpenTableDialog table={table} onClose={() => setDialog(null)} onOpened={(code) => { setDialog(null); setCodeShown({ code, askPeople: false }); }} /> : null}
       {dialog === "close" ? <CloseTableDialog table={table} total={live ? bill.total : null} suggestedMethod={bill.suggestedMethod} hasSession={live} onClose={() => setDialog(null)} /> : null}
       {dialog === "edit" && user?.restaurantId ? <TableFormDialog table={table} tables={tables} restaurantId={user.restaurantId} onClose={() => setDialog(null)} /> : null}
       {dialog === "archive" ? <ArchiveTableDialog table={table} onClose={() => setDialog(null)} /> : null}
       {dialog === "qr" ? <QrDialog table={table} onClose={() => setDialog(null)} /> : null}
-      {codeShown ? <CodeDialog table={table} code={codeShown} onClose={() => setCodeShown(null)} /> : null}
+      {codeShown ? <CodeDialog table={table} code={codeShown.code} askPeople={codeShown.askPeople} onClose={() => setCodeShown(null)} /> : null}
     </section>
   );
 }

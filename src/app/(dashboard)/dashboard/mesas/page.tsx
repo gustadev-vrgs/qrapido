@@ -3,9 +3,9 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
-import { ArchiveRestore, DoorOpen, Plus, TriangleAlert } from "lucide-react";
+import { ArchiveRestore, DoorOpen, Loader2, Plus, TriangleAlert } from "lucide-react";
 
-import { CodeDialog, OpenTableDialog, TableFormDialog } from "@/components/tables/table-dialogs";
+import { CodeDialog, openTableNow, TableFormDialog } from "@/components/tables/table-dialogs";
 import { AppActionButton, AppChips, AppEmptyState, AppSkeleton, AppSurface } from "@/components/ui/app-design-system";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
@@ -48,7 +48,7 @@ export default function MesasPage(): JSX.Element {
   const [now, setNow] = useState(0);
   const [urlProblem, setUrlProblem] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [opening, setOpening] = useState<Table | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const [codeShown, setCodeShown] = useState<{ table: Table; code: string } | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
@@ -78,6 +78,18 @@ export default function MesasPage(): JSX.Element {
     if (filter === "free") return view === "free";
     return view !== "archived";
   });
+
+  // One tap: opens with sensible defaults and shows the code (people count is optional, asked in the same dialog).
+  const open = async (table: Table) => {
+    setOpeningId(table.id);
+    try {
+      setCodeShown({ table, code: await openTableNow(api, table) });
+    } catch (failure) {
+      appToast.error("Não foi possível abrir", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
   const restore = async (table: Table) => {
     setRestoringId(table.id);
@@ -135,7 +147,7 @@ export default function MesasPage(): JSX.Element {
                 ) : view === "free" ? (
                   <div className="mt-auto space-y-2">
                     <p className="text-xs text-[hsl(var(--foreground-muted))]">{table.capacity} lugares</p>
-                    {canOperate ? <AppActionButton className="relative z-10 h-11 w-full gap-2" onClick={() => setOpening(table)}><DoorOpen className="h-4 w-4" />Abrir</AppActionButton> : null}
+                    {canOperate ? <AppActionButton className="relative z-10 h-11 w-full gap-2" disabled={openingId === table.id} onClick={() => void open(table)}>{openingId === table.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorOpen className="h-4 w-4" />}Abrir</AppActionButton> : null}
                   </div>
                 ) : view === "archived" && canManage ? (
                   <AppActionButton variant="secondary" className="relative z-10 mt-auto w-full gap-2" disabled={restoringId === table.id} onClick={() => void restore(table)}><ArchiveRestore className="h-4 w-4" />Restaurar</AppActionButton>
@@ -149,8 +161,7 @@ export default function MesasPage(): JSX.Element {
       )}
 
       {creating && user?.restaurantId ? <TableFormDialog table={null} tables={tables} restaurantId={user.restaurantId} onClose={() => setCreating(false)} /> : null}
-      {opening ? <OpenTableDialog table={opening} onClose={() => setOpening(null)} onOpened={(code) => { setCodeShown({ table: opening, code }); setOpening(null); }} /> : null}
-      {codeShown ? <CodeDialog table={codeShown.table} code={codeShown.code} onClose={() => setCodeShown(null)} /> : null}
+      {codeShown ? <CodeDialog table={codeShown.table} code={codeShown.code} askPeople onClose={() => setCodeShown(null)} /> : null}
     </section>
   );
 }

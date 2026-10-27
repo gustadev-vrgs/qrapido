@@ -21,7 +21,7 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
   const page = source("src/app/mesa/[token]/page.tsx");
   for (const setting of ["serviceFeePercent", "acceptedPaymentMethods", "requireCustomerName", "allowCustomerNotes"]) assert.match(api, new RegExp(setting));
   assert.match(api, /paymentMethod !== "cash"/);
-  assert.match(api, /changeFor < grandTotal/);
+  assert.match(api, /changeFor < cartTotal\(/);
   assert.match(page, /serviceFee/);
   assert.match(page, /settings\.allowCustomerNotes \?/);
   assert.match(page, /settings\.requireCustomerName/);
@@ -29,13 +29,13 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
 
 test("mapper de pedidos sempre entrega campos obrigatórios, mesmo em documentos antigos", () => {
   const schema = source("src/lib/schemas/domain.ts");
-  const api = source("src/app/api/public/order/route.ts");
+  const api = source("src/app/api/public/order/route.ts") + source("src/lib/server/place-order.ts");
   const mapper = source("src/lib/data/mappers/domain-mappers.ts");
   assert.match(schema, /sessionToken: z\.string\(\)\.min\(16\)\.max\(128\)\.default/);
   assert.doesNotMatch(schema, /sessionToken:.*optional\(\).*default/);
   assert.match(schema, /duplicateGuardHash: z\.string\(\)\.min\(8\)\.max\(128\)\.default/);
   assert.match(api, /sessionToken: session\.sessionToken/);
-  assert.match(api, /duplicateGuardHash: contentHash/);
+  assert.match(api, /duplicateGuardHash: (options\.)?contentHash/);
   assert.match(mapper, /sessionToken: str\(data\.sessionToken\)/);
   assert.match(mapper, /duplicateGuardHash: str\(data\.duplicateGuardHash\)/);
 });
@@ -55,7 +55,7 @@ test("relatórios paginam além de 500 e exportam a mesma coleção integral", (
 
 test("pagamentos e histórico não inferem confirmação pela entrega", () => {
   const calculations = source("src/lib/utils/report-calculations.ts");
-  const orderApi = source("src/app/api/public/order/route.ts");
+  const orderApi = source("src/app/api/public/order/route.ts") + source("src/lib/server/place-order.ts");
   assert.match(calculations, /financialReceiptConfirmed === true/);
   assert.match(calculations, /current\.delivered \+= 1/);
   assert.match(calculations, /current\.simulated \+= 1/);

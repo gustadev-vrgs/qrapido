@@ -138,12 +138,39 @@ export function OpenTableDialog({ table, onClose, onOpened }: { table: Table; on
 
 /* ---------- Código gerado ---------- */
 
-export function CodeDialog({ table, code, onClose }: { table: Table; code: string; onClose: () => void }): JSX.Element {
+/** Opens the table with one tap (defaults: 1 person, restaurant duration, no order limit). */
+export async function openTableNow(api: ReturnType<typeof useAdminApi>, table: Table): Promise<string> {
+  const result = await api<{ attendanceCode: string }>("/api/admin/table/open", { tableId: table.id });
+  return result.attendanceCode;
+}
+
+export function CodeDialog({ table, code, onClose, askPeople = false }: { table: Table; code: string; onClose: () => void; askPeople?: boolean }): JSX.Element {
+  const api = useAdminApi();
+  const [people, setPeople] = useState<number | null>(null);
+  const setCount = async (count: number) => {
+    setPeople(count);
+    try {
+      await api("/api/admin/table/session", { tableId: table.id, action: "people", peopleCount: count });
+    } catch (failure) {
+      setPeople(null);
+      appToast.error("Não foi possível salvar", errorText(failure));
+    }
+  };
   return (
     <AppModal title={`${table.label} aberta`} onClose={onClose}>
-      <div className="space-y-3 text-center">
+      <div className="space-y-4 text-center">
         <p className="text-sm text-[hsl(var(--foreground-muted))]">Passe este código aos clientes. Eles escaneiam o QR da mesa e digitam o código no celular.</p>
         <p className="num text-5xl font-bold tracking-[0.2em]">{formatAccessCode(code)}</p>
+        {askPeople ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Quantas pessoas? <span className="font-normal text-[hsl(var(--foreground-muted))]">(opcional)</span></p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((count) => (
+                <button key={count} type="button" onClick={() => void setCount(count)} className={cn("num h-11 min-w-11 rounded-[var(--radius-md)] border px-2 text-base font-semibold", people === count ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))]")}>{count}</button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <p className="text-xs text-[hsl(var(--foreground-muted))]">O código fica visível na mesa, aqui no painel, enquanto ela estiver aberta.</p>
         <AppActionButton className="h-12 w-full" onClick={onClose}>Pronto</AppActionButton>
       </div>

@@ -24,13 +24,13 @@ const FALLBACK_BY_STATUS: Record<number, string> = {
 export function useAdminApi() {
   const { firebaseUser } = useAdminAuth();
 
-  return useCallback(async <T = Record<string, unknown>>(url: string, body?: unknown, method: "GET" | "POST" = body === undefined ? "GET" : "POST"): Promise<T> => {
+  return useCallback(async <T = Record<string, unknown>>(url: string, body?: unknown, method: "GET" | "POST" = body === undefined ? "GET" : "POST", extraHeaders?: Record<string, string>): Promise<T> => {
     const user = firebaseUser ?? getFirebaseClientAuth().currentUser;
     if (!user) throw new AdminApiError("Sessão administrativa ausente. Faça login novamente.", 401);
     const send = async (force: boolean) => fetch(url, {
       method,
       cache: "no-store",
-      headers: { authorization: `Bearer ${await user.getIdToken(force)}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      headers: { authorization: `Bearer ${await user.getIdToken(force)}`, ...(body === undefined ? {} : { "content-type": "application/json" }), ...extraHeaders },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     let response = await send(false);

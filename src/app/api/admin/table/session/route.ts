@@ -8,7 +8,9 @@ import { DEFAULT_SESSION_DURATION_MINUTES } from "@/lib/server/public-session";
 
 const schema = z.object({
   tableId: z.string().min(1).max(128),
-  action: z.enum(["renew", "expire"]),
+  action: z.enum(["renew", "expire", "people"]),
+  /** For action "people": how many people are at the table (set after the one-tap opening). */
+  peopleCount: z.number().int().min(1).max(60).optional(),
   durationMinutes: z.number().int().min(15).max(720).optional(),
   /** null removes the limit; undefined keeps the current one. */
   orderLimit: z.number().int().min(1).max(100).nullable().optional(),
@@ -38,6 +40,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       const now = new Date();
       const nowIso = now.toISOString();
+      if (parsed.data.action === "people") {
+        if (!parsed.data.peopleCount) throw Object.assign(new Error("Informe quantas pessoas estão na mesa."), { status: 400 });
+        tx.update(sessionRef, { peopleCount: parsed.data.peopleCount, updatedAt: nowIso });
+        tx.update(tableRef, { currentPeopleCount: parsed.data.peopleCount, updatedAt: nowIso });
+        return { peopleCount: parsed.data.peopleCount };
+      }
       const renewing = parsed.data.action === "renew";
       const renewedExpiresAt = new Date(now.getTime() + (parsed.data.durationMinutes ?? DEFAULT_SESSION_DURATION_MINUTES) * 60_000).toISOString();
       const limit = parsed.data.orderLimit !== undefined

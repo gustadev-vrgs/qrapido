@@ -5,8 +5,7 @@ import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { withApiErrors } from "@/lib/server/api-errors";
 import { MAX_PUBLIC_BODY_BYTES, payloadTooLargeResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
 import { computeSessionStatus, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
-import { toRestaurantDateKey } from "@/lib/utils/date-key";
-import { resolveStation } from "@/lib/utils/stations";
+import { CartError, cartTotal, readCartItems, writeCartOrders } from "@/lib/server/place-order";
 
 const MAX_CART_LINES = 30;
 const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(20), notes: z.string().trim().max(180).nullable().optional() }).strict();
@@ -17,8 +16,6 @@ const payloadSchema = z.object({
   changeFor: z.number().finite().positive().max(100000).transform((value) => Math.round(value * 100) / 100).nullable().optional()
 }).strict();
 
-const money = (value: number): number => Math.round(value * 100) / 100;
-const paymentStatus = (mode: string): string => mode === "system_simulated" ? "simulação acadêmica — sem recebimento confirmado" : mode === "counter" ? "pagamento pendente no caixa" : "pagamento pendente com garçom";
 
 async function handler(request: NextRequest): Promise<NextResponse> {
   let body: unknown;
@@ -54,7 +51,6 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     const result = await db.runTransaction(async (tx: any) => {
       const nowMs = Date.now(); const now = new Date(nowMs).toISOString();
       const sessionRef = db.collection("tableSessions").doc(session.id);
-      const menuRefs = parsed.data.items.map((item) => db.collection("menuItems").doc(item.menuItemId));
       const rateRules = [
         { scope: "order_grant", key: grantId, limit: maxOrdersPerWindow, seconds: antiSpamWindowSeconds },
         { scope: "order_session", key: session.id, limit: maxOrdersPerWindow * 3, seconds: antiSpamWindowSeconds },
@@ -62,7 +58,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       ].map((rule) => ({ ...rule, window: Math.floor(nowMs / (rule.seconds * 1000)) }));
       const rateRefs = rateRules.map((rule) => db.collection("publicRateLimits").doc(stableHash(`${rule.scope}:${rule.key}:${rule.window}`)));
       const tableRef = db.collection("tables").doc(session.tableId);
-      const [idemSnap, sessionSnap, tableSnap, ...rest] = await Promise.all([tx.get(idempotencyRef), tx.get(sessionRef), tx.get(tableRef), ...menuRefs.map((ref) => tx.get(ref)), ...rateRefs.map((ref) => tx.get(ref))]);
+      const [idemSnap, sessionSnap, tableSnap, ...rateSnaps] = await Promise.all([tx.get(idempotencyRef), tx.get(sessionRef), tx.get(tableRef), ...rateRefs.map((ref) => tx.get(ref))]);
       if (idemSnap.exists) {
         const idem = idemSnap.data();
         if (idem.contentHash !== contentHash) throw new Error("IDEMPOTENCY_CONFLICT");
@@ -73,55 +69,19 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       const freshTable = tableSnap.data();
       if (!tableSnap.exists || freshTable.restaurantId !== session.restaurantId || freshTable.status !== "active" || freshTable.currentSessionGroupId !== session.id) throw new Error("SESSION_INACTIVE");
       if (fresh.orderLimitEnabled === true && Number(fresh.maxOrdersAllowed ?? 0) > 0 && (fresh.completedOrdersCount ?? 0) >= Number(fresh.maxOrdersAllowed)) throw new Error("ORDER_LIMIT");
-      const menuSnaps = rest.slice(0, menuRefs.length); const rateSnaps = rest.slice(menuRefs.length);
       rateRules.forEach((rule, index) => { if ((rateSnaps[index].data()?.count ?? 0) >= rule.limit) { const error = new Error("RATE_LIMIT") as Error & { retryAfter?: number }; error.retryAfter = rule.seconds - Math.floor((nowMs / 1000) % rule.seconds); throw error; } });
-      const categoryIds = [...new Set(menuSnaps.map((snap: any) => snap.data()?.categoryId).filter(Boolean))] as string[];
-      const categorySnaps = await Promise.all(categoryIds.map((id) => tx.get(db.collection("menuCategories").doc(id))));
-      const activeCategories = categorySnaps.filter((snap: any) => snap.exists && snap.data().isActive !== false && snap.data().restaurantId === session.restaurantId);
-      const categoryNames = new Map(activeCategories.map((snap: any) => [snap.id, String(snap.data().name ?? "Sem categoria").slice(0, 80)]));
-      const items = parsed.data.items.map((input, index) => {
-        const snap = menuSnaps[index]; const product = snap.exists ? snap.data() : null;
-        if (!product || product.restaurantId !== session.restaurantId || product.isActive === false || product.isAvailable === false || !categoryNames.has(product.categoryId)) throw new Error("ITEM_UNAVAILABLE");
-        const price = Number(product.price); if (!Number.isFinite(price) || price < 0) throw new Error("ITEM_INVALID");
-        const categoryName = categoryNames.get(product.categoryId) ?? "Sem categoria";
-        return { menuItemId: snap.id, nameSnapshot: String(product.name ?? "").slice(0, 120), categoryIdSnapshot: product.categoryId ?? null, categoryNameSnapshot: categoryName, station: resolveStation(product.station, categoryName), priceSnapshot: money(price), quantity: input.quantity, notes: input.notes || null, total: money(price * input.quantity) };
-      });
-      const grandSubtotal = money(items.reduce((sum, item) => sum + item.total, 0));
-      const grandTotal = money(grandSubtotal + money(grandSubtotal * serviceFeePercent / 100));
-      if (parsed.data.changeFor != null && parsed.data.changeFor < grandTotal) throw new Error("INVALID_CHANGE");
+      const items = await readCartItems(tx, db, session.restaurantId, parsed.data.items);
+      if (parsed.data.changeFor != null && parsed.data.changeFor < cartTotal(items, serviceFeePercent)) throw new Error("INVALID_CHANGE");
 
-      // One cart may become two orders: dishes go to the kitchen, drinks and other
-      // ready items go straight to the waiter (already "ready", no kitchen step).
-      const sequence = (fresh.completedOrdersCount ?? 0) + 1;
-      const groupCode = `M${fresh.tableNumber}-${String(sequence).padStart(2, "0")}`;
-      const dateKey = toRestaurantDateKey(new Date(nowMs));
-      const groups = (["kitchen", "ready"] as const).map((station) => ({ station, items: items.filter((item) => item.station === station) })).filter((group) => group.items.length > 0);
-      const created = groups.map((group, index) => {
-        const orderRef = db.collection("orders").doc();
-        const orderCode = `${groupCode}-${orderRef.id.slice(-4).toUpperCase()}`;
-        const subtotal = money(group.items.reduce((sum, item) => sum + item.total, 0));
-        const serviceFee = money(subtotal * serviceFeePercent / 100);
-        const total = money(subtotal + serviceFee);
-        const ready = group.station === "ready";
-        tx.set(orderRef, {
-          restaurantId: session.restaurantId, orderCode, groupCode, station: group.station, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, sessionToken: session.sessionToken,
-          customerName: parsed.data.customerName || session.customerName || null, items: group.items, subtotal, serviceFeePercent, serviceFee, total,
-          paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, paymentStatus: paymentStatus(parsed.data.paymentMode), financialReceiptConfirmed: false, simulation: parsed.data.paymentMode === "system_simulated",
-          // Change is for the whole cart: kept on the first order only.
-          changeFor: index === 0 ? parsed.data.changeFor ?? null : null,
-          status: ready ? "ready" : "received", readyAt: ready ? now : null, notes: index === 0 ? parsed.data.notes || null : null,
-          duplicateGuardHash: contentHash, dateKey, receivedAt: now, deliveredAt: null, cancelledAt: null,
-          // The table quota counts carts, not the internal split.
-          quotaCounted: index === 0, createdAt: now, updatedAt: now
-        });
-        tx.set(db.collection("orderEvents").doc(), { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: "customer", actorId: grantId || null, message: ready ? "Pedido de pronta entrega criado pelo cliente" : "Pedido criado pelo cliente", metadata: { orderCode, station: group.station }, createdAt: now });
-        tx.set(db.collection("adminAlerts").doc(), { restaurantId: session.restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "new_order", message: `Novo pedido ${orderCode}`, read: false, createdAt: now, updatedAt: now });
-        return { orderId: orderRef.id, orderCode, station: group.station, subtotal, serviceFee, total };
+      const summary = writeCartOrders(tx, db, {
+        restaurantId: session.restaurantId,
+        session: { id: session.id, tableId: session.tableId, tableNumber: fresh.tableNumber ?? session.tableNumber, sessionToken: session.sessionToken, customerName: session.customerName ?? null, completedOrdersCount: fresh.completedOrdersCount ?? 0 },
+        items, serviceFeePercent,
+        customerName: parsed.data.customerName || null, notes: parsed.data.notes || null,
+        paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, changeFor: parsed.data.changeFor ?? null,
+        contentHash, actor: { type: "customer", id: grantId || null }, nowMs
       });
-      const primary = created[0];
-      const summary = { orderId: primary.orderId, orderCode: primary.orderCode, groupCode, orders: created.map(({ orderId, orderCode, station }) => ({ orderId, orderCode, station })), subtotal: grandSubtotal, serviceFee: money(created.reduce((sum, order) => sum + order.serviceFee, 0)), total: money(created.reduce((sum, order) => sum + order.total, 0)) };
       tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
-      tx.update(sessionRef, { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
       rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), updatedAt: now }, { merge: true }));
       return { ...summary, replay: false };
     });
@@ -131,7 +91,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "O carrinho mudou durante o envio. Confirme o pedido novamente.", code: "idempotency_conflict" }, { status: 409 });
     if (code === "ORDER_LIMIT") return NextResponse.json({ error: "Esta mesa atingiu o limite de pedidos definido pela equipe. Chame um atendente.", code: "order_limit" }, { status: 409 });
     if (code === "INVALID_CHANGE") return NextResponse.json({ error: "O valor para troco deve ser igual ou maior que o total do pedido." }, { status: 400 });
-    if (code === "ITEM_UNAVAILABLE" || code === "ITEM_INVALID") return NextResponse.json({ error: "Um dos produtos do carrinho acabou de ficar indisponível. Remova-o e tente novamente.", code: "item_unavailable" }, { status: 409 });
+    if (error instanceof CartError || code === "ITEM_UNAVAILABLE" || code === "ITEM_INVALID") return NextResponse.json({ error: "Um dos produtos do carrinho acabou de ficar indisponível. Remova-o e tente novamente.", code: "item_unavailable" }, { status: 409 });
     if (code === "RATE_LIMIT") { const retryAfter = (error as Error & { retryAfter?: number }).retryAfter ?? 60; return NextResponse.json({ error: `Muitas tentativas desta autorização. Tente novamente em ${retryAfter} segundos.`, retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } }); }
     if (code === "SESSION_INACTIVE") return NextResponse.json({ error: "O atendimento desta mesa foi encerrado ou pausado. Chame um atendente.", code: "session_inactive" }, { status: 409 });
     throw error;

@@ -15,8 +15,8 @@ test("pedido reserva idempotência, cota e limites na mesma transação", () => 
 });
 
 test("preços, taxas e identidade do restaurante são definidos pelo servidor", () => {
-  const source = read("src/app/api/public/order/route.ts");
-  assert.match(source, /product\.restaurantId !== session\.restaurantId/);
+  const source = read("src/app/api/public/order/route.ts") + read("src/lib/server/place-order.ts");
+  assert.match(source, /product\.restaurantId !== (session\.)?restaurantId/);
   assert.match(source, /product\.isAvailable === false/);
   assert.match(source, /!categoryNames\.has\(product\.categoryId\)/);
   assert.match(source, /priceSnapshot: money\(price\)/);
