@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronRight, Loader2, Volume2, VolumeX, XCircle } from "lucide-react";
+import { AlertTriangle, Ban, CheckCheck, ChefHat, ChevronRight, ClipboardList, HandPlatter, Loader2, Volume2, VolumeX, XCircle, type LucideIcon } from "lucide-react";
 
-import { AppActionButton, AppEmptyState, AppFilterBar, AppSearchInput, AppSectionCard, AppSkeleton, AppStatusBadge, AppSurface, AppTextarea } from "@/components/ui/app-design-system";
+import { AppActionButton, AppChips, AppEmptyState, AppFilterBar, AppSearchInput, AppSectionCard, AppSkeleton, AppStatusBadge, AppSurface, AppTextarea } from "@/components/ui/app-design-system";
 import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
@@ -14,12 +14,12 @@ import { appToast } from "@/lib/utils/toast";
 
 type View = "open" | "ready" | "delivered" | "cancelled" | "today";
 
-const VIEWS: Array<{ value: View; label: string; match: (order: Order, todayKey: string) => boolean }> = [
-  { value: "open", label: "Cozinha", match: (order) => ["received", "confirmed", "in_preparation"].includes(order.status) },
-  { value: "ready", label: "Para levar", match: (order) => order.status === "ready" },
-  { value: "delivered", label: "Entregues hoje", match: (order, today) => order.status === "delivered" && order.dateKey === today },
-  { value: "cancelled", label: "Cancelados hoje", match: (order, today) => order.status === "cancelled" && order.dateKey === today },
-  { value: "today", label: "Todos de hoje", match: (order, today) => order.dateKey === today }
+const VIEWS: Array<{ value: View; label: string; icon: LucideIcon; match: (order: Order, todayKey: string) => boolean }> = [
+  { value: "open", label: "Cozinha", icon: ChefHat, match: (order) => ["received", "confirmed", "in_preparation"].includes(order.status) },
+  { value: "ready", label: "Para levar", icon: HandPlatter, match: (order) => order.status === "ready" },
+  { value: "delivered", label: "Entregues hoje", icon: CheckCheck, match: (order, today) => order.status === "delivered" && order.dateKey === today },
+  { value: "cancelled", label: "Cancelados hoje", icon: Ban, match: (order, today) => order.status === "cancelled" && order.dateKey === today },
+  { value: "today", label: "Todos de hoje", icon: ClipboardList, match: (order, today) => order.dateKey === today }
 ];
 
 // One tap per person: the kitchen marks "Pronto"; the waiter may mark "Entregue"
@@ -95,19 +95,13 @@ export default function PedidosPage(): JSX.Element {
     <section className="space-y-4">
       {error ? <AppSurface className="flex items-start gap-3 border border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error}</p></AppSurface> : null}
 
-      <AppFilterBar className="flex-wrap gap-2">
-        <div className="flex flex-1 flex-wrap gap-2">
-          {VIEWS.map((item) => (
-            <button key={item.value} type="button" onClick={() => setView(item.value)} className={`h-9 rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.1em] transition ${view === item.value ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"}`}>
-              {item.label} <span className="ml-1 opacity-70">{counts[item.value]}</span>
-            </button>
-          ))}
-        </div>
-        <AppSearchInput className="md:max-w-xs" placeholder="Buscar código, mesa ou cliente" value={search} onChange={(event) => setSearch(event.target.value)} />
+      <AppFilterBar className="gap-2 md:flex-wrap">
+        <AppChips className="flex-1" value={view} onChange={setView} options={VIEWS.map((item) => ({ value: item.value, label: item.label, icon: item.icon, count: counts[item.value] }))} />
+        <AppSearchInput className="w-full min-w-0 flex-1 md:max-w-xs" placeholder="Buscar código, mesa ou cliente" value={search} onChange={(event) => setSearch(event.target.value)} />
         <AppActionButton variant="secondary" className="gap-2" onClick={toggleSound} aria-pressed={soundOn}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}{soundOn ? "Som ligado" : "Som desligado"}</AppActionButton>
       </AppFilterBar>
 
-      <AppSectionCard title={view === "open" ? "Para a cozinha preparar" : view === "ready" ? "Prontos para levar à mesa" : "Pedidos"} description={view === "open" ? "Toque em \"Pronto\" quando o prato sair. Bebidas e itens de pronta entrega não aparecem aqui: vão direto para \"Para levar\"." : view === "ready" ? "\"Levei à mesa\" é opcional: ao encerrar a mesa, tudo vira entregue sozinho." : "Atualiza sozinho. Novos pedidos tocam um aviso sonoro (mantenha esta aba aberta)."}>
+      <AppSectionCard icon={VIEWS.find((item) => item.value === view)!.icon} tone={view === "open" ? "warning" : view === "ready" ? "success" : "primary"} title={view === "open" ? "Para a cozinha preparar" : view === "ready" ? "Prontos para levar à mesa" : "Pedidos"} description={view === "open" ? "Toque em \"Pronto\" quando o prato sair. Bebidas não passam por aqui." : view === "ready" ? "\"Levei à mesa\" é opcional: ao encerrar a mesa, tudo vira entregue sozinho." : "Atualiza sozinho. Novos pedidos tocam um aviso sonoro (mantenha esta aba aberta)."}>
         {loading ? (
           <div className="space-y-3">{[0, 1, 2].map((index) => <AppSkeleton key={index} className="h-36 w-full" />)}</div>
         ) : visible.length === 0 ? (
@@ -118,29 +112,29 @@ export default function PedidosPage(): JSX.Element {
               const next = NEXT_STEP[order.status];
               const busy = updatingId === order.id;
               return (
-                <AppSurface key={order.id} className="space-y-3 border border-[hsl(var(--border-strong))] p-4">
+                <article key={order.id} className="comanda space-y-3 p-4 pl-5" data-tone={order.status === "cancelled" ? "cancelled" : order.station === "ready" || order.status === "ready" ? "ready" : "kitchen"}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="flex flex-wrap items-center gap-2 font-mono text-sm font-semibold">{order.orderCode}<span className={`rounded-full px-2 py-0.5 font-sans text-[11px] font-semibold ${order.station === "ready" ? "bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]" : "bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))]"}`}>{order.station === "ready" ? "Pronta entrega" : "Cozinha"}</span></p>
-                      <h3 className="text-lg font-semibold">Mesa {order.tableNumber}{order.customerName ? ` · ${order.customerName}` : ""}</h3>
+                      <p className="flex flex-wrap items-center gap-2 num text-sm font-semibold">{order.orderCode}<span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${order.station === "ready" ? "bg-[hsl(var(--success)/0.14)] text-[hsl(var(--success))]" : "bg-[hsl(var(--gema)/0.2)] text-[hsl(var(--warning))]"}`}>{order.station === "ready" ? "Pronta entrega" : "Cozinha"}</span></p>
+                      <h3 className="text-xl font-bold">Mesa {order.tableNumber}{order.customerName ? ` · ${order.customerName}` : ""}</h3>
                       <p className="text-xs text-[hsl(var(--foreground-muted))]">{formatTime(order.receivedAt)} · {minutesAgo(order.receivedAt)}</p>
                     </div>
                     <AppStatusBadge tone={TONE[order.status]}>{orderStatusLabels[order.status]}</AppStatusBadge>
                   </div>
                   <ul className="space-y-1">
                     {order.items.map((item, index) => (
-                      <li key={`${item.menuItemId}-${index}`} className="text-sm"><span className="font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="block pl-6 text-xs text-[hsl(var(--warning))]">Obs.: {item.notes}</span> : null}</li>
+                      <li key={`${item.menuItemId}-${index}`} className="text-[15px]"><span className="num font-bold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="block pl-6 text-xs text-[hsl(var(--warning))]">Obs.: {item.notes}</span> : null}</li>
                     ))}
                   </ul>
                   {order.notes ? <p className="rounded-lg border border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-sm">Observação: {order.notes}</p> : null}
                   {order.status === "cancelled" && order.cancellationReason ? <p className="text-sm text-[hsl(var(--danger))]">Cancelado: {order.cancellationReason}</p> : null}
                   <p className="text-sm text-[hsl(var(--foreground-muted))]">{formatCurrency(order.total)} · {paymentMethodLabels[order.paymentMethod]}{order.changeFor ? ` · troco para ${formatCurrency(order.changeFor)}` : ""}</p>
                   <div className="flex flex-wrap gap-2">
-                    {next ? <AppActionButton className={`gap-2 ${next === "ready" ? "h-12 min-w-40 text-base" : ""}`} variant={next === "ready" ? "primary" : "secondary"} disabled={busy} onClick={() => void move(order, next)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{NEXT_LABEL[next]}</AppActionButton> : null}
+                    {next ? <AppActionButton className={`gap-2 ${next === "ready" ? "h-12 min-w-40 text-base" : ""}`} variant={next === "ready" ? "success" : "secondary"} disabled={busy} onClick={() => void move(order, next)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{NEXT_LABEL[next]}</AppActionButton> : null}
                     {next ? <AppActionButton variant="ghost" className="gap-2 text-[hsl(var(--danger))]" disabled={busy} onClick={() => setCancel({ order, reason: "" })}><XCircle className="h-4 w-4" />Cancelar</AppActionButton> : null}
                     <AppActionButton variant="ghost" className="gap-1" onClick={() => setDetails(order)}>Detalhes<ChevronRight className="h-4 w-4" /></AppActionButton>
                   </div>
-                </AppSurface>
+                </article>
               );
             })}
           </div>
@@ -150,7 +144,7 @@ export default function PedidosPage(): JSX.Element {
       {details ? (
         <div className="fixed inset-0 z-40 bg-black/40 p-4" onClick={() => setDetails(null)} role="presentation">
           <aside className="ml-auto h-full w-full max-w-xl space-y-3 overflow-y-auto rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] p-5" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between"><div><p className="font-mono text-sm">{details.orderCode}</p><h3 className="text-xl font-semibold">Mesa {details.tableNumber}</h3></div><AppActionButton variant="ghost" onClick={() => setDetails(null)}>Fechar</AppActionButton></div>
+            <div className="flex items-start justify-between"><div><p className="num text-sm">{details.orderCode}</p><h3 className="text-xl font-semibold">Mesa {details.tableNumber}</h3></div><AppActionButton variant="ghost" onClick={() => setDetails(null)}>Fechar</AppActionButton></div>
             <AppSurface className="space-y-1 p-4 text-sm">
               <p>Cliente: <strong>{details.customerName || "não informado"}</strong></p>
               <p>Status: <strong>{orderStatusLabels[details.status]}</strong></p>

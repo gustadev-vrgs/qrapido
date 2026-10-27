@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AppProviders } from "@/components/providers/app-providers";
+import "@fontsource-variable/bricolage-grotesque";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "QRápido",
-  description: "Sistema profissional de atendimento presencial por QR Code para restaurantes"
+  description: "Cardápio e pedidos pelo QR Code da mesa, com cozinha e salão em tempo real."
 };
 
 interface RootLayoutProps {

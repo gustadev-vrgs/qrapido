@@ -3,222 +3,156 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { LogOut, Menu, Moon, MoreHorizontal, QrCode, Sun, X } from "lucide-react";
 
+import { AppIconBadge } from "@/components/ui/app-design-system";
+import { useTheme } from "@/components/providers/theme-provider";
 import { ROLE_LABELS } from "@/lib/auth/roles";
-import {
-  DEFAULT_RESTAURANT_NAME,
-  RESTAURANT_NAME_UPDATED_EVENT,
-  resolveRestaurantDisplayName,
-} from "@/lib/constants/restaurant";
+import { DEFAULT_RESTAURANT_NAME, RESTAURANT_NAME_UPDATED_EVENT, resolveRestaurantDisplayName } from "@/lib/constants/restaurant";
+import { dashboardNavItems, findNavItem, NAVIGATION_GROUPS, type NavigationItem } from "@/lib/constants/navigation";
 import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { dashboardNavItems } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils/cn";
-import { AppActionButton } from "@/components/ui/app-design-system";
-import { useTheme } from "@/components/providers/theme-provider";
 
-interface DashboardShellProps {
-  children: ReactNode;
+function Brand({ restaurantName }: { restaurantName: string }): JSX.Element {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" aria-hidden="true"><QrCode className="h-5 w-5" /></span>
+      <div className="min-w-0">
+        <p className="truncate text-base font-bold leading-tight">{restaurantName}</p>
+        <p className="text-xs text-[hsl(var(--foreground-muted))]">QRápido</p>
+      </div>
+    </div>
+  );
 }
 
-export function DashboardShell({ children }: DashboardShellProps): JSX.Element {
+function NavLink({ item, active, onNavigate }: { item: NavigationItem; active: boolean; onNavigate?: () => void }): JSX.Element {
+  const Icon = item.icon;
+  return (
+    <Link href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined}
+      className={cn("flex items-center gap-3 rounded-[var(--radius-md)] px-2.5 py-2 text-[15px] font-medium transition-colors",
+        active ? "bg-[hsl(var(--primary-soft))] text-[hsl(var(--primary))]" : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface-muted))]")}>
+      <Icon className={cn("h-5 w-5 shrink-0", active ? "" : "text-[hsl(var(--foreground-muted))]")} aria-hidden="true" />
+      {item.label}
+    </Link>
+  );
+}
+
+export function DashboardShell({ children }: { children: ReactNode }): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
   const { logout, user } = useAdminAuth();
   const { resolvedTheme, setTheme } = useTheme();
-  const isDarkMode = resolvedTheme === "dark";
+  const isDark = resolvedTheme === "dark";
   const [restaurantName, setRestaurantName] = useState(DEFAULT_RESTAURANT_NAME);
-  const restaurantsService = useMemo(
-    () => new RestaurantsService({ scope: "admin" }),
-    [],
-  );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const restaurantsService = useMemo(() => new RestaurantsService({ scope: "admin" }), []);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadRestaurantName = async () => {
-      if (!user?.restaurantId) {
-        if (isMounted) setRestaurantName(DEFAULT_RESTAURANT_NAME);
-        return;
-      }
-
-      try {
-        const restaurant = await restaurantsService.getByRestaurantId(
-          user.restaurantId,
-        );
-        if (isMounted)
-          setRestaurantName(resolveRestaurantDisplayName(restaurant?.name));
-      } catch {
-        if (isMounted) setRestaurantName(DEFAULT_RESTAURANT_NAME);
-      }
-    };
-
-    const handleRestaurantNameUpdated = (event: Event) => {
-      setRestaurantName(
-        resolveRestaurantDisplayName((event as CustomEvent<string>).detail),
-      );
-    };
-
-    void loadRestaurantName();
-    window.addEventListener(
-      RESTAURANT_NAME_UPDATED_EVENT,
-      handleRestaurantNameUpdated,
-    );
-
-    return () => {
-      isMounted = false;
-      window.removeEventListener(
-        RESTAURANT_NAME_UPDATED_EVENT,
-        handleRestaurantNameUpdated,
-      );
-    };
+    let alive = true;
+    if (user?.restaurantId) {
+      restaurantsService.getByRestaurantId(user.restaurantId)
+        .then((restaurant) => { if (alive) setRestaurantName(resolveRestaurantDisplayName(restaurant?.name)); })
+        .catch(() => undefined);
+    }
+    const onRename = (event: Event) => setRestaurantName(resolveRestaurantDisplayName((event as CustomEvent<string>).detail));
+    window.addEventListener(RESTAURANT_NAME_UPDATED_EVENT, onRename);
+    return () => { alive = false; window.removeEventListener(RESTAURANT_NAME_UPDATED_EVENT, onRename); };
   }, [restaurantsService, user?.restaurantId]);
 
-  const toggleTheme = () => {
-    setTheme(isDarkMode ? "light" : "dark");
-  };
+  useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
-  const handleLogout = async () => {
-    await logout();
-    router.replace("/login");
-  };
+  const items = dashboardNavItems.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  const current = findNavItem(pathname);
+  const isActive = (href: string) => (href === "/dashboard" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`));
+  const handleLogout = async () => { await logout(); router.replace("/login"); };
 
-  const isNavItemActive = (href: string): boolean => {
-    if (href === "/dashboard") {
-      return pathname === href;
-    }
+  const sidebarBody = (onNavigate?: () => void) => (
+    <>
+      <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto" aria-label="Navegação do painel">
+        {NAVIGATION_GROUPS.map((group) => {
+          const groupItems = items.filter((item) => item.group === group.id);
+          if (!groupItems.length) return null;
+          return (
+            <div key={group.id} className="space-y-1">
+              <p className="px-2.5 text-xs font-semibold text-[hsl(var(--foreground-muted))]">{group.label}</p>
+              {groupItems.map((item) => <NavLink key={item.href} item={item} active={isActive(item.href)} onNavigate={onNavigate} />)}
+            </div>
+          );
+        })}
+      </nav>
+      <div className="space-y-2 border-t border-[hsl(var(--border))] pt-3">
+        <div className="px-2.5">
+          <p className="truncate text-sm font-semibold">{user?.name ?? "Equipe"}</p>
+          <p className="text-xs text-[hsl(var(--foreground-muted))]">{user ? ROLE_LABELS[user.role] : ""}</p>
+        </div>
+        <div className="flex gap-1">
+          <button type="button" onClick={() => setTheme(isDark ? "light" : "dark")} className="flex flex-1 items-center gap-2 rounded-[var(--radius-md)] px-2.5 py-2 text-sm text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]">
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}{isDark ? "Tema claro" : "Tema escuro"}
+          </button>
+          <button type="button" onClick={() => void handleLogout()} className="flex items-center gap-2 rounded-[var(--radius-md)] px-2.5 py-2 text-sm text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]">
+            <LogOut className="h-4 w-4" />Sair
+          </button>
+        </div>
+      </div>
+    </>
+  );
 
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
+  const mobileTabs = items.filter((item) => item.mobileTab);
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))] p-2.5 sm:p-3 lg:p-4 2xl:p-5">
-      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 lg:grid lg:grid-cols-[clamp(230px,21vw,280px)_minmax(0,1fr)] lg:gap-4 2xl:gap-5">
-        <input
-          id="admin-sidebar-toggle"
-          type="checkbox"
-          className="peer sr-only"
-        />
+    <div className="min-h-screen bg-[hsl(var(--background))] lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      {/* Computer: fixed sidebar */}
+      <aside className="sticky top-0 hidden h-screen flex-col gap-6 border-r border-[hsl(var(--border))] bg-[hsl(var(--background-elevated))] p-4 lg:flex">
+        <Brand restaurantName={restaurantName} />
+        {sidebarBody()}
+      </aside>
 
-        <label
-          htmlFor="admin-sidebar-toggle"
-          className="fixed inset-0 z-30 hidden cursor-pointer bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity duration-300 peer-checked:block peer-checked:opacity-100 lg:hidden"
-          aria-label="Fechar menu"
-        />
-
-        <aside className="app-surface-strong fixed inset-y-2.5 left-2.5 z-40 flex w-[min(88vw,320px)] min-h-0 -translate-x-[120%] flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--background-elevated)),hsl(var(--surface)))] p-4 transition-transform duration-300 peer-checked:translate-x-0 sm:inset-y-3 sm:left-3 sm:p-5 lg:sticky lg:top-4 lg:z-10 lg:h-[calc(100dvh-2rem)] lg:w-auto lg:max-w-none lg:translate-x-0 lg:p-4 2xl:top-5 2xl:h-[calc(100dvh-2.5rem)] 2xl:p-5">
-          <div className="mb-3 flex shrink-0 items-start justify-between border-b border-[hsl(var(--border))] pb-4 2xl:mb-5 2xl:pb-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">
-                QRápido
-              </p>
-              <p className="mt-2 break-words text-xl font-semibold 2xl:text-2xl">
-                {restaurantName}
-              </p>
-              <p className="mt-2 text-xs text-[hsl(var(--foreground-muted))]">
-                Operação inteligente em tempo real
-              </p>
+      {/* Phone: drawer with everything else */}
+      {drawerOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <button type="button" className="absolute inset-0 bg-black/40" aria-label="Fechar menu" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col gap-6 bg-[hsl(var(--background-elevated))] p-4">
+            <div className="flex items-start justify-between gap-2">
+              <Brand restaurantName={restaurantName} />
+              <button type="button" onClick={() => setDrawerOpen(false)} aria-label="Fechar menu" className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))]"><X className="h-5 w-5" /></button>
             </div>
-            <label htmlFor="admin-sidebar-toggle" className="lg:hidden">
-              <span className="sr-only">Fechar navegação</span>
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]">
-                <X className="h-4 w-4" />
-              </span>
-            </label>
-          </div>
+            {sidebarBody(() => setDrawerOpen(false))}
+          </aside>
+        </div>
+      ) : null}
 
-          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 2xl:space-y-2">
-            {dashboardNavItems.filter((item) => !item.roles || (user && item.roles.includes(user.role))).map(
-              ({ href, icon: Icon, label, description }) => {
-                const active = isNavItemActive(href);
-
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      "group relative flex items-start gap-3 rounded-2xl border px-3 py-2.5 transition-all duration-200 2xl:py-3",
-                      active
-                        ? "border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--foreground))] shadow-[0_6px_18px_hsl(var(--primary)/0.12)]"
-                        : "border-transparent text-[hsl(var(--foreground-muted))] hover:border-[hsl(var(--border-strong))] hover:bg-[hsl(var(--surface-muted)/0.7)] hover:text-[hsl(var(--foreground))]",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                        active
-                          ? "border-[hsl(var(--primary)/0.32)] bg-[hsl(var(--primary)/0.18)] text-[hsl(var(--primary))]"
-                          : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))] group-hover:border-[hsl(var(--primary)/0.32)]",
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="flex min-w-0 flex-col">
-                      <span className="text-sm font-medium">{label}</span>
-                      {description ? (
-                        <span className="truncate text-xs text-[hsl(var(--foreground-muted))]">
-                          {description}
-                        </span>
-                      ) : null}
-                    </span>
-                  </Link>
-                );
-              },
-            )}
-          </nav>
-
-          <div className="mt-3 shrink-0 space-y-2 border-t border-[hsl(var(--border))] pt-3 2xl:mt-4 2xl:space-y-3 2xl:pt-4">
-            <AppActionButton
-              variant="secondary"
-              className="w-full justify-start gap-2"
-              onClick={toggleTheme}
-            >
-              {isDarkMode ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-              {isDarkMode ? "Modo claro" : "Modo escuro"}
-            </AppActionButton>
-            <div className="rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-[hsl(var(--foreground-muted))]">
-                Usuário logado
-              </p>
-              <p className="mt-1 text-sm font-semibold">
-                {user?.name ?? "Equipe QRápido"}
-              </p>
-              <p className="text-xs text-[hsl(var(--foreground-muted))]">
-                {user ? ROLE_LABELS[user.role] : "Administrador"}
-              </p>
+      <div className="min-w-0 pb-24 lg:pb-0">
+        <header className="sticky top-0 z-30 border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/0.92)] backdrop-blur">
+          <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-3 lg:px-8 lg:py-5">
+            <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu" className="-ml-1 rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))] lg:hidden"><Menu className="h-5 w-5" /></button>
+            {current ? <AppIconBadge icon={current.icon} tone={current.tone} className="hidden sm:inline-flex" /> : null}
+            <div className="min-w-0">
+              <h1 className="truncate text-xl lg:text-2xl">{current?.label ?? "Painel"}</h1>
+              {current?.description ? <p className="hidden truncate text-sm text-[hsl(var(--foreground-muted))] sm:block">{current.description}</p> : null}
             </div>
-            <AppActionButton
-              variant="secondary"
-              className="w-full justify-start gap-2"
-              onClick={handleLogout}
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </AppActionButton>
           </div>
-        </aside>
-
-        <main className="min-w-0 space-y-3 lg:space-y-4">
-          <label
-            htmlFor="admin-sidebar-toggle"
-            className="inline-flex lg:hidden"
-          >
-            <span className="sr-only">Abrir navegação</span>
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]">
-              <Menu className="h-4 w-4" />
-            </span>
-          </label>
-
-          <section className="min-w-0 space-y-4 overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[linear-gradient(180deg,hsl(var(--background-elevated)/0.84),hsl(var(--surface)/0.95))] p-3 shadow-[inset_0_1px_0_hsl(var(--background-elevated))] sm:rounded-3xl sm:p-4 xl:p-5">
-            {children}
-          </section>
-        </main>
+        </header>
+        <main className="mx-auto max-w-[1400px] space-y-5 px-4 py-5 lg:px-8 lg:py-6">{children}</main>
       </div>
+
+      {/* Phone: bottom tab bar for the waiter */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[hsl(var(--border))] bg-[hsl(var(--background-elevated)/0.97)] pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" aria-label="Atalhos">
+        <div className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${mobileTabs.length + 1}, minmax(0, 1fr))` }}>
+          {mobileTabs.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.href);
+            return (
+              <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={cn("flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium", active ? "text-[hsl(var(--primary))]" : "text-[hsl(var(--foreground-muted))]")}>
+                <Icon className="h-6 w-6" aria-hidden="true" />{item.label}
+              </Link>
+            );
+          })}
+          <button type="button" onClick={() => setDrawerOpen(true)} className="flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium text-[hsl(var(--foreground-muted))]">
+            <MoreHorizontal className="h-6 w-6" aria-hidden="true" />Mais
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

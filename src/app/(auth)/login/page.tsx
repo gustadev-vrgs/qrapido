@@ -1,41 +1,39 @@
-import { LockKeyhole, Sparkles } from "lucide-react";
+import { ChefHat, HandPlatter, QrCode, ScanLine } from "lucide-react";
 
 import { AdminLoginForm } from "@/components/auth/admin-login-form";
 
+const STEPS = [
+  { icon: ScanLine, title: "O cliente escaneia", text: "O QR Code colado na mesa abre o cardápio no celular dele." },
+  { icon: ChefHat, title: "A cozinha recebe", text: "O pedido aparece na hora no painel, com aviso sonoro." },
+  { icon: HandPlatter, title: "O salão leva", text: "Bebidas vão direto para entrega; pratos quando ficam prontos." }
+];
+
 export default function LoginPage(): JSX.Element {
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden p-4">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,#14d59c1a,transparent_35%),radial-gradient(circle_at_bottom,#21a8ff12,transparent_40%)]" />
-
-      <section className="app-surface-strong relative w-full max-w-5xl overflow-hidden p-0 md:grid md:grid-cols-[1.05fr_0.95fr]">
-        <div className="border-b border-[hsl(var(--border))] p-8 md:border-b-0 md:border-r md:p-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--foreground-muted))]">QRápido | Staff Access</p>
-          <h1 className="mt-4 text-3xl">Autenticação administrativa</h1>
-          <p className="mt-3 max-w-md text-sm text-[hsl(var(--foreground-muted))]">
-            Login restrito para a equipe operacional. Acesso ao dashboard liberado apenas para usuários de staff ativos.
-          </p>
-
-          <div className="mt-8 space-y-3">
-            <div className="rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted)/0.55)] p-4">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <LockKeyhole className="h-4 w-4 text-[hsl(var(--primary))]" />
-                Sessão segura
-              </div>
-              <p className="mt-1 text-xs text-[hsl(var(--foreground-muted))]">Persistência local do Firebase Auth com validação do perfil de staff.</p>
-            </div>
-            <div className="rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted)/0.55)] p-4">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="h-4 w-4 text-[hsl(var(--info))]" />
-                Experiência de operação
-              </div>
-              <p className="mt-1 text-xs text-[hsl(var(--foreground-muted))]">Feedback imediato de erros, loading elegante e fluxo alinhado ao App Router.</p>
-            </div>
+    <main className="flex min-h-screen items-center justify-center bg-[hsl(var(--background))] p-4">
+      <section className="app-surface-strong w-full max-w-4xl overflow-hidden p-0 md:grid md:grid-cols-[1fr_1fr]">
+        <div className="bg-[hsl(var(--primary))] p-7 text-[hsl(var(--primary-foreground))] md:p-10">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[hsl(var(--primary-foreground)/0.15)]" aria-hidden="true"><QrCode className="h-6 w-6" /></span>
+            <p className="text-xl font-bold">QRápido</p>
           </div>
+          <h1 className="mt-8 text-3xl">Pedido da mesa direto para a cozinha.</h1>
+          <ol className="mt-8 hidden space-y-5 md:block">
+            {STEPS.map((step) => {
+              const Icon = step.icon;
+              return (
+                <li key={step.title} className="flex gap-3">
+                  <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--gema))] text-[hsl(217_28%_15%)]" aria-hidden="true"><Icon className="h-5 w-5" /></span>
+                  <div><p className="font-semibold">{step.title}</p><p className="text-sm opacity-85">{step.text}</p></div>
+                </li>
+              );
+            })}
+          </ol>
         </div>
 
-        <div className="p-8 md:p-10">
-          <h2 className="text-xl">Entrar no painel</h2>
-          <p className="mt-2 text-sm text-[hsl(var(--foreground-muted))]">Use suas credenciais corporativas para continuar.</p>
+        <div className="p-7 md:p-10">
+          <h2 className="text-2xl">Entrar no painel</h2>
+          <p className="mt-2 text-sm text-[hsl(var(--foreground-muted))]">Acesso da equipe do restaurante: caixa, cozinha e garçons.</p>
           <div className="mt-6">
             <AdminLoginForm />
           </div>

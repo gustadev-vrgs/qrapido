@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ChefHat, Clock3, KeyRound, Loader2, Minus, Plus, ReceiptText, RefreshCw, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
 import { AppActionButton, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
+import { categoryIcon } from "@/lib/utils/category-icon";
 import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { CartItem, PaymentMethod, PublicMenuItem, PublicOrder, PublicTableData } from "@/lib/types/domain";
 import { randomKey, readStored, storageKeys, writeStored } from "@/lib/utils/customer-storage";
@@ -19,9 +20,9 @@ const CUSTOMER_METHODS = ["pix", "cash", "debit_card", "credit_card"] as const;
 const WAITER_REASONS = ["fazer pagamento", "pedir ajuda", "solicitar talheres", "outra necessidade"] as const;
 const ORDER_TONE: Record<string, "info" | "warning" | "success" | "neutral" | "danger"> = { received: "info", confirmed: "info", in_preparation: "warning", ready: "success", delivered: "neutral", cancelled: "danger" };
 
-function ItemImage({ item, size = 96 }: { item: PublicMenuItem; size?: number }): JSX.Element {
+function ItemImage({ item, size = 96, emoji = "🍽️" }: { item: PublicMenuItem; size?: number; emoji?: string }): JSX.Element {
   if (item.imageUrl) return <Image src={item.imageUrl} alt={item.name} width={size} height={size} className="h-full w-full object-cover" unoptimized />;
-  return <div className="flex h-full w-full items-center justify-center bg-[hsl(var(--surface-muted))] text-[10px] text-[hsl(var(--foreground-muted))]">sem foto</div>;
+  return <div className="flex h-full w-full items-center justify-center bg-[hsl(var(--primary-soft))] text-4xl" aria-hidden="true">{emoji}</div>;
 }
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): JSX.Element {
@@ -131,6 +132,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
     return (data?.items ?? []).filter((item) => (category === "all" || item.categoryId === category) && (!term || `${item.name} ${item.description}`.toLowerCase().includes(term)));
   }, [category, data?.items, search]);
   const featured = (data?.items ?? []).filter((item) => item.isFeatured);
+  const emojiByCategory = useMemo(() => new Map((data?.categories ?? []).map((item) => [item.id, categoryIcon(item.name)])), [data?.categories]);
+  const emojiFor = (item: PublicMenuItem) => emojiByCategory.get(item.categoryId) ?? "🍽️";
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = Math.round(cart.reduce((sum, item) => sum + item.quantity * item.price, 0) * 100) / 100;
   const feePercent = data?.settings.serviceFeePercent ?? 0;
@@ -257,7 +260,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
 
   const codeForm = (
     <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void authorize().then((ok) => { if (ok && panel === "code") setPanel(cart.length ? "checkout" : "none"); }); }}>
-      <input className="app-field text-center text-2xl tracking-[0.5em]" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" aria-label="Código de 6 dígitos" />
+      <input className="app-field num h-14 text-center text-3xl font-bold tracking-[0.45em]" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" aria-label="Código de 6 dígitos" />
       {codeError ? <p className="text-sm text-[hsl(var(--danger))]">{codeError}</p> : null}
       <AppActionButton type="submit" className="w-full gap-2" disabled={code.length !== 6 || authorizing}>{authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}Liberar este celular</AppActionButton>
     </form>
@@ -282,13 +285,14 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
 
   const loaded = load.data;
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--surface-muted)),_hsl(var(--background))_60%)] px-3 pb-32 pt-4 text-[hsl(var(--foreground))]">
+    <main className="min-h-screen bg-[hsl(var(--background))] px-3 pb-32 pt-4 text-[hsl(var(--foreground))]">
       <section className="mx-auto flex w-full max-w-md flex-col gap-4">
-        <AppSurface variant="strong" className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div><p className="text-xs uppercase tracking-[0.16em] text-[hsl(var(--foreground-muted))]">{loaded.restaurantName ?? "Cardápio"}</p><h1 className="text-2xl">{loaded.table.label}</h1></div>
-            <AppStatusBadge tone={access === "authorized" ? "success" : access === "needs_code" ? "info" : "warning"}>{access === "authorized" ? "Pedidos liberados" : access === "needs_code" ? "Mesa aberta" : access === "expired" ? "Pausado" : "Só cardápio"}</AppStatusBadge>
+        <AppSurface variant="strong" className="overflow-hidden p-0">
+          <div className="flex items-start justify-between gap-3 bg-[hsl(var(--primary))] px-4 py-4 text-[hsl(var(--primary-foreground))]">
+            <div className="min-w-0"><h1 className="truncate text-2xl">{loaded.restaurantName ?? "Cardápio"}</h1><p className="text-sm opacity-90">{loaded.table.label}</p></div>
+            <span className="shrink-0 rounded-full bg-[hsl(var(--primary-foreground)/0.16)] px-3 py-1 text-xs font-semibold">{access === "authorized" ? "Pedidos liberados" : access === "needs_code" ? "Mesa aberta" : access === "expired" ? "Pausado" : "Só cardápio"}</span>
           </div>
+          <div className="px-4 pb-4 empty:hidden">
 
           {access === "no_session" ? (
             <div className="mt-3 space-y-2 text-sm">
@@ -314,13 +318,14 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
               {orders.length ? <AppActionButton variant="secondary" className="gap-2" onClick={() => setPanel("orders")}><ReceiptText className="h-4 w-4" />Meus pedidos{activeOrders ? ` (${activeOrders})` : ""}</AppActionButton> : null}
             </div>
           ) : null}
+          </div>
         </AppSurface>
 
         <AppSurface className="sticky top-2 z-20 space-y-3 p-3">
           <AppSearchInput value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no cardápio" />
           <div className="flex gap-2 overflow-x-auto pb-1">
-            <AppActionButton variant={category === "all" ? "primary" : "secondary"} className="h-9 shrink-0 rounded-full" onClick={() => setCategory("all")}>Todos</AppActionButton>
-            {loaded.categories.map((item) => <AppActionButton key={item.id} variant={category === item.id ? "primary" : "secondary"} className="h-9 shrink-0 rounded-full" onClick={() => setCategory(item.id)}>{item.name}</AppActionButton>)}
+            <AppActionButton variant={category === "all" ? "primary" : "secondary"} className="h-10 shrink-0 rounded-full" onClick={() => setCategory("all")}>Todos</AppActionButton>
+            {loaded.categories.map((item) => <AppActionButton key={item.id} variant={category === item.id ? "primary" : "secondary"} className="h-10 shrink-0 gap-1.5 rounded-full" onClick={() => setCategory(item.id)}><span aria-hidden="true">{categoryIcon(item.name)}</span>{item.name}</AppActionButton>)}
           </div>
         </AppSurface>
 
@@ -328,8 +333,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
           <div className="flex gap-3 overflow-x-auto pb-1">
             {featured.map((item) => (
               <button key={item.id} type="button" onClick={() => { setSelected(item); setQuantity(1); setItemNotes(""); }} className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] text-left">
-                <div className="h-24 w-full"><ItemImage item={item} size={160} /></div>
-                <div className="p-2"><p className="flex items-center gap-1 text-[10px] uppercase text-[hsl(var(--warning))]"><Sparkles className="h-3 w-3" />Destaque</p><p className="line-clamp-1 text-sm font-semibold">{item.name}</p><p className="text-sm">{formatCurrency(item.price)}</p></div>
+                <div className="h-24 w-full"><ItemImage item={item} size={160} emoji={emojiFor(item)} /></div>
+                <div className="p-2"><p className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--warning))]"><Sparkles className="h-3 w-3" />Destaque</p><p className="line-clamp-1 text-sm font-semibold">{item.name}</p><p className="num text-sm">{formatCurrency(item.price)}</p></div>
               </button>
             ))}
           </div>
@@ -341,11 +346,11 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
           {items.map((item) => (
             <AppSurface key={item.id} className="overflow-hidden p-0">
               <button type="button" className="flex w-full gap-3 p-3 text-left" onClick={() => { setSelected(item); setQuantity(1); setItemNotes(""); }}>
-                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-[hsl(var(--border-strong))]"><ItemImage item={item} /></div>
+                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl"><ItemImage item={item} emoji={emojiFor(item)} /></div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <h2 className="text-base leading-tight">{item.name}</h2>
                   {item.description ? <p className="line-clamp-2 text-xs text-[hsl(var(--foreground-muted))]">{item.description}</p> : null}
-                  <div className="flex items-center justify-between pt-1 text-sm"><strong>{formatCurrency(item.price)}</strong>{item.preparationTimeMinutes ? <span className="inline-flex items-center gap-1 text-xs text-[hsl(var(--foreground-muted))]"><Clock3 className="h-3 w-3" />{item.preparationTimeMinutes} min</span> : null}</div>
+                  <div className="flex items-center justify-between pt-1 text-sm"><strong className="num text-[hsl(var(--primary))]">{formatCurrency(item.price)}</strong>{item.preparationTimeMinutes ? <span className="inline-flex items-center gap-1 text-xs text-[hsl(var(--foreground-muted))]"><Clock3 className="h-3 w-3" />{item.preparationTimeMinutes} min</span> : null}</div>
                 </div>
               </button>
             </AppSurface>
@@ -356,7 +361,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
       {notice ? <div className="fixed inset-x-3 top-3 z-[80] mx-auto max-w-md rounded-2xl bg-[hsl(var(--foreground))] px-4 py-3 text-sm text-[hsl(var(--background))] shadow-lg" role="status">{notice}</div> : null}
 
       {cartCount > 0 || orders.length > 0 ? (
-        <MobileStickyBar className="fixed inset-x-3 bottom-3 z-30">
+        <MobileStickyBar className="fixed inset-x-3 bottom-3 z-30 w-auto">
           <div className="flex items-center justify-between gap-2">
             {orders.length && cartCount === 0 ? <AppActionButton variant="secondary" className="gap-2" onClick={() => setPanel("orders")}><ChefHat className="h-4 w-4" />Meus pedidos{activeOrders ? ` (${activeOrders})` : ""}</AppActionButton> : <p className="text-sm"><span className="font-semibold">{cartCount} item(ns)</span><br />{formatCurrency(subtotal)}</p>}
             {cartCount > 0 ? <AppActionButton className="gap-2" onClick={() => setPanel("cart")}><ShoppingBag className="h-4 w-4" />Ver carrinho</AppActionButton> : null}
@@ -421,7 +426,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
           {lastOrder ? (
             <div className="space-y-3 text-center">
               <CheckCircle2 className="mx-auto h-12 w-12 text-[hsl(var(--success))]" />
-              <p className="text-lg">Pedido <strong className="font-mono">{lastOrder.code}</strong> recebido!</p>
+              <p className="text-lg">Pedido <strong className="num">{lastOrder.code}</strong> recebido!</p>
               <p className="text-sm text-[hsl(var(--foreground-muted))]">{lastOrder.split ? "Os pratos foram para a cozinha e as bebidas já estão a caminho." : lastOrder.drinksOnly ? "Já está a caminho da sua mesa." : "Já está na cozinha. Avisamos aqui quando ficar pronto."}</p>
               <Link href={`/mesa/${encodeURIComponent(token)}/pedido/${lastOrder.id}`} className="block"><AppActionButton className="w-full">Acompanhar pedido</AppActionButton></Link>
               <AppActionButton variant="secondary" className="w-full" onClick={() => { setLastOrder(null); setPanel("none"); }}>Continuar pedindo</AppActionButton>
@@ -465,7 +470,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
             {orders.map((order) => (
               <Link key={order.id} href={`/mesa/${encodeURIComponent(token)}/pedido/${order.id}`} className="block">
                 <AppSurface className="space-y-1 p-3">
-                  <div className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-semibold">{order.orderCode}</span><AppStatusBadge tone={ORDER_TONE[order.status] ?? "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge></div>
+                  <div className="flex items-center justify-between gap-2"><span className="num text-sm font-semibold">{order.orderCode}</span><AppStatusBadge tone={ORDER_TONE[order.status] ?? "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge></div>
                   <p className="text-sm text-[hsl(var(--foreground-muted))]">{order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", ")}</p>
                   <p className="text-sm font-semibold">{formatCurrency(order.total)}</p>
                 </AppSurface>

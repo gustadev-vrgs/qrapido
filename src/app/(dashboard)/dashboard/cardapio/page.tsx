@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ImagePlus, Loader2, PackageSearch, PencilLine, Plus, Sparkles, Tag } from "lucide-react";
+import { CircleCheck, LayoutList, Loader2, PackageSearch, PencilLine, Plus, Sparkles, Tag, UtensilsCrossed } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import {
   AppActionButton,
-  AppDataCard,
+  AppStatCard,
   AppEmptyState,
   AppFilterBar,
   AppFormField,
@@ -22,6 +22,7 @@ import {
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { MenuService } from "@/lib/data/services/menu-service";
 import { describeFirebaseError } from "@/lib/data/errors";
+import { categoryIcon } from "@/lib/utils/category-icon";
 import { resolveStation, STATION_LABELS } from "@/lib/utils/stations";
 import type { MenuCategory, MenuItem } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
@@ -316,19 +317,11 @@ export default function CardapioPage(): JSX.Element {
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4">
-        <AppDataCard title={String(summary.categories)} metadata="Categorias estruturadas" status={<Tag className="h-4 w-4 text-[hsl(var(--foreground-muted))]" />}>
-          <p className="text-xs text-[hsl(var(--foreground-muted))]">Gestão por seção para manter o cardápio organizado.</p>
-        </AppDataCard>
-        <AppDataCard title={String(summary.items)} metadata="Itens totais" status={<PackageSearch className="h-4 w-4 text-[hsl(var(--foreground-muted))]" />}>
-          <p className="text-xs text-[hsl(var(--foreground-muted))]">Produtos cadastrados no painel administrativo.</p>
-        </AppDataCard>
-        <AppDataCard title={String(summary.availableItems)} metadata="Disponíveis agora" status={<AppStatusBadge tone="success">Disponível</AppStatusBadge>}>
-          <p className="text-xs text-[hsl(var(--foreground-muted))]">Controle rápido para itens fora de operação.</p>
-        </AppDataCard>
-        <AppDataCard title={String(summary.featuredItems)} metadata="Itens em destaque" status={<Sparkles className="h-4 w-4 text-[hsl(var(--warning))]" />}>
-          <p className="text-xs text-[hsl(var(--foreground-muted))]">Destaques do cardápio para aumentar conversão.</p>
-        </AppDataCard>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <AppStatCard icon={Tag} label="Categorias" value={String(summary.categories)} />
+        <AppStatCard icon={PackageSearch} tone="info" label="Itens" value={String(summary.items)} />
+        <AppStatCard icon={CircleCheck} tone="success" label="Disponíveis" value={String(summary.availableItems)} />
+        <AppStatCard icon={Sparkles} tone="warning" label="Em destaque" value={String(summary.featuredItems)} />
       </div>
 
       <AppFilterBar>
@@ -356,6 +349,7 @@ export default function CardapioPage(): JSX.Element {
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_1.5fr]">
         <AppSectionCard
+          icon={LayoutList}
           title="Categorias"
           description="Organize o cardápio por seções com ordem visual e status de ativação."
           action={
@@ -373,9 +367,9 @@ export default function CardapioPage(): JSX.Element {
               />
             ) : (
               categories.map((category, index) => (
-                <article key={category.id} className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-muted))] p-4">
+                <article key={category.id} className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-base font-semibold">{category.name}</h3>
+                    <h3 className="flex items-center gap-2 text-base font-semibold"><span aria-hidden="true" className="text-xl">{categoryIcon(category.name)}</span>{category.name}</h3>
                     <div className="flex items-center gap-2">
                       <AppStatusBadge tone={category.isActive ? "success" : "neutral"}>{category.isActive ? "Ativa" : "Inativa"}</AppStatusBadge>
                       <AppActionButton variant="ghost" className="h-8 px-3" onClick={() => setSelectedCategory(category)}>
@@ -437,6 +431,8 @@ export default function CardapioPage(): JSX.Element {
         </AppSectionCard>
 
         <AppSectionCard
+          icon={UtensilsCrossed}
+          tone="warning"
           title="Itens do cardápio"
           description="Cadastro completo com disponibilidade, destaque, imagem e tempo de preparo."
           action={
@@ -460,13 +456,13 @@ export default function CardapioPage(): JSX.Element {
           ) : (
             <div className="space-y-3">
               {filteredItems.map((item) => (
-                <article key={item.id} className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-muted))] p-4">
+                <article key={item.id} className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                    <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))]">
+                    <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[hsl(var(--primary-soft))]">
                       {item.imageUrl ? (
                         <div className="h-full w-full bg-cover bg-center" role="img" aria-label={item.name} style={{ backgroundImage: `url(${item.imageUrl})` }} />
                       ) : (
-                        <ImagePlus className="h-5 w-5 text-[hsl(var(--foreground-muted))]" />
+                        <span className="text-4xl" aria-hidden="true">{categoryIcon(categoryNameById[item.categoryId])}</span>
                       )}
                     </div>
                     <div className="flex-1 space-y-2">
@@ -477,7 +473,7 @@ export default function CardapioPage(): JSX.Element {
                           Editar
                         </AppActionButton>
                       </div>
-                      <p className="text-xs uppercase tracking-[0.12em] text-[hsl(var(--foreground-muted))]">{categoryNameById[item.categoryId] ?? "Categoria removida"}</p>
+                      <p className="text-xs text-[hsl(var(--foreground-muted))]">{categoryNameById[item.categoryId] ?? "Categoria removida"}</p>
                       <p className="text-sm text-[hsl(var(--foreground-muted))]">{item.description}</p>
                       <div className="flex flex-wrap gap-2">
                         <AppStatusBadge tone={item.isActive ? "success" : "neutral"}>{item.isActive ? "Ativo" : "Inativo"}</AppStatusBadge>
