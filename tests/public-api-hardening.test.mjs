@@ -17,7 +17,8 @@ test("pedido reserva idempotência, cota e limites na mesma transação", () => 
 test("preços, taxas e identidade do restaurante são definidos pelo servidor", () => {
   const source = read("src/app/api/public/order/route.ts");
   assert.match(source, /product\.restaurantId !== session\.restaurantId/);
-  assert.match(source, /product\.isAvailable !== true/);
+  assert.match(source, /product\.isAvailable === false/);
+  assert.match(source, /!categoryNames\.has\(product\.categoryId\)/);
   assert.match(source, /priceSnapshot: money\(price\)/);
   assert.match(source, /serviceFee = money/);
   assert.match(source, /financialReceiptConfirmed: false/);
@@ -34,7 +35,7 @@ test("APIs rejeitam corpos grandes e mantêm limites no Firestore", () => {
 test("cliente reutiliza chave e CSV neutraliza fórmulas", () => {
   const client = read("src/app/mesa/[token]/page.tsx");
   const reports = read("src/app/(dashboard)/dashboard/relatorios/page.tsx");
-  assert.match(client, /localStorage\.getItem\(attemptStorageKey\)/);
-  assert.match(client, /"Idempotency-Key": idempotencyKey/);
+  assert.match(client, /readStored<string>\(storageKeys\.attempt\(token\)/);
+  assert.match(client, /"Idempotency-Key": attempt/);
   assert.match(reports, /\[=\+\\-@\]/);
 });

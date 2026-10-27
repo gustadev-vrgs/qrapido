@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/app-design-system";
 import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { SettingsService } from "@/lib/data/services/settings-service";
+import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
+import { describeFirebaseError } from "@/lib/data/errors";
 import type {
   BusinessHours,
   PaymentMethod,
@@ -34,6 +36,8 @@ import {
 
 export default function ConfiguracoesPage(): JSX.Element {
   const { user } = useAdminAuth();
+  const api = useAdminApi();
+  const [reloadKey, setReloadKey] = useState(0);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [restaurantDocumentId, setRestaurantDocumentId] = useState<
     string | null
@@ -93,45 +97,17 @@ export default function ConfiguracoesPage(): JSX.Element {
     };
 
     void loadSettings();
-  }, [restaurantsService, settingsService, user?.restaurantId]);
+  }, [restaurantsService, settingsService, user?.restaurantId, reloadKey]);
 
+  /** Creates the restaurant record and default settings on the server (safe, additive). */
   const createInitialSettings = async () => {
-    if (!user?.restaurantId) return;
-
     setIsBootstrapping(true);
     try {
-      await settingsService.create({
-        restaurantId: user.restaurantId,
-        acceptedPaymentMethods: ["pix"],
-        pixKey: null,
-        pixReceiverName: null,
-        pixReceiverCity: null,
-        pixInstructions: null,
-        businessHours: DEFAULT_BUSINESS_HOURS,
-        antiSpamWindowSeconds: 60,
-        maxOrdersPerWindow: 3,
-        defaultSessionDurationMinutes: 90,
-        allowSessionPin: false,
-        requireCustomerName: false,
-        allowCustomerNotes: true,
-        serviceFeePercent: 10,
-        waiterCallEnabled: true,
-        billRequestEnabled: true,
-      });
-
-      const [created] = await settingsService.listByRestaurant(
-        user.restaurantId,
-      );
-      setSettings(created ?? null);
-      appToast.success(
-        "Configurações criadas",
-        "Agora você pode editar e salvar as preferências reais do restaurante.",
-      );
-    } catch {
-      appToast.error(
-        "Falha ao criar configurações",
-        "Não foi possível inicializar as configurações no Firestore.",
-      );
+      const result = await api<{ done: string[] }>("/api/admin/operations/repair", {});
+      appToast.success("Cadastro inicial pronto", result.done.join(" "));
+      setReloadKey((key) => key + 1);
+    } catch (failure) {
+      appToast.error("Falha ao criar configurações", failure instanceof Error ? failure.message : "Tente novamente.");
     } finally {
       setIsBootstrapping(false);
     }
@@ -172,17 +148,16 @@ export default function ConfiguracoesPage(): JSX.Element {
       return;
     }
 
-    if (!restaurantDocumentId) {
-      appToast.error(
-        "Restaurante não encontrado",
-        "Não foi possível localizar o cadastro do restaurante para atualizar o nome.",
-      );
-      return;
-    }
+    if (!user?.restaurantId) return;
 
     setIsSaving(true);
     try {
-      await restaurantsService.update(restaurantDocumentId, {
+      // The restaurant document id must be the restaurantId (Firestore rules).
+      if (restaurantDocumentId !== user.restaurantId) {
+        await api("/api/admin/operations/repair", {});
+        setRestaurantDocumentId(user.restaurantId);
+      }
+      await restaurantsService.update(user.restaurantId, {
         name: trimmedRestaurantName,
       });
       await settingsService.update(settings.id, {
@@ -194,7 +169,6 @@ export default function ConfiguracoesPage(): JSX.Element {
         defaultSessionDurationMinutes: settings.defaultSessionDurationMinutes,
         antiSpamWindowSeconds: settings.antiSpamWindowSeconds,
         maxOrdersPerWindow: settings.maxOrdersPerWindow,
-        allowSessionPin: settings.allowSessionPin,
         requireCustomerName: settings.requireCustomerName,
         allowCustomerNotes: settings.allowCustomerNotes,
         serviceFeePercent: settings.serviceFeePercent,
@@ -212,10 +186,10 @@ export default function ConfiguracoesPage(): JSX.Element {
         "Configurações salvas",
         "Nome do restaurante e preferências operacionais atualizados com sucesso.",
       );
-    } catch {
+    } catch (failure) {
       appToast.error(
         "Falha ao salvar",
-        "Não foi possível persistir as alterações no Firebase/Firestore.",
+        failure instanceof Error && failure.name !== "FirebaseError" && !("code" in failure) ? failure.message : describeFirebaseError(failure),
       );
     } finally {
       setIsSaving(false);
@@ -240,14 +214,14 @@ export default function ConfiguracoesPage(): JSX.Element {
     return (
       <section className="space-y-4">
         <AppEmptyState
-          title="Nenhuma configuração cadastrada"
-          description="Crie o documento inicial de configurações para começar a operar com dados reais no Firestore."
+          title="Restaurante ainda sem configuração"
+          description="Crie o cadastro inicial (nome do restaurante, formas de pagamento, taxa de serviço). Você pode editar tudo depois."
           action={
             <AppActionButton
               onClick={createInitialSettings}
               disabled={isBootstrapping}
             >
-              {isBootstrapping ? "Criando..." : "Criar configurações"}
+              {isBootstrapping ? "Criando..." : "Criar cadastro inicial"}
             </AppActionButton>
           }
         />
@@ -365,10 +339,11 @@ export default function ConfiguracoesPage(): JSX.Element {
         description="Limites e recursos do atendimento por QR."
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <AppFormField label="Duração padrão da sessão (min)">
+          <AppFormField label="Duração padrão do atendimento (min)" hint="Depois disso, novos pedidos da mesa pausam até a equipe renovar.">
             <AppTextInput
               type="number"
-              min={30}
+              min={15}
+              max={720}
               value={settings.defaultSessionDurationMinutes}
               onChange={(event) =>
                 setSettings({
@@ -435,20 +410,6 @@ export default function ConfiguracoesPage(): JSX.Element {
                 ),
               )}
             </div>
-          </AppFormField>
-          <AppFormField label="PIN de sessão">
-            <AppSelect
-              value={settings.allowSessionPin ? "enabled" : "disabled"}
-              onChange={(event) =>
-                setSettings({
-                  ...settings,
-                  allowSessionPin: event.target.value === "enabled",
-                })
-              }
-            >
-              <option value="enabled">Habilitado</option>
-              <option value="disabled">Desabilitado</option>
-            </AppSelect>
           </AppFormField>
           <AppFormField label="Chamar garçom">
             <AppSelect

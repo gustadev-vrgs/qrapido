@@ -1,11 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { browserSessionPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
+import { browserLocalPersistence, onAuthStateChanged, setPersistence, signOut, type User } from "firebase/auth";
 
 import { getStaffValidationMessage, validateAdminStaffUser } from "@/lib/auth/staff-user";
 import type { AdminAuthState } from "@/lib/auth/types";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
+import { describeFirebaseError } from "@/lib/data/errors";
 
 interface AuthContextValue extends AdminAuthState {
   firebaseUser: User | null;
@@ -73,25 +74,33 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         isLoading: false,
         authError: null
       });
-    } catch {
+    } catch (error) {
       await signOut(auth);
       setState({
         user: null,
         staffUser: null,
         isAuthenticated: false,
         isLoading: false,
-        authError: "Não foi possível validar seu acesso no momento. Verifique sua conexão e tente novamente."
+        authError: `Não foi possível validar seu acesso. ${describeFirebaseError(error)}`
       });
     }
   }, []);
 
   useEffect(() => {
-    const auth = getFirebaseClientAuth();
+    let auth: ReturnType<typeof getFirebaseClientAuth>;
+    try {
+      auth = getFirebaseClientAuth();
+    } catch (error) {
+      // Missing NEXT_PUBLIC_FIREBASE_* variables: explain instead of crashing the page.
+      setState({ user: null, staffUser: null, isAuthenticated: false, isLoading: false, authError: `Configuração do Firebase ausente neste deploy. ${describeFirebaseError(error)}` });
+      return;
+    }
     let unsubscribe: (() => void) | undefined;
     let isMounted = true;
 
     const initializeAuth = async () => {
-      await setPersistence(auth, browserSessionPersistence);
+      // Stay signed in on the restaurant tablet/computer until "Sair" is used.
+      await setPersistence(auth, browserLocalPersistence).catch(() => undefined);
 
       if (!isMounted) {
         return;

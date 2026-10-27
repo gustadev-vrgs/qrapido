@@ -1,22 +1,41 @@
-import { DocumentData } from "firebase/firestore";
+import { where } from "firebase/firestore";
 
 import { COLLECTIONS } from "@/lib/data/constants/collections";
-import { createOne, getCollection, getDocumentRef, patchOne, readMany, readOne, readPeriodPaginated } from "@/lib/data/helpers/firestore-io";
+import { getCollection, getDocumentRef, readMany, readOne, readPeriodPaginated } from "@/lib/data/helpers/firestore-io";
 import { mapOrder } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantOrdered, byRestaurantAndSessionToken, byRestaurantAndTable } from "@/lib/data/queries";
+import { byRestaurant, byRestaurantAndTable } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
-import { createOrderPayloadSchema, updateOrderPayloadSchema } from "@/lib/schemas";
-import type { CreateOrderPayload, Order, UpdateOrderPayload } from "@/lib/types/domain";
-import { nowIsoString } from "@/lib/data/helpers/timestamps";
+import type { Order } from "@/lib/types/domain";
 
+export const ACTIVE_ORDER_STATUSES = ["received", "confirmed", "in_preparation", "ready"] as const;
+
+function newestFirst(a: Order, b: Order): number {
+  return b.receivedAt.localeCompare(a.receivedAt);
+}
+
+/**
+ * Read-only access for the panel. Orders are created and moved only by the
+ * server APIs (/api/public/order and /api/admin/order/transition); the
+ * Firestore rules reject direct writes, so no write helpers live here.
+ */
 export class OrdersService {
   constructor(private readonly context?: ServiceContext) {}
 
-  async listByRestaurant(restaurantId: string): Promise<Order[]> {
+  /** Orders of one restaurant-local day, equality-only query (no composite index). */
+  async listByDateKey(restaurantId: string, dateKey: string): Promise<Order[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.orders), byRestaurantOrdered(restaurantId, "receivedAt", "desc"), mapOrder);
+    const orders = await readMany(getCollection(db, COLLECTIONS.orders), [...byRestaurant(restaurantId), where("dateKey", "==", dateKey)], mapOrder);
+    return orders.sort(newestFirst);
   }
 
+  /** Orders still in the kitchen/floor flow, whatever day they were placed. */
+  async listActive(restaurantId: string): Promise<Order[]> {
+    const { db } = resolveContext(this.context);
+    const groups = await Promise.all(ACTIVE_ORDER_STATUSES.map((status) => readMany(getCollection(db, COLLECTIONS.orders), [...byRestaurant(restaurantId), where("status", "==", status)], mapOrder)));
+    return groups.flat().sort(newestFirst);
+  }
+
+  /** Date range for reports. Needs the (restaurantId, receivedAt) composite index. */
   async listByRestaurantPeriod(restaurantId: string, startIso: string, endIso: string): Promise<Order[]> {
     const { db } = resolveContext(this.context);
     return readPeriodPaginated(getCollection(db, COLLECTIONS.orders), restaurantId, "receivedAt", startIso, endIso, mapOrder);
@@ -24,57 +43,12 @@ export class OrdersService {
 
   async listByTable(restaurantId: string, tableId: string): Promise<Order[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.orders), byRestaurantAndTable(restaurantId, tableId), mapOrder);
-  }
-
-  async listBySessionToken(restaurantId: string, sessionToken: string): Promise<Order[]> {
-    const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.orders), byRestaurantAndSessionToken(restaurantId, sessionToken), mapOrder);
+    const orders = await readMany(getCollection(db, COLLECTIONS.orders), byRestaurantAndTable(restaurantId, tableId), mapOrder);
+    return orders.sort(newestFirst);
   }
 
   async getById(id: string): Promise<Order> {
     const { db } = resolveContext(this.context);
     return readOne(getDocumentRef(db, COLLECTIONS.orders, id), mapOrder, "order");
-  }
-
-  async create(payload: CreateOrderPayload): Promise<string> {
-    const { db } = resolveContext(this.context);
-    const parsed = createOrderPayloadSchema.parse(payload);
-
-    return createOne<DocumentData>(getCollection(db, COLLECTIONS.orders), {
-      ...parsed,
-      createdAt: nowIsoString(),
-      updatedAt: nowIsoString()
-    });
-  }
-
-  async update(id: string, payload: UpdateOrderPayload): Promise<void> {
-    const { db } = resolveContext(this.context);
-    const parsed = updateOrderPayloadSchema.parse(payload);
-
-    const currentOrder = await this.getById(id);
-
-    await patchOne(getDocumentRef(db, COLLECTIONS.orders, id), {
-      ...parsed,
-      updatedAt: nowIsoString()
-    });
-
-    if (parsed.status && parsed.status !== currentOrder.status) {
-      await createOne<DocumentData>(getCollection(db, COLLECTIONS.orderEvents), {
-        restaurantId: currentOrder.restaurantId,
-        orderId: currentOrder.id,
-        tableId: currentOrder.tableId,
-        sessionId: currentOrder.sessionId,
-        type: parsed.status === "cancelled" ? "order_cancelled" : "order_updated",
-        actorType: "staff",
-        actorId: null,
-        message: parsed.status === "cancelled" ? "Pedido cancelado pelo painel operacional" : "Pedido atualizado no painel operacional",
-        metadata: {
-          previousStatus: currentOrder.status,
-          nextStatus: parsed.status
-        },
-        createdAt: nowIsoString()
-      });
-    }
   }
 }

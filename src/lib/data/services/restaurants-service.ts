@@ -22,9 +22,17 @@ export class RestaurantsService {
     return readOne(getDocumentRef(db, COLLECTIONS.restaurants, id), mapRestaurant, "restaurant");
   }
 
+  /**
+   * The restaurant document id is the restaurantId (that is what the Firestore
+   * rules check). Older setups created it with a random id, so a field query is
+   * the fallback; rules that predate this change may deny that query, which is
+   * treated as "not found" instead of breaking the screen.
+   */
   async getByRestaurantId(restaurantId: string): Promise<Restaurant | null> {
     const { db } = resolveContext(this.context);
-    const restaurants = await readMany(getCollection(db, COLLECTIONS.restaurants), byRestaurant(restaurantId), mapRestaurant);
+    const direct = await readOne(getDocumentRef(db, COLLECTIONS.restaurants, restaurantId), mapRestaurant, "restaurant").catch(() => null);
+    if (direct) return direct;
+    const restaurants = await readMany(getCollection(db, COLLECTIONS.restaurants), byRestaurant(restaurantId), mapRestaurant).catch(() => []);
     return restaurants[0] ?? null;
   }
 

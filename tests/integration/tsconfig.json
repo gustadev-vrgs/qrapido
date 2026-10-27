@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@/lib/firebase/admin": ["tests/fakes/firebase-admin.ts"],
+      "server-only": ["tests/fakes/empty.ts"],
+      "firebase-admin/firestore": ["tests/fakes/firestore-module.ts"],
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["./**/*.ts", "../fakes/**/*.ts"]
+}

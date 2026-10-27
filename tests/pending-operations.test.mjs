@@ -10,7 +10,7 @@ test("ciclo de chamados protege duplicatas, permissões e permite novo após con
   assert.match(publicRoute, /waiterCallLocks/);
   assert.match(publicRoute, /DUPLICATE_CALL/);
   assert.match(publicRoute, /waiterCallEnabled === false/);
-  assert.match(adminRoute, /\["admin", "manager", "attendant"\]/);
+  assert.match(adminRoute, /FLOOR_ROLES/);
   assert.match(adminRoute, /action: z\.enum\(\["attend", "complete"\]\)/);
   assert.match(adminRoute, /call\.status !== expected/);
   assert.match(adminRoute, /tx\.delete\(db\.collection\("waiterCallLocks"\)/);
@@ -22,11 +22,12 @@ test("configurações são aplicadas no servidor e refletidas no checkout", () =
   for (const setting of ["serviceFeePercent", "acceptedPaymentMethods", "requireCustomerName", "allowCustomerNotes"]) assert.match(api, new RegExp(setting));
   assert.match(api, /paymentMethod !== "cash"/);
   assert.match(api, /changeFor < total/);
-  assert.match(page, /checkoutTotal/);
-  assert.match(page, /allowCustomerNotes !== false/);
+  assert.match(page, /serviceFee/);
+  assert.match(page, /settings\.allowCustomerNotes \?/);
+  assert.match(page, /settings\.requireCustomerName/);
 });
 
-test("mapper de pedidos mantém campos obrigatórios na saída do schema", () => {
+test("mapper de pedidos sempre entrega campos obrigatórios, mesmo em documentos antigos", () => {
   const schema = source("src/lib/schemas/domain.ts");
   const api = source("src/app/api/public/order/route.ts");
   const mapper = source("src/lib/data/mappers/domain-mappers.ts");
@@ -35,7 +36,8 @@ test("mapper de pedidos mantém campos obrigatórios na saída do schema", () =>
   assert.match(schema, /duplicateGuardHash: z\.string\(\)\.min\(8\)\.max\(128\)\.default/);
   assert.match(api, /sessionToken: session\.sessionToken/);
   assert.match(api, /duplicateGuardHash: contentHash/);
-  assert.match(mapper, /parseWithSchema\(orderSchema[\s\S]*\) as Order/);
+  assert.match(mapper, /sessionToken: str\(data\.sessionToken\)/);
+  assert.match(mapper, /duplicateGuardHash: str\(data\.duplicateGuardHash\)/);
 });
 
 test("relatórios paginam além de 500 e exportam a mesma coleção integral", () => {
@@ -60,10 +62,11 @@ test("pagamentos e histórico não inferem confirmação pela entrega", () => {
   assert.match(orderApi, /categoryNameSnapshot/);
 });
 
-test("QR usa domínio atual e carrinho fica isolado por atendimento", () => {
+test("QR usa domínio atual e carrinho fica isolado por mesa", () => {
   const urls = source("src/lib/utils/public-url.ts");
   const page = source("src/app/mesa/[token]/page.tsx");
   assert.match(urls, /return buildPublicTableUrl\(input\.publicToken, origin\)/);
-  assert.doesNotMatch(page, /startsWith\("qrapido-cart-"\)/);
-  assert.match(page, /qrapido-cart-\$\{data\.session\.id\}/);
+  const storage = source("src/lib/utils/customer-storage.ts");
+  assert.match(page, /storageKeys\.cart\(token\)/);
+  assert.match(storage, /qrapido:cart:\$\{token\}/);
 });

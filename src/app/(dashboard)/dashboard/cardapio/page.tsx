@@ -21,13 +21,23 @@ import {
 } from "@/components/ui/app-design-system";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { MenuService } from "@/lib/data/services/menu-service";
+import { describeFirebaseError } from "@/lib/data/errors";
 import type { MenuCategory, MenuItem } from "@/lib/types/domain";
 import { appToast } from "@/lib/utils/toast";
 import { formatCurrency } from "@/lib/utils/formatters";
 
+/** "25,50", "1.250,00" and "25.5" all become numbers. */
+function parsePrice(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const text = value.trim().replace(/^R\$\s*/i, "");
+  if (!text) return undefined;
+  const normalized = text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text;
+  return Number(normalized);
+}
+
 const categoryFormSchema = z.object({
   name: z.string().min(2, "Informe um nome com pelo menos 2 caracteres."),
-  description: z.string().min(5, "Descreva melhor esta categoria.").max(400, "Máximo de 400 caracteres."),
+  description: z.string().max(400, "Máximo de 400 caracteres."),
   sortOrder: z.coerce.number().int().min(0, "A ordem não pode ser negativa."),
   isActive: z.boolean()
 });
@@ -35,8 +45,9 @@ const categoryFormSchema = z.object({
 const itemFormSchema = z.object({
   name: z.string().min(2, "Informe um nome com pelo menos 2 caracteres."),
   categoryId: z.string().min(1, "Selecione uma categoria."),
-  description: z.string().min(8, "A descrição deve ter ao menos 8 caracteres.").max(600, "Máximo de 600 caracteres."),
-  price: z.coerce.number().positive("O preço deve ser maior que zero."),
+  description: z.string().max(600, "Máximo de 600 caracteres."),
+  // Accepts "25,50" as typed in Brazil.
+  price: z.preprocess(parsePrice, z.number({ invalid_type_error: "Informe o preço, ex.: 25,50" }).positive("O preço deve ser maior que zero.").transform((value) => Math.round(value * 100) / 100)),
   preparationTimeMinutes: z.coerce.number().int().min(1, "Informe no mínimo 1 minuto.").max(180, "Máximo de 180 minutos."),
   imageUrl: z
     .string()
@@ -53,6 +64,11 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 type ItemFormValues = z.infer<typeof itemFormSchema>;
 
 function slugify(value: string): string {
+  const slug = baseSlug(value);
+  return slug.length >= 2 ? slug.slice(0, 80) : `item-${slug || Date.now().toString(36)}`;
+}
+
+function baseSlug(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFD")
@@ -127,7 +143,7 @@ export default function CardapioPage(): JSX.Element {
       setItems(fetchedItems);
     } catch (error) {
       console.error(error);
-      appToast.error("Não foi possível carregar o cardápio", "Verifique sua conexão e permissões administrativas.");
+      appToast.error("Não foi possível carregar o cardápio", describeFirebaseError(error));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -238,7 +254,7 @@ export default function CardapioPage(): JSX.Element {
       await loadData(true);
     } catch (error) {
       console.error(error);
-      appToast.error("Erro ao salvar categoria", "Revise os dados e tente novamente.");
+      appToast.error("Erro ao salvar categoria", describeFirebaseError(error));
     }
   });
 
@@ -267,7 +283,7 @@ export default function CardapioPage(): JSX.Element {
       await loadData(true);
     } catch (error) {
       console.error(error);
-      appToast.error("Erro ao salvar item", "Revise os campos obrigatórios e tente novamente.");
+      appToast.error("Erro ao salvar item", describeFirebaseError(error));
     }
   });
 
@@ -505,7 +521,7 @@ export default function CardapioPage(): JSX.Element {
             </AppFormField>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
               <AppFormField label="Preço (R$)" error={itemForm.formState.errors.price?.message}>
-                <AppTextInput type="number" min={0} step="0.01" {...itemForm.register("price")} />
+                <AppTextInput inputMode="decimal" placeholder="25,50" {...itemForm.register("price")} />
               </AppFormField>
               <AppFormField label="Preparo (min)" error={itemForm.formState.errors.preparationTimeMinutes?.message}>
                 <AppTextInput type="number" min={1} max={180} {...itemForm.register("preparationTimeMinutes")} />

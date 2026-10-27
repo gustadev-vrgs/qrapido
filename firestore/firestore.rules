@@ -20,7 +20,10 @@ service cloud.firestore {
     function sameRestaurant() { return resource.data.restaurantId is string && request.resource.data.restaurantId == resource.data.restaurantId; }
 
     match /restaurants/{restaurantId} {
-      allow read: if isStaffForRestaurant(restaurantId);
+      // The document id is the restaurantId; the second clause also lets the panel
+      // find restaurant documents created by older versions with a random id.
+      allow read: if isStaffForRestaurant(restaurantId)
+        || (resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId));
       allow create, update: if isAdminForRestaurant(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId);
       allow delete: if false;
     }

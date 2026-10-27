@@ -6,8 +6,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("APIs de mesa conferem restaurante autenticado e consulta de sessões é isolada", async () => {
   const [open, close] = await Promise.all([read("src/app/api/admin/table/open/route.ts"), read("src/app/api/admin/table/close/route.ts")]);
-  for (const route of [open, close]) assert.match(route, /table\.restaurantId !== staff\.staffUser\.restaurantId/);
-  assert.match(close, /where\("restaurantId", "==", staff\.staffUser\.restaurantId\)/);
+  for (const route of [open, close]) assert.match(route, /restaurantId !== staff\.staffUser\.restaurantId/);
+  // Orders are queried by session (no composite index) and filtered by restaurant in memory.
+  assert.match(close, /doc\.data\(\)\.restaurantId === staff\.staffUser\.restaurantId/);
 });
 
 test("autenticação distingue token inválido de infraestrutura", async () => {

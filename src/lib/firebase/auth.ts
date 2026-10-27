@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getFirebaseAdminAuth } from './admin';
+import { getFirebaseAdminAuth } from '@/lib/firebase/admin';
 
 const BEARER_PREFIX = 'Bearer ';
 

@@ -1,152 +1,103 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChefHat, Clock3, UtensilsCrossed } from "lucide-react";
 
 import { AppActionButton, AppSkeleton, AppStatusBadge, AppSurface } from "@/components/ui/app-design-system";
 import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
-import type { Order, PublicTableData } from "@/lib/types/domain";
-import { formatCurrency, formatDateTime } from "@/lib/utils/formatters";
+import type { PublicOrder } from "@/lib/types/domain";
+import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 
-interface PublicOrderPageProps {
-  params: { token: string; orderId: string };
+const STEPS = [
+  { key: "received", label: "Recebido", icon: Clock3 },
+  { key: "in_preparation", label: "Em preparo", icon: ChefHat },
+  { key: "ready", label: "Pronto", icon: UtensilsCrossed },
+  { key: "delivered", label: "Entregue", icon: CheckCircle2 }
+] as const;
+
+function stepIndex(status: PublicOrder["status"]): number {
+  if (status === "confirmed") return 0;
+  return STEPS.findIndex((step) => step.key === status);
 }
 
-type PublicTablePayload = PublicTableData;
-
-const TRACKING_STEPS: Array<Extract<Order["status"], "received" | "in_preparation" | "ready" | "delivered">> = [
-  "received",
-  "in_preparation",
-  "ready",
-  "delivered"
-];
-
-export default function PublicOrderPage({ params }: PublicOrderPageProps): JSX.Element {
+export default function PublicOrderPage({ params }: { params: { token: string; orderId: string } }): JSX.Element {
   const token = useMemo(() => decodeURIComponent(params.token), [params.token]);
-  const [tableData, setTableData] = useState<PublicTablePayload | null>(null);
-  const [order, setOrder] = useState<Order | null>(null);
+  const [order, setOrder] = useState<PublicOrder | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
-
-    async function loadTable(): Promise<void> {
-      const response = await fetch(`/api/public/table/${encodeURIComponent(token)}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => ({}));
-      if (!alive) return;
-
-      if (!response.ok) {
-        setError(payload.error ?? "Mesa inválida.");
-        return;
+    let timer: number | undefined;
+    // The order API accepts the device that ordered even after the table is closed,
+    // so tracking no longer depends on the table still being open.
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/public/order/${encodeURIComponent(params.orderId)}`, { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!alive) return;
+        if (!response.ok) { setError(payload.error ?? "Pedido indisponível."); return; }
+        setOrder(payload as PublicOrder);
+        setError("");
+        if (!["delivered", "cancelled"].includes((payload as PublicOrder).status)) timer = window.setTimeout(() => void load(), 5000);
+      } catch {
+        if (alive) timer = window.setTimeout(() => void load(), 8000);
       }
-
-      const publicTablePayload = payload as PublicTablePayload;
-      setTableData(publicTablePayload);
-    }
-
-    void loadTable();
-
-    return () => {
-      alive = false;
     };
-  }, [token]);
+    void load();
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [params.orderId]);
 
-  useEffect(() => {
-    const currentTableData = tableData;
-    if (!currentTableData) return;
+  const back = <Link href={`/mesa/${encodeURIComponent(token)}`} className="block"><AppActionButton variant="secondary" className="w-full gap-2"><ArrowLeft className="h-4 w-4" />Voltar ao cardápio</AppActionButton></Link>;
 
-    let alive = true;
-
-    async function loadOrder(): Promise<void> {
-      const response = await fetch(`/api/public/order/${encodeURIComponent(params.orderId)}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => ({}));
-      if (!alive) return;
-
-      if (!response.ok) {
-        setError(payload.error ?? "Pedido indisponível.");
-        return;
-      }
-
-      setOrder(payload as Order);
-    }
-
-    void loadOrder();
-    const intervalId = window.setInterval(() => void loadOrder(), 5000);
-
-    return () => {
-      alive = false;
-      window.clearInterval(intervalId);
-    };
-  }, [params.orderId, tableData]);
-
-  if (error) {
+  if (error && !order) {
     return (
-      <main className="min-h-screen p-4">
-        <AppSurface className="mx-auto max-w-md p-5 text-center">
-          {error}
-          <div className="mt-3">
-            <Link href={`/mesa/${token}`}>Voltar para mesa</Link>
-          </div>
-        </AppSurface>
+      <main className="mx-auto flex min-h-screen max-w-md items-center px-4">
+        <AppSurface className="w-full space-y-3 p-6 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-[hsl(var(--warning))]" /><p>{error}</p>{back}</AppSurface>
       </main>
     );
   }
+  if (!order) return <main className="mx-auto max-w-md p-4"><AppSkeleton className="h-64" /></main>;
 
-  if (!order || !tableData) {
-    return (
-      <main className="min-h-screen p-4">
-        <AppSkeleton className="mx-auto h-64 max-w-md" />
-      </main>
-    );
-  }
-
-  const currentStepIndex = order.status === "cancelled" ? -1 : TRACKING_STEPS.indexOf(order.status as (typeof TRACKING_STEPS)[number]);
-
+  const current = stepIndex(order.status);
+  const cancelled = order.status === "cancelled";
   return (
     <main className="min-h-screen bg-[hsl(var(--background))] p-4">
       <section className="mx-auto max-w-md space-y-4">
         <AppSurface className="space-y-2 p-4">
-          <p className="text-xs uppercase text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber}</p>
-          <h1 className="text-2xl">Pedido {(order as any).orderCode ?? `#${order.id.slice(-6).toUpperCase()}`}</h1>
-          <AppStatusBadge tone={order.status === "cancelled" ? "danger" : "info"}>{orderStatusLabels[order.status]}</AppStatusBadge>
-          <p className="text-sm text-[hsl(var(--foreground-muted))]">Criado em {formatDateTime(order.createdAt)}</p>
+          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber} · {formatTime(order.receivedAt)}</p>
+          <h1 className="font-mono text-2xl">{order.orderCode}</h1>
+          <AppStatusBadge tone={cancelled ? "danger" : order.status === "delivered" ? "success" : "info"}>{orderStatusLabels[order.status]}</AppStatusBadge>
         </AppSurface>
 
         <AppSurface className="p-4">
-          <div className="grid grid-cols-4 gap-1 text-center text-xs">
-            {TRACKING_STEPS.map((step, index) => (
-              <div key={step} className={`rounded-full px-2 py-2 ${index <= currentStepIndex ? "bg-[hsl(var(--primary))] text-white" : "bg-[hsl(var(--surface-muted))]"}`}>
-                {orderStatusLabels[step]}
-              </div>
-            ))}
-          </div>
-          {order.status === "cancelled" ? (
-            <p className="mt-3 text-sm text-[hsl(var(--danger))]">Motivo: {(order as any).cancelReason ?? order.notes ?? "não informado"}</p>
-          ) : null}
+          {cancelled ? (
+            <p className="text-sm text-[hsl(var(--danger))]">Este pedido foi cancelado pelo restaurante.{order.cancellationReason ? ` Motivo: ${order.cancellationReason}.` : ""} Fale com um atendente se tiver dúvidas.</p>
+          ) : (
+            <ol className="grid grid-cols-4 gap-2 text-center text-xs">
+              {STEPS.map((step, index) => {
+                const Icon = step.icon;
+                const done = index <= current;
+                return (
+                  <li key={step.key} className="flex flex-col items-center gap-1">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-full ${done ? "bg-[hsl(var(--primary))] text-white" : "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"} ${index === current && order.status !== "delivered" ? "animate-pulse" : ""}`}><Icon className="h-5 w-5" /></span>
+                    <span className={done ? "font-semibold" : "text-[hsl(var(--foreground-muted))]"}>{step.label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          {!cancelled && order.status !== "delivered" ? <p className="mt-3 text-center text-xs text-[hsl(var(--foreground-muted))]">Esta página se atualiza sozinha.</p> : null}
         </AppSurface>
 
-        <AppSurface className="space-y-2 p-4">
-          <h2 className="font-semibold">Itens</h2>
-          {order.items.map((item) => (
-            <div key={`${item.menuItemId}-${item.notes ?? ""}`} className="flex justify-between text-sm">
-              <span>{item.quantity}x {item.nameSnapshot}</span>
-              <strong>{formatCurrency(item.total)}</strong>
-            </div>
-          ))}
-          <div className="flex justify-between border-t border-[hsl(var(--border))] pt-2">
-            <span>Total</span>
-            <strong>{formatCurrency(order.total)}</strong>
-          </div>
+        <AppSurface className="space-y-2 p-4 text-sm">
+          {order.items.map((item, index) => <div key={`${item.menuItemId}-${index}`} className="flex justify-between gap-2"><span>{item.quantity}x {item.nameSnapshot}{item.notes ? <span className="block text-xs text-[hsl(var(--foreground-muted))]">Obs.: {item.notes}</span> : null}</span><strong>{formatCurrency(item.total)}</strong></div>)}
+          {order.serviceFee ? <div className="flex justify-between border-t border-[hsl(var(--border))] pt-2"><span>Taxa de serviço</span><span>{formatCurrency(order.serviceFee)}</span></div> : null}
+          <div className="flex justify-between border-t border-[hsl(var(--border))] pt-2 text-base"><span>Total</span><strong>{formatCurrency(order.total)}</strong></div>
+          <p className="text-[hsl(var(--foreground-muted))]">Pagamento: {paymentMethodLabels[order.paymentMethod] ?? order.paymentMethod}{order.paymentStatus ? ` · ${order.paymentStatus}` : ""}</p>
         </AppSurface>
 
-        <AppSurface className="p-4 text-sm">
-          <p>Pagamento: <strong>{paymentMethodLabels[order.paymentMethod]}</strong></p>
-          <p>Status pagamento: <strong>{(order as any).paymentStatus ?? "pendente"}</strong></p>
-        </AppSurface>
-
-        <AppActionButton variant="secondary" className="w-full" onClick={() => { window.location.href = `/mesa/${encodeURIComponent(token)}`; }}>
-          Voltar ao cardápio
-        </AppActionButton>
+        {back}
       </section>
     </main>
   );

@@ -1,10 +1,10 @@
-import { DocumentData, deleteDoc } from "firebase/firestore";
+import { DocumentData } from "firebase/firestore";
 
 import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { DataLayerError } from "@/lib/data/errors";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany, readOne } from "@/lib/data/helpers/firestore-io";
 import { mapTable } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantOrdered } from "@/lib/data/queries";
+import { byRestaurant } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
 import { createTablePayloadSchema, updateTablePayloadSchema } from "@/lib/schemas";
 import type { CreateTablePayload, Table, UpdateTablePayload } from "@/lib/types/domain";
@@ -15,7 +15,8 @@ export class TablesService {
 
   async listByRestaurant(restaurantId: string): Promise<Table[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.tables), byRestaurantOrdered(restaurantId, "number", "asc"), mapTable);
+    const tables = await readMany(getCollection(db, COLLECTIONS.tables), byRestaurant(restaurantId), mapTable);
+    return tables.sort((a, b) => a.number - b.number || a.label.localeCompare(b.label, "pt-BR"));
   }
 
   async getById(id: string): Promise<Table> {
@@ -50,12 +51,4 @@ export class TablesService {
     });
   }
 
-  async delete(id: string): Promise<void> {
-    const { db, scope } = resolveContext(this.context);
-    if (scope !== "admin") {
-      throw new DataLayerError("Only admin scope can delete tables", "forbidden");
-    }
-
-    await deleteDoc(getDocumentRef(db, COLLECTIONS.tables, id));
-  }
 }
