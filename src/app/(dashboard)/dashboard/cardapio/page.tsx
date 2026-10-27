@@ -1,587 +1,157 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleCheck, LayoutList, Loader2, PackageSearch, PencilLine, Plus, Sparkles, Tag, UtensilsCrossed } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarDays, EyeOff, LayoutList, ListChecks, Loader2, Plus, Sparkles, UtensilsCrossed } from "lucide-react";
 
-import {
-  AppActionButton,
-  AppStatCard,
-  AppEmptyState,
-  AppFilterBar,
-  AppFormField,
-  AppSearchInput,
-  AppSectionCard,
-  AppSelect,
-  AppStatusBadge,
-  AppTextInput,
-  AppTextarea
-} from "@/components/ui/app-design-system";
-import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { MenuService } from "@/lib/data/services/menu-service";
+import { CategoryManager } from "@/components/menu/category-manager";
+import { ItemEditor } from "@/components/menu/item-editor";
+import { AppActionButton, AppChips, AppEmptyState, AppSearchInput, AppSkeleton, AppSurface } from "@/components/ui/app-design-system";
 import { describeFirebaseError } from "@/lib/data/errors";
-import { categoryIcon } from "@/lib/utils/category-icon";
-import { resolveStation, STATION_LABELS } from "@/lib/utils/stations";
+import { MenuService } from "@/lib/data/services/menu-service";
+import { useAdminApi } from "@/lib/hooks/use-admin-api";
+import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { MenuCategory, MenuItem } from "@/lib/types/domain";
-import { appToast } from "@/lib/utils/toast";
+import { categoryIcon } from "@/lib/utils/category-icon";
+import { cn } from "@/lib/utils/cn";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { describeDays, isServedOn, restaurantWeekday } from "@/lib/utils/menu-options";
+import { appToast } from "@/lib/utils/toast";
 
-/** "25,50", "1.250,00" and "25.5" all become numbers. */
-function parsePrice(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  const text = value.trim().replace(/^R\$\s*/i, "");
-  if (!text) return undefined;
-  const normalized = text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text;
-  return Number(normalized);
-}
-
-const categoryFormSchema = z.object({
-  name: z.string().min(2, "Informe um nome com pelo menos 2 caracteres."),
-  description: z.string().max(400, "Máximo de 400 caracteres."),
-  sortOrder: z.coerce.number().int().min(0, "A ordem não pode ser negativa."),
-  isActive: z.boolean()
-});
-
-const itemFormSchema = z.object({
-  name: z.string().min(2, "Informe um nome com pelo menos 2 caracteres."),
-  categoryId: z.string().min(1, "Selecione uma categoria."),
-  description: z.string().max(600, "Máximo de 600 caracteres."),
-  // Accepts "25,50" as typed in Brazil.
-  price: z.preprocess(parsePrice, z.number({ invalid_type_error: "Informe o preço, ex.: 25,50" }).positive("O preço deve ser maior que zero.").transform((value) => Math.round(value * 100) / 100)),
-  preparationTimeMinutes: z.coerce.number().int().min(0, "O tempo não pode ser negativo.").max(180, "Máximo de 180 minutos."),
-  station: z.enum(["auto", "kitchen", "ready"]),
-  imageUrl: z
-    .string()
-    .trim()
-    .refine((value) => !value || /^https?:\/\//.test(value), "Use uma URL válida iniciando com http:// ou https://")
-    .optional(),
-  sortOrder: z.coerce.number().int().min(0, "A ordem não pode ser negativa."),
-  isActive: z.boolean(),
-  isAvailable: z.boolean(),
-  isFeatured: z.boolean()
-});
-
-type CategoryFormValues = z.infer<typeof categoryFormSchema>;
-type ItemFormValues = z.infer<typeof itemFormSchema>;
-
-function slugify(value: string): string {
-  const slug = baseSlug(value);
-  return slug.length >= 2 ? slug.slice(0, 80) : `item-${slug || Date.now().toString(36)}`;
-}
-
-function baseSlug(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
-}
-
-const statusFilterOptions = [
-  { label: "Todos os status", value: "all" },
-  { label: "Ativos", value: "active" },
-  { label: "Inativos", value: "inactive" },
-  { label: "Disponíveis", value: "available" },
-  { label: "Indisponíveis", value: "unavailable" },
-  { label: "Em destaque", value: "featured" }
-] as const;
-
-type ItemStatusFilter = (typeof statusFilterOptions)[number]["value"];
+type Filter = "all" | "soldout" | "today" | "hidden";
 
 export default function CardapioPage(): JSX.Element {
   const { user } = useAdminAuth();
+  const api = useAdminApi();
   const menuService = useMemo(() => new MenuService({ scope: "admin" }), []);
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
-
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<ItemStatusFilter>("all");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [editing, setEditing] = useState<{ item: MenuItem | null; categoryId?: string } | null>(null);
+  const [managingCategories, setManagingCategories] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [weekday, setWeekday] = useState<number | null>(null);
 
-  const [selectedCategory, setSelectedCategory] = useState<MenuCategory | null>(null);
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  useEffect(() => { setWeekday(restaurantWeekday()); }, []);
 
-  const categoryForm = useForm<CategoryFormValues>({
-    resolver: zodResolver(categoryFormSchema),
-    defaultValues: { name: "", description: "", sortOrder: 0, isActive: true }
-  });
-
-  const itemForm = useForm<ItemFormValues>({
-    resolver: zodResolver(itemFormSchema),
-    defaultValues: {
-      name: "",
-      categoryId: "",
-      description: "",
-      price: 0,
-      preparationTimeMinutes: 20,
-      station: "auto",
-      imageUrl: "",
-      sortOrder: 0,
-      isActive: true,
-      isAvailable: true,
-      isFeatured: false
-    }
-  });
-
-  const loadData = async (refresh = false) => {
+  const load = useCallback(async () => {
     if (!user?.restaurantId) return;
-
-    if (refresh) setIsRefreshing(true);
-    else setIsLoading(true);
-
     try {
-      const [fetchedCategories, fetchedItems] = await Promise.all([
-        menuService.listCategories(user.restaurantId),
-        menuService.listItems(user.restaurantId)
-      ]);
-
-      setCategories(fetchedCategories);
-      setItems(fetchedItems);
+      const [fetchedCategories, fetchedItems] = await Promise.all([menuService.listCategories(user.restaurantId), menuService.listItems(user.restaurantId)]);
+      setCategories(fetchedCategories.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "pt-BR")));
+      setItems(fetchedItems.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "pt-BR")));
     } catch (error) {
-      console.error(error);
       appToast.error("Não foi possível carregar o cardápio", describeFirebaseError(error));
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setLoading(false);
+    }
+  }, [menuService, user?.restaurantId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const toggleAvailable = async (item: MenuItem) => {
+    const next = !item.isAvailable;
+    setToggling(item.id);
+    setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, isAvailable: next } : entry)));
+    try {
+      await api("/api/admin/menu/availability", { itemId: item.id, isAvailable: next });
+      appToast.success(next ? `${item.name} voltou` : `${item.name} esgotado`, next ? "Já aparece para os clientes." : "Sumiu do cardápio dos clientes até você marcar que voltou.");
+    } catch (failure) {
+      setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, isAvailable: !next } : entry)));
+      appToast.error("Não foi possível mudar", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setToggling(null);
     }
   };
 
-  useEffect(() => {
-    void loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.restaurantId]);
-
-  useEffect(() => {
-    if (selectedCategory) {
-      categoryForm.reset({
-        name: selectedCategory.name,
-        description: selectedCategory.description,
-        sortOrder: selectedCategory.sortOrder,
-        isActive: selectedCategory.isActive
-      });
-    } else {
-      categoryForm.reset({ name: "", description: "", sortOrder: categories.length, isActive: true });
-    }
-  }, [selectedCategory, categoryForm, categories.length]);
-
-  useEffect(() => {
-    if (selectedItem) {
-      itemForm.reset({
-        name: selectedItem.name,
-        categoryId: selectedItem.categoryId,
-        description: selectedItem.description,
-        price: selectedItem.price,
-        preparationTimeMinutes: selectedItem.preparationTimeMinutes,
-        station: selectedItem.station ?? "auto",
-        imageUrl: selectedItem.imageUrl ?? "",
-        sortOrder: selectedItem.sortOrder,
-        isActive: selectedItem.isActive,
-        isAvailable: selectedItem.isAvailable,
-        isFeatured: selectedItem.isFeatured
-      });
-    } else {
-      itemForm.reset({
-        name: "",
-        categoryId: categories[0]?.id ?? "",
-        description: "",
-        price: 0,
-        preparationTimeMinutes: 20,
-        station: "auto",
-        imageUrl: "",
-        sortOrder: items.length,
-        isActive: true,
-        isAvailable: true,
-        isFeatured: false
-      });
-    }
-  }, [selectedItem, itemForm, categories, items.length]);
-
-  const categoryNameById = useMemo(
-    () => categories.reduce<Record<string, string>>((acc, category) => ({ ...acc, [category.id]: category.name }), {}),
-    [categories]
-  );
-
-  const filteredItems = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-
-    return items.filter((item) => {
-      if (categoryFilter !== "all" && item.categoryId !== categoryFilter) return false;
-
-      if (statusFilter === "active" && !item.isActive) return false;
-      if (statusFilter === "inactive" && item.isActive) return false;
-      if (statusFilter === "available" && !item.isAvailable) return false;
-      if (statusFilter === "unavailable" && item.isAvailable) return false;
-      if (statusFilter === "featured" && !item.isFeatured) return false;
-
-      if (!normalized) return true;
-
-      const categoryName = categoryNameById[item.categoryId] ?? "";
-      return `${item.name} ${item.description} ${categoryName}`.toLowerCase().includes(normalized);
-    });
-  }, [items, categoryFilter, statusFilter, search, categoryNameById]);
-
-  const summary = useMemo(() => {
-    const availableItems = items.filter((item) => item.isAvailable).length;
-    const featuredItems = items.filter((item) => item.isFeatured).length;
-
-    return {
-      categories: categories.length,
-      items: items.length,
-      availableItems,
-      featuredItems
-    };
-  }, [categories.length, items]);
-
-  const handleCategorySubmit = categoryForm.handleSubmit(async (values) => {
-    if (!user?.restaurantId) return;
-
-    try {
-      if (selectedCategory) {
-        await menuService.updateCategory(selectedCategory.id, { ...values, slug: slugify(values.name) });
-        appToast.success("Categoria atualizada", "As mudanças já estão disponíveis no cardápio.");
-      } else {
-        await menuService.createCategory({
-          restaurantId: user.restaurantId,
-          ...values,
-          slug: slugify(values.name)
-        });
-        appToast.success("Categoria criada", "Nova seção adicionada ao cardápio.");
-      }
-
-      setSelectedCategory(null);
-      await loadData(true);
-    } catch (error) {
-      console.error(error);
-      appToast.error("Erro ao salvar categoria", describeFirebaseError(error));
-    }
+  const term = search.trim().toLowerCase();
+  const visible = items.filter((item) => {
+    if (filter === "soldout" && item.isAvailable) return false;
+    if (filter === "hidden" && item.isActive) return false;
+    if (filter === "today" && (weekday === null || !(item.availableDays?.length) || !isServedOn(item.availableDays, weekday))) return false;
+    return !term || `${item.name} ${item.description}`.toLowerCase().includes(term);
   });
-
-  const handleItemSubmit = itemForm.handleSubmit(async (values) => {
-    if (!user?.restaurantId) return;
-
-    try {
-      const payload = {
-        ...values,
-        imageUrl: values.imageUrl?.trim() ? values.imageUrl.trim() : null,
-        // "auto" = decided by the category (drinks skip the kitchen).
-        station: values.station === "auto" ? null : values.station,
-        slug: slugify(values.name)
-      };
-
-      if (selectedItem) {
-        await menuService.updateItem(selectedItem.id, payload);
-        appToast.success("Item atualizado", "As alterações foram aplicadas com sucesso.");
-      } else {
-        await menuService.createItem({
-          restaurantId: user.restaurantId,
-          ...payload
-        });
-        appToast.success("Item criado", "Item adicionado ao cardápio com sucesso.");
-      }
-
-      setSelectedItem(null);
-      await loadData(true);
-    } catch (error) {
-      console.error(error);
-      appToast.error("Erro ao salvar item", describeFirebaseError(error));
-    }
-  });
-
-  const patchItem = async (item: MenuItem, partial: Partial<MenuItem>) => {
-    try {
-      await menuService.updateItem(item.id, partial);
-      await loadData(true);
-    } catch (error) {
-      console.error(error);
-      appToast.error("Não foi possível atualizar o item", "Tente novamente em alguns instantes.");
-    }
+  const counts = {
+    all: items.length,
+    soldout: items.filter((item) => !item.isAvailable).length,
+    today: weekday === null ? 0 : items.filter((item) => item.availableDays?.length && isServedOn(item.availableDays, weekday)).length,
+    hidden: items.filter((item) => !item.isActive).length
   };
-
-  const patchCategory = async (category: MenuCategory, partial: Partial<MenuCategory>) => {
-    try {
-      await menuService.updateCategory(category.id, partial);
-      await loadData(true);
-    } catch (error) {
-      console.error(error);
-      appToast.error("Não foi possível atualizar a categoria", "Tente novamente em alguns instantes.");
-    }
-  };
+  const itemCount = items.reduce<Record<string, number>>((acc, item) => { acc[item.categoryId] = (acc[item.categoryId] ?? 0) + 1; return acc; }, {});
+  const knownCategories = new Set(categories.map((category) => category.id));
+  const sections = [
+    ...categories.map((category) => ({ id: category.id, name: category.name, hidden: !category.isActive, items: visible.filter((item) => item.categoryId === category.id) })),
+    { id: "orphan", name: "Sem categoria", hidden: true, items: visible.filter((item) => !knownCategories.has(item.categoryId)) }
+  ].filter((section) => section.items.length > 0 || (filter === "all" && !term && section.id !== "orphan"));
 
   return (
     <section className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <AppStatCard icon={Tag} label="Categorias" value={String(summary.categories)} />
-        <AppStatCard icon={PackageSearch} tone="info" label="Itens" value={String(summary.items)} />
-        <AppStatCard icon={CircleCheck} tone="success" label="Disponíveis" value={String(summary.availableItems)} />
-        <AppStatCard icon={Sparkles} tone="warning" label="Em destaque" value={String(summary.featuredItems)} />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <AppSearchInput className="w-full lg:max-w-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar prato ou bebida" />
+        <AppChips className="min-w-0 flex-1" value={filter} onChange={setFilter} options={[
+          { value: "all", label: "Tudo", count: counts.all },
+          { value: "soldout", label: "Esgotados", count: counts.soldout },
+          ...(counts.today ? [{ value: "today" as const, label: "Prato do dia", count: counts.today }] : []),
+          ...(counts.hidden ? [{ value: "hidden" as const, label: "Escondidos", count: counts.hidden }] : [])
+        ]} />
+        <div className="flex gap-2">
+          <AppActionButton variant="secondary" className="gap-2" onClick={() => setManagingCategories(true)}><LayoutList className="h-4 w-4" />Categorias</AppActionButton>
+          <AppActionButton className="gap-2" disabled={!categories.length} onClick={() => setEditing({ item: null })}><Plus className="h-4 w-4" />Novo item</AppActionButton>
+        </div>
       </div>
 
-      <AppFilterBar>
-        <AppSearchInput value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, descrição ou categoria" className="w-full md:max-w-md" />
-        <AppSelect className="md:w-56" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-          <option value="all">Todas as categorias</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </AppSelect>
-        <AppSelect className="md:w-56" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ItemStatusFilter)}>
-          {statusFilterOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </AppSelect>
-        <AppActionButton variant="secondary" className="md:ml-auto" onClick={() => void loadData(true)}>
-          {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Atualizar
-        </AppActionButton>
-      </AppFilterBar>
-
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_1.5fr]">
-        <AppSectionCard
-          icon={LayoutList}
-          title="Categorias"
-          description="Organize o cardápio por seções com ordem visual e status de ativação."
-          action={
-            <AppActionButton variant="secondary" onClick={() => setSelectedCategory(null)} className="min-w-44 gap-2 whitespace-nowrap px-4">
-              <Plus className="h-4 w-4" />
-              <span>Nova categoria</span>
-            </AppActionButton>
-          }
-        >
-          <div className="space-y-3">
-            {!isLoading && categories.length === 0 ? (
-              <AppEmptyState
-                title="Seu cardápio ainda não tem categorias"
-                description="Crie a primeira categoria para começar a estruturar pratos, bebidas e combos com uma apresentação profissional."
-              />
-            ) : (
-              categories.map((category, index) => (
-                <article key={category.id} className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="flex items-center gap-2 text-base font-semibold"><span aria-hidden="true" className="text-xl">{categoryIcon(category.name)}</span>{category.name}</h3>
-                    <div className="flex items-center gap-2">
-                      <AppStatusBadge tone={category.isActive ? "success" : "neutral"}>{category.isActive ? "Ativa" : "Inativa"}</AppStatusBadge>
-                      <AppActionButton variant="ghost" className="h-8 px-3" onClick={() => setSelectedCategory(category)}>
-                        <PencilLine className="mr-1.5 h-3.5 w-3.5" />
-                        Editar
-                      </AppActionButton>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-sm text-[hsl(var(--foreground-muted))]">{category.description}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <AppActionButton variant="secondary" className="h-8 px-3 text-xs" onClick={() => void patchCategory(category, { isActive: !category.isActive })}>
-                      {category.isActive ? "Desativar" : "Ativar"}
-                    </AppActionButton>
-                    <AppActionButton
-                      variant="ghost"
-                      className="h-8 px-3 text-xs"
-                      disabled={index === 0}
-                      onClick={() => void patchCategory(category, { sortOrder: Math.max(0, category.sortOrder - 1) })}
-                    >
-                      Subir ordem
-                    </AppActionButton>
-                  </div>
-                </article>
-              ))
+      {loading ? (
+        <div className="space-y-3">{[0, 1, 2].map((index) => <AppSkeleton key={index} className="h-24" />)}</div>
+      ) : categories.length === 0 ? (
+        <AppEmptyState icon={UtensilsCrossed} title="Comece pelas categorias" description="Crie as seções do cardápio (ex.: Pratos feitos, Bebidas) e depois cadastre os itens." action={<AppActionButton className="gap-2" onClick={() => setManagingCategories(true)}><Plus className="h-4 w-4" />Criar categorias</AppActionButton>} />
+      ) : sections.length === 0 ? (
+        <AppEmptyState title="Nada encontrado" description="Tente outra busca ou outro filtro." />
+      ) : (
+        sections.map((section) => (
+          <AppSurface key={section.id} className="overflow-hidden p-0">
+            <header className="flex items-center justify-between gap-3 border-b border-[hsl(var(--border))] px-4 py-3">
+              <h2 className="flex items-center gap-2 text-lg"><span aria-hidden="true">{categoryIcon(section.name)}</span>{section.name}{section.hidden && section.id !== "orphan" ? <span className="rounded-full bg-[hsl(var(--surface-muted))] px-2 py-0.5 text-xs font-semibold text-[hsl(var(--foreground-muted))]">escondida</span> : null}</h2>
+              {section.id !== "orphan" ? <AppActionButton variant="ghost" className="h-9 gap-1.5" onClick={() => setEditing({ item: null, categoryId: section.id })}><Plus className="h-4 w-4" />Item</AppActionButton> : null}
+            </header>
+            {section.items.length === 0 ? <p className="px-4 py-4 text-sm text-[hsl(var(--foreground-muted))]">Nenhum item nesta categoria.</p> : (
+              <ul className="divide-y divide-[hsl(var(--border))]">
+                {section.items.map((item) => {
+                  const groups = item.optionGroups?.length ?? 0;
+                  const daily = Boolean(item.availableDays?.length);
+                  return (
+                    <li key={item.id} className={cn("flex items-center gap-3 px-3 py-2.5 sm:px-4", !item.isActive ? "opacity-60" : "")}>
+                      <button type="button" onClick={() => setEditing({ item })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <span className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[hsl(var(--primary-soft))]">
+                          {item.imageUrl ? <Image src={item.imageUrl} alt="" fill sizes="56px" className={cn("object-cover", !item.isAvailable ? "grayscale" : "")} unoptimized /> : <span className={cn("text-2xl", !item.isAvailable ? "grayscale" : "")} aria-hidden="true">{categoryIcon(section.name)}</span>}
+                        </span>
+                        <span className="min-w-0">
+                          <span className={cn("block truncate font-semibold", !item.isAvailable ? "line-through decoration-[hsl(var(--danger))]" : "")}>{item.name}</span>
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-[hsl(var(--foreground-muted))]">
+                            <span className="num font-medium text-[hsl(var(--foreground))]">{formatCurrency(item.price)}</span>
+                            {groups ? <span className="inline-flex items-center gap-1"><ListChecks className="h-3.5 w-3.5" />{groups} {groups === 1 ? "opção" : "opções"}</span> : null}
+                            {daily ? <span className="inline-flex items-center gap-1 text-[hsl(var(--warning))]"><CalendarDays className="h-3.5 w-3.5" />{describeDays(item.availableDays)}</span> : null}
+                            {item.isFeatured ? <span className="inline-flex items-center gap-1 text-[hsl(var(--warning))]"><Sparkles className="h-3.5 w-3.5" />Destaque</span> : null}
+                            {!item.isActive ? <span className="inline-flex items-center gap-1"><EyeOff className="h-3.5 w-3.5" />Escondido</span> : null}
+                          </span>
+                        </span>
+                      </button>
+                      <button type="button" aria-pressed={!item.isAvailable} disabled={toggling === item.id} onClick={() => void toggleAvailable(item)} className={cn("inline-flex h-10 min-w-[104px] shrink-0 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition-colors", item.isAvailable ? "border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]" : "border-[hsl(var(--danger)/0.45)] bg-[hsl(var(--danger)/0.1)] text-[hsl(var(--danger))]")}>
+                        {toggling === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className={cn("h-2 w-2 rounded-full", item.isAvailable ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--danger))]")} />}
+                        {item.isAvailable ? "Tem" : "Esgotado"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </div>
+          </AppSurface>
+        ))
+      )}
 
-          <form onSubmit={(event) => void handleCategorySubmit(event)} className="mt-5 space-y-3 rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] p-4">
-            <h3 className="text-base font-semibold">{selectedCategory ? "Editar categoria" : "Criar categoria"}</h3>
-            <AppFormField label="Nome" error={categoryForm.formState.errors.name?.message}>
-              <AppTextInput placeholder="Ex.: Pratos principais" {...categoryForm.register("name")} />
-            </AppFormField>
-            <AppFormField label="Descrição" error={categoryForm.formState.errors.description?.message}>
-              <AppTextarea placeholder="Explique rapidamente os itens desta seção." {...categoryForm.register("description")} />
-            </AppFormField>
-            <div className="grid gap-3 md:grid-cols-2">
-              <AppFormField label="Ordem visual" error={categoryForm.formState.errors.sortOrder?.message}>
-                <AppTextInput type="number" min={0} {...categoryForm.register("sortOrder")} />
-              </AppFormField>
-              <AppFormField label="Status operacional">
-                <AppSelect value={categoryForm.watch("isActive") ? "active" : "inactive"} onChange={(event) => categoryForm.setValue("isActive", event.target.value === "active")}>
-                  <option value="active">Ativa</option>
-                  <option value="inactive">Inativa</option>
-                </AppSelect>
-              </AppFormField>
-            </div>
-            <div className="flex gap-2">
-              <AppActionButton type="submit" disabled={categoryForm.formState.isSubmitting}>
-                {categoryForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {selectedCategory ? "Salvar categoria" : "Criar categoria"}
-              </AppActionButton>
-              {selectedCategory ? (
-                <AppActionButton variant="ghost" onClick={() => setSelectedCategory(null)}>
-                  Cancelar edição
-                </AppActionButton>
-              ) : null}
-            </div>
-          </form>
-        </AppSectionCard>
-
-        <AppSectionCard
-          icon={UtensilsCrossed}
-          tone="warning"
-          title="Itens do cardápio"
-          description="Cadastro completo com disponibilidade, destaque, imagem e tempo de preparo."
-          action={
-            <AppActionButton onClick={() => setSelectedItem(null)} className="min-w-32 gap-2 whitespace-nowrap px-4">
-              <Plus className="h-4 w-4" />
-              <span>Novo item</span>
-            </AppActionButton>
-          }
-        >
-          {!isLoading && filteredItems.length === 0 ? (
-            <AppEmptyState
-              title="Nenhum item encontrado para os filtros atuais"
-              description="Ajuste os filtros ou crie um novo item para preencher esta seção do cardápio."
-              action={
-                <AppActionButton onClick={() => setSelectedItem(null)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Criar item agora
-                </AppActionButton>
-              }
-            />
-          ) : (
-            <div className="space-y-3">
-              {filteredItems.map((item) => (
-                <article key={item.id} className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                    <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[hsl(var(--primary-soft))]">
-                      {item.imageUrl ? (
-                        <div className="h-full w-full bg-cover bg-center" role="img" aria-label={item.name} style={{ backgroundImage: `url(${item.imageUrl})` }} />
-                      ) : (
-                        <span className="text-4xl" aria-hidden="true">{categoryIcon(categoryNameById[item.categoryId])}</span>
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-base font-semibold">{item.name}</h3>
-                        <AppActionButton variant="ghost" className="h-8 px-3" onClick={() => setSelectedItem(item)}>
-                          <PencilLine className="mr-1.5 h-3.5 w-3.5" />
-                          Editar
-                        </AppActionButton>
-                      </div>
-                      <p className="text-xs text-[hsl(var(--foreground-muted))]">{categoryNameById[item.categoryId] ?? "Categoria removida"}</p>
-                      <p className="text-sm text-[hsl(var(--foreground-muted))]">{item.description}</p>
-                      <div className="flex flex-wrap gap-2">
-                        <AppStatusBadge tone={item.isActive ? "success" : "neutral"}>{item.isActive ? "Ativo" : "Inativo"}</AppStatusBadge>
-                        <AppStatusBadge tone={item.isAvailable ? "info" : "warning"}>{item.isAvailable ? "Disponível" : "Indisponível"}</AppStatusBadge>
-                        <AppStatusBadge tone={item.isFeatured ? "warning" : "neutral"}>{item.isFeatured ? "Destaque" : "Comum"}</AppStatusBadge>
-                        <AppStatusBadge tone={resolveStation(item.station, categoryNameById[item.categoryId]) === "ready" ? "success" : "neutral"}>{STATION_LABELS[resolveStation(item.station, categoryNameById[item.categoryId])]}</AppStatusBadge>
-                        {resolveStation(item.station, categoryNameById[item.categoryId]) === "kitchen" ? <AppStatusBadge tone="neutral">{item.preparationTimeMinutes} min</AppStatusBadge> : null}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                        <p className="text-base font-semibold">{formatCurrency(item.price)}</p>
-                        <div className="flex flex-wrap gap-2">
-                          <AppActionButton variant="secondary" className="h-8 px-3 text-xs" onClick={() => void patchItem(item, { isActive: !item.isActive })}>
-                            {item.isActive ? "Desativar" : "Ativar"}
-                          </AppActionButton>
-                          <AppActionButton variant="secondary" className="h-8 px-3 text-xs" onClick={() => void patchItem(item, { isAvailable: !item.isAvailable })}>
-                            {item.isAvailable ? "Marcar indisponível" : "Marcar disponível"}
-                          </AppActionButton>
-                          <AppActionButton variant="secondary" className="h-8 px-3 text-xs" onClick={() => void patchItem(item, { isFeatured: !item.isFeatured })}>
-                            {item.isFeatured ? "Remover destaque" : "Destacar"}
-                          </AppActionButton>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-
-          <form onSubmit={(event) => void handleItemSubmit(event)} className="mt-5 space-y-3 rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] p-4">
-            <h3 className="text-base font-semibold">{selectedItem ? "Editar item" : "Criar item"}</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <AppFormField label="Nome" error={itemForm.formState.errors.name?.message}>
-                <AppTextInput placeholder="Ex.: Filé à parmegiana" {...itemForm.register("name")} />
-              </AppFormField>
-              <AppFormField label="Categoria" error={itemForm.formState.errors.categoryId?.message}>
-                <AppSelect {...itemForm.register("categoryId")}>
-                  <option value="">Selecione uma categoria</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </AppSelect>
-              </AppFormField>
-            </div>
-            <AppFormField label="Descrição" error={itemForm.formState.errors.description?.message}>
-              <AppTextarea placeholder="Detalhes que ajudam o cliente na decisão de compra." {...itemForm.register("description")} />
-            </AppFormField>
-            <AppFormField label="Onde é preparado" hint={`Pronta entrega (bebidas, itens prontos) não passa pela cozinha: vai direto para o garçom levar. Automático: ${resolveStation(null, categoryNameById[itemForm.watch("categoryId")] ?? "") === "ready" ? "esta categoria é de pronta entrega" : "esta categoria vai para a cozinha"}.`}>
-              <AppSelect {...itemForm.register("station")}>
-                <option value="auto">Automático pela categoria</option>
-                <option value="kitchen">Cozinha (precisa de preparo)</option>
-                <option value="ready">Pronta entrega (bebidas, itens prontos)</option>
-              </AppSelect>
-            </AppFormField>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <AppFormField label="Preço (R$)" error={itemForm.formState.errors.price?.message}>
-                <AppTextInput inputMode="decimal" placeholder="25,50" {...itemForm.register("price")} />
-              </AppFormField>
-              <AppFormField label="Preparo (min)" error={itemForm.formState.errors.preparationTimeMinutes?.message}>
-                <AppTextInput type="number" min={0} max={180} {...itemForm.register("preparationTimeMinutes")} />
-              </AppFormField>
-              <AppFormField label="Ordem visual" error={itemForm.formState.errors.sortOrder?.message}>
-                <AppTextInput type="number" min={0} {...itemForm.register("sortOrder")} />
-              </AppFormField>
-              <AppFormField label="Destaque">
-                <AppSelect value={itemForm.watch("isFeatured") ? "yes" : "no"} onChange={(event) => itemForm.setValue("isFeatured", event.target.value === "yes")}>
-                  <option value="no">Não</option>
-                  <option value="yes">Sim</option>
-                </AppSelect>
-              </AppFormField>
-            </div>
-            <AppFormField
-              label="Imagem (URL)"
-              hint="Informe uma URL HTTPS da imagem do produto ou deixe em branco para exibir o estado visual padrão."
-              error={itemForm.formState.errors.imageUrl?.message}
-            >
-              <AppTextInput placeholder="https://..." {...itemForm.register("imageUrl")} />
-            </AppFormField>
-            <div className="grid gap-3 md:grid-cols-2">
-              <AppFormField label="Status ativo">
-                <AppSelect value={itemForm.watch("isActive") ? "active" : "inactive"} onChange={(event) => itemForm.setValue("isActive", event.target.value === "active")}>
-                  <option value="active">Ativo</option>
-                  <option value="inactive">Inativo</option>
-                </AppSelect>
-              </AppFormField>
-              <AppFormField label="Disponibilidade">
-                <AppSelect value={itemForm.watch("isAvailable") ? "available" : "unavailable"} onChange={(event) => itemForm.setValue("isAvailable", event.target.value === "available")}>
-                  <option value="available">Disponível</option>
-                  <option value="unavailable">Indisponível</option>
-                </AppSelect>
-              </AppFormField>
-            </div>
-            <div className="flex gap-2">
-              <AppActionButton type="submit" disabled={itemForm.formState.isSubmitting || categories.length === 0}>
-                {itemForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {selectedItem ? "Salvar item" : "Criar item"}
-              </AppActionButton>
-              {selectedItem ? (
-                <AppActionButton variant="ghost" onClick={() => setSelectedItem(null)}>
-                  Cancelar edição
-                </AppActionButton>
-              ) : null}
-            </div>
-          </form>
-        </AppSectionCard>
-      </div>
+      {editing && user?.restaurantId ? <ItemEditor item={editing.item} categories={categories} defaultCategoryId={editing.categoryId} nextSortOrder={items.length} restaurantId={user.restaurantId} onClose={() => setEditing(null)} onSaved={() => void load()} /> : null}
+      {managingCategories && user?.restaurantId ? <CategoryManager categories={categories} itemCount={itemCount} restaurantId={user.restaurantId} onClose={() => setManagingCategories(false)} onChanged={load} /> : null}
     </section>
   );
 }

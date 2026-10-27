@@ -14,6 +14,7 @@ import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls"
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import type { Order } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { describeOrderItem, formatOptions } from "@/lib/utils/menu-options";
 import { elapsedLabel } from "@/lib/utils/table-view";
 import { appToast } from "@/lib/utils/toast";
 
@@ -145,7 +146,7 @@ export default function SalaoPage(): JSX.Element {
                   {group.orders.flatMap((order) => order.items.map((item, index) => (
                     <li key={`${order.id}-${index}`} className="flex items-start gap-2 text-base">
                       {order.station === "ready" ? <CupSoda className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--success))]" aria-label="Pronta entrega" /> : <ChefHat className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--warning))]" aria-label="Da cozinha" />}
-                      <span><span className="num font-bold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="text-sm text-[hsl(var(--foreground-muted))]"> ({item.notes})</span> : null}</span>
+                      <span><span className="num font-bold">{item.quantity}x</span> {item.nameSnapshot}{item.options?.length ? <span className="block text-sm text-[hsl(var(--foreground-muted))]">{formatOptions(item.options)}</span> : null}{item.notes ? <span className="text-sm text-[hsl(var(--foreground-muted))]"> ({item.notes})</span> : null}</span>
                     </li>
                   )))}
                 </ul>
@@ -166,7 +167,7 @@ export default function SalaoPage(): JSX.Element {
                 <li key={group.tableId} className="flex items-center justify-between gap-3 py-2.5">
                   <Link href={`/dashboard/mesas/${group.tableId}` as Route} className="min-w-0">
                     <p className="font-semibold">Mesa {group.tableNumber}</p>
-                    <p className="truncate text-sm text-[hsl(var(--foreground-muted))]">{group.orders.flatMap((order) => order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`)).join(", ")}</p>
+                    <p className="truncate text-sm text-[hsl(var(--foreground-muted))]">{group.orders.flatMap((order) => order.items.map(describeOrderItem)).join(", ")}</p>
                   </Link>
                   <span className={cn("num shrink-0 rounded-full px-2.5 py-0.5 text-sm font-semibold", minutes >= 20 ? "bg-[hsl(var(--danger)/0.12)] text-[hsl(var(--danger))]" : "bg-[hsl(var(--gema)/0.18)] text-[hsl(var(--warning))]")}>{items} {items === 1 ? "item" : "itens"} · {minutes} min</span>
                 </li>

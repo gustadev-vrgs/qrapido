@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, ChefHat, Loader2, Volume2, VolumeX } from "lucide-react";
+import { AlertTriangle, Ban, Check, ChefHat, Loader2, Volume2, VolumeX } from "lucide-react";
 
 import { AppActionButton, AppEmptyState, AppSkeleton, AppSurface, AppTextarea } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
+import { SoldOutDialog } from "@/components/menu/sold-out-dialog";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { playChime, useLiveOrders } from "@/lib/hooks/use-live-orders";
@@ -12,6 +13,7 @@ import { useSoundSetting } from "@/lib/hooks/use-sound-setting";
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import type { Order } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { describeOrderItem } from "@/lib/utils/menu-options";
 import { formatTime } from "@/lib/utils/formatters";
 import { minutesSince } from "@/lib/utils/table-view";
 import { appToast } from "@/lib/utils/toast";
@@ -32,11 +34,12 @@ export default function CozinhaPage(): JSX.Element {
   const { orders, loading, error } = useLiveOrders(user?.restaurantId, (order) => {
     if (order.status === "ready" || order.station === "ready") return;
     if (soundOn) playChime("order");
-    appToast.info(`Novo pedido · Mesa ${order.tableNumber}`, order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", "));
+    appToast.info(`Novo pedido · Mesa ${order.tableNumber}`, order.items.map(describeOrderItem).join(", "));
   });
   const [now, setNow] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancel, setCancel] = useState<{ order: Order; reason: string } | null>(null);
+  const [soldOut, setSoldOut] = useState(false);
   useWakeLock();
 
   useEffect(() => {
@@ -86,7 +89,8 @@ export default function CozinhaPage(): JSX.Element {
 
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-lg font-semibold"><span className="num text-2xl">{queue.length}</span> {queue.length === 1 ? "pedido na fila" : "pedidos na fila"}</p>
-        <AppActionButton variant="secondary" className="ml-auto gap-2" onClick={toggleSound} aria-pressed={soundOn}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}{soundOn ? "Som ligado" : "Som desligado"}</AppActionButton>
+        <AppActionButton variant="secondary" className="ml-auto gap-2" onClick={() => setSoldOut(true)}><Ban className="h-4 w-4" />Acabou algo?</AppActionButton>
+        <AppActionButton variant="secondary" className="gap-2" onClick={toggleSound} aria-pressed={soundOn} aria-label={soundOn ? "Som ligado" : "Som desligado"}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}<span className="hidden sm:inline">{soundOn ? "Som ligado" : "Som desligado"}</span></AppActionButton>
       </div>
 
       {toMake.length > 1 ? (
@@ -118,6 +122,7 @@ export default function CozinhaPage(): JSX.Element {
                   {order.items.map((item, index) => (
                     <li key={`${item.menuItemId}-${index}`} className="text-lg leading-snug">
                       <span className="num font-bold">{item.quantity}x</span> {item.nameSnapshot}
+                      {item.options?.length ? <span className="mt-0.5 block text-base font-semibold text-[hsl(var(--primary))]">{item.options.map((option) => option.name).join(" · ")}</span> : null}
                       {item.notes ? <span className="mt-1 block rounded-lg bg-[hsl(var(--gema)/0.18)] px-2 py-1 text-base font-medium">↳ {item.notes}</span> : null}
                     </li>
                   ))}
@@ -130,6 +135,8 @@ export default function CozinhaPage(): JSX.Element {
           })}
         </div>
       )}
+
+      {soldOut && user?.restaurantId ? <SoldOutDialog restaurantId={user.restaurantId} onClose={() => setSoldOut(false)} /> : null}
 
       {cancel ? (
         <AppModal title={`Cancelar pedido da Mesa ${cancel.order.tableNumber}?`} onClose={() => setCancel(null)}>

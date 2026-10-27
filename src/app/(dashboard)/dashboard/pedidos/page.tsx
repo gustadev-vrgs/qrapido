@@ -13,6 +13,7 @@ import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { useLiveOrders } from "@/lib/hooks/use-live-orders";
 import type { Order } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { describeOrderItem, formatOptions } from "@/lib/utils/menu-options";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
 
@@ -91,7 +92,7 @@ export default function PedidosPage(): JSX.Element {
                   <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--surface-muted))]">{order.station === "ready" ? <CupSoda className="h-4 w-4" /> : <ChefHat className="h-4 w-4" />}</span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-baseline gap-x-2"><strong>Mesa {order.tableNumber}</strong><span className="num text-xs text-[hsl(var(--foreground-muted))]">{order.orderCode} · {formatTime(order.receivedAt)}</span></span>
-                    <span className="block truncate text-sm text-[hsl(var(--foreground-muted))]">{order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", ")}</span>
+                    <span className="block truncate text-sm text-[hsl(var(--foreground-muted))]">{order.items.map(describeOrderItem).join(", ")}</span>
                   </span>
                   <span className="hidden text-right sm:block"><span className="num block text-sm font-semibold">{formatCurrency(order.total)}</span></span>
                   <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", STATUS[order.status].className)}>{STATUS[order.status].label}</span>
@@ -110,7 +111,7 @@ export default function PedidosPage(): JSX.Element {
             <span className="text-[hsl(var(--foreground-muted))]">Recebido {formatTime(live.receivedAt)}{live.customerName ? ` · ${live.customerName}` : ""}</span>
           </div>
           <div className="space-y-1.5 rounded-[var(--radius-md)] border border-[hsl(var(--border))] p-3 text-sm">
-            {live.items.map((item, index) => <p key={index} className="flex justify-between gap-2"><span><span className="num font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? ` (${item.notes})` : ""}</span><span className="num">{formatCurrency(item.total)}</span></p>)}
+            {live.items.map((item, index) => <p key={index} className="flex justify-between gap-2"><span><span className="num font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? ` (${item.notes})` : ""}{item.options?.length ? <span className="block text-xs text-[hsl(var(--foreground-muted))]">{formatOptions(item.options)}</span> : null}</span><span className="num">{formatCurrency(item.total)}</span></p>)}
             <p className="flex justify-between border-t border-[hsl(var(--border))] pt-2"><span>Subtotal</span><span className="num">{formatCurrency(live.subtotal)}</span></p>
             {live.serviceFee ? <p className="flex justify-between"><span>Taxa de serviço</span><span className="num">{formatCurrency(live.serviceFee)}</span></p> : null}
             <p className="flex justify-between font-semibold"><span>Total</span><span className="num">{formatCurrency(live.total)}</span></p>

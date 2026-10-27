@@ -138,6 +138,34 @@ export interface MenuItem extends BaseEntity {
   sortOrder: number;
   /** null = decided by the category name (drinks are "ready"). */
   station?: OrderStation | null;
+  /** Choices for a prato feito, e.g. "Acompanhamento" (pick 1) or "Adicionais" (+R$). */
+  optionGroups?: MenuOptionGroup[];
+  /** Weekdays the item is served (0 = domingo … 6 = sábado). Empty/absent = every day. */
+  availableDays?: number[];
+}
+
+export interface MenuOption {
+  id: string;
+  name: string;
+  /** Extra charged on top of the item price (0 = included). */
+  price: number;
+}
+
+export interface MenuOptionGroup {
+  id: string;
+  name: string;
+  /** Customer must choose at least `min` options. */
+  min: number;
+  /** Customer may choose up to `max` options (1 = single choice). */
+  max: number;
+  options: MenuOption[];
+}
+
+/** Option chosen for one order line, frozen at the price of the moment. */
+export interface OrderItemOption {
+  groupName: string;
+  name: string;
+  price: number;
 }
 
 
@@ -151,7 +179,7 @@ export interface MenuItem extends BaseEntity {
 export type PublicTableAccess = "no_session" | "needs_code" | "expired" | "authorized";
 
 export interface PublicMenuCategory { id: string; name: string; description: string; sortOrder: number; isActive: boolean }
-export interface PublicMenuItem { id: string; categoryId: string; name: string; description: string; price: number; imageUrl: string | null; preparationTimeMinutes: number; isActive: boolean; isAvailable: boolean; isFeatured: boolean; sortOrder: number }
+export interface PublicMenuItem { id: string; categoryId: string; name: string; description: string; price: number; imageUrl: string | null; preparationTimeMinutes: number; isActive: boolean; isAvailable: boolean; isFeatured: boolean; sortOrder: number; optionGroups: MenuOptionGroup[]; /** True when the item is served only on some weekdays ("prato do dia"). */ dailySpecial: boolean }
 
 export interface PublicTableData {
   restaurantName: string | null;
@@ -186,7 +214,7 @@ export interface PublicOrder {
   id: string;
   orderCode: string;
   tableNumber: number;
-  items: Array<{ menuItemId: string; nameSnapshot: string; priceSnapshot: number; quantity: number; notes: string | null; total: number }>;
+  items: Array<{ menuItemId: string; nameSnapshot: string; priceSnapshot: number; quantity: number; notes: string | null; total: number; options?: Array<{ groupName: string; name: string; price: number }> }>;
   station: OrderStation;
   groupCode: string | null;
   subtotal: number;
@@ -205,10 +233,15 @@ export interface PublicOrder {
 export interface CartItem {
   menuItemId: string;
   name: string;
+  /** Unit price including the chosen options. */
   price: number;
   quantity: number;
   notes: string;
   imageUrl: string | null;
+  /** Chosen option ids, sent to the server (which recomputes the price). */
+  options?: Array<{ groupId: string; optionId: string }>;
+  /** Readable summary of the options, e.g. "Arroz branco, Ovo (+R$ 3,00)". */
+  optionsLabel?: string;
 }
 
 export interface OrderItem {
@@ -221,6 +254,8 @@ export interface OrderItem {
   categoryIdSnapshot?: string | null;
   categoryNameSnapshot?: string | null;
   station?: OrderStation;
+  /** Chosen options; priceSnapshot already includes their extras. */
+  options?: OrderItemOption[];
 }
 
 export interface Order extends BaseEntity {

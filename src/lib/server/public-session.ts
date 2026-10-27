@@ -3,6 +3,7 @@ import "server-only";
 import crypto from "node:crypto";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { isServedOn, normalizeDays, normalizeOptionGroups, restaurantWeekday } from "@/lib/utils/menu-options";
 
 /** Firestore Admin handles are typed loosely on purpose: the SDK is loaded lazily. */
 type Db = any;
@@ -217,11 +218,13 @@ export async function loadPublicMenu(restaurantId: string): Promise<{ categories
     .sort(bySort)
     .map((category: Doc) => ({ id: category.id, name: String(category.name ?? "Sem nome"), description: String(category.description ?? ""), sortOrder: Number(category.sortOrder ?? 0), isActive: true }));
   const activeCategoryIds = new Set(categories.map((category: Doc) => category.id));
+  // Items served only on some weekdays (e.g. feijoada on Wednesdays) appear only on those days.
+  const today = restaurantWeekday();
   const items = itemSnap.docs
     .map((doc: Doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((item: Doc) => item.isActive !== false && item.isAvailable !== false && activeCategoryIds.has(item.categoryId) && Number.isFinite(Number(item.price)))
+    .filter((item: Doc) => item.isActive !== false && item.isAvailable !== false && activeCategoryIds.has(item.categoryId) && Number.isFinite(Number(item.price)) && isServedOn(normalizeDays(item.availableDays), today))
     .sort(bySort)
-    .map((item: Doc) => ({ id: item.id, categoryId: item.categoryId, name: String(item.name ?? ""), description: String(item.description ?? ""), price: Number(item.price), imageUrl: typeof item.imageUrl === "string" && item.imageUrl ? item.imageUrl : null, preparationTimeMinutes: Number(item.preparationTimeMinutes ?? 0), isActive: true, isAvailable: true, isFeatured: item.isFeatured === true, sortOrder: Number(item.sortOrder ?? 0) }));
+    .map((item: Doc) => ({ id: item.id, categoryId: item.categoryId, name: String(item.name ?? ""), description: String(item.description ?? ""), price: Number(item.price), imageUrl: typeof item.imageUrl === "string" && item.imageUrl ? item.imageUrl : null, preparationTimeMinutes: Number(item.preparationTimeMinutes ?? 0), isActive: true, isAvailable: true, isFeatured: item.isFeatured === true, sortOrder: Number(item.sortOrder ?? 0), optionGroups: normalizeOptionGroups(item.optionGroups), dailySpecial: normalizeDays(item.availableDays).length > 0 }));
   return { categories, items };
 }
 
