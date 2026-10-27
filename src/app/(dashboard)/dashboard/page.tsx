@@ -1,52 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Armchair, BellRing, ChefHat, HandPlatter, ReceiptText, Wallet, WalletCards } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Armchair, BellRing, Check, ChefHat, HandPlatter, Loader2, ReceiptText, Wallet, WalletCards } from "lucide-react";
 
 import { AppActionButton, AppEmptyState, AppSectionCard, AppSkeleton, AppStatCard, AppSurface } from "@/components/ui/app-design-system";
-import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { useLiveOrders } from "@/lib/hooks/use-live-orders";
 import { isSessionExpired, useLiveTables } from "@/lib/hooks/use-live-tables";
-import type { WaiterCall } from "@/lib/types/domain";
+import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
 
 export default function DashboardPage(): JSX.Element {
   const { user } = useAdminAuth();
-  const api = useAdminApi();
+  const router = useRouter();
   const { orders, loading, error, dateKey } = useLiveOrders(user?.restaurantId);
   const { tables, sessionByTable } = useLiveTables(user?.restaurantId);
-  const [calls, setCalls] = useState<WaiterCall[]>([]);
-  const [callsError, setCallsError] = useState<string | null>(null);
   const canSeeCalls = Boolean(user && user.role !== "kitchen");
+  const { calls, error: callsError, resolve } = useWaiterCalls(canSeeCalls);
+  const [resolving, setResolving] = useState<string | null>(null);
 
-  const loadCalls = useCallback(async () => {
-    try {
-      const payload = await api<{ calls: WaiterCall[] }>("/api/admin/waiter-calls");
-      setCalls(payload.calls ?? []);
-      setCallsError(null);
-    } catch (failure) {
-      setCallsError(failure instanceof Error ? failure.message : "Não foi possível carregar os chamados.");
-    }
-  }, [api]);
-
-  useEffect(() => {
-    if (!canSeeCalls) return;
-    void loadCalls();
-    const id = window.setInterval(() => void loadCalls(), 10_000);
-    return () => window.clearInterval(id);
-  }, [canSeeCalls, loadCalls]);
-
-  const updateCall = async (call: WaiterCall) => {
-    try {
-      await api("/api/admin/waiter-calls", { callId: call.id, action: call.status === "pending" ? "attend" : "complete" });
-      await loadCalls();
-    } catch (failure) {
-      appToast.error("Chamado não atualizado", failure instanceof Error ? failure.message : "Tente novamente.");
-    }
-  };
+  // The kitchen only needs its queue.
+  useEffect(() => { if (user?.role === "kitchen") router.replace("/dashboard/cozinha"); }, [router, user?.role]);
 
   const today = useMemo(() => {
     const todays = orders.filter((order) => order.dateKey === dateKey);
@@ -66,11 +43,17 @@ export default function DashboardPage(): JSX.Element {
   }, [orders, dateKey]);
   const occupied = tables.filter((table) => sessionByTable[table.id] && !isSessionExpired(sessionByTable[table.id])).length;
   const people = tables.reduce((sum, table) => sum + (sessionByTable[table.id] && !isSessionExpired(sessionByTable[table.id]) ? sessionByTable[table.id].peopleCount : 0), 0);
-  const openCalls = calls.filter((call) => call.status !== "completed");
+
+  const resolveCall = async (id: string) => {
+    const call = calls.find((item) => item.id === id);
+    if (!call) return;
+    setResolving(id);
+    try { await resolve(call); } catch (failure) { appToast.error("Chamado não atualizado", failure instanceof Error ? failure.message : "Tente novamente."); } finally { setResolving(null); }
+  };
 
   return (
     <section className="space-y-4">
-      {error ? <AppSurface className="flex items-start gap-3 border border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error} <Link className="underline" href="/dashboard/diagnostico">Abrir diagnóstico</Link></p></AppSurface> : null}
+      {error ? <AppSurface className="flex items-start gap-3 border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error} <Link className="underline" href="/dashboard/diagnostico">Abrir diagnóstico</Link></p></AppSurface> : null}
 
       {loading ? (
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <AppSkeleton key={index} className="h-28" />)}</div>
@@ -84,21 +67,21 @@ export default function DashboardPage(): JSX.Element {
       )}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <AppSectionCard icon={ChefHat} tone="warning" title="Agora" description="O que está na cozinha e o que já pode ir para a mesa." action={<Link href="/dashboard/pedidos"><AppActionButton variant="secondary">Abrir pedidos</AppActionButton></Link>}>
+        <AppSectionCard icon={ChefHat} tone="warning" title="Agora" description="Toque para abrir a tela de cada um.">
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[var(--radius-md)] bg-[hsl(var(--gema)/0.16)] p-4"><p className="flex items-center gap-2 text-sm font-medium text-[hsl(var(--warning))]"><ChefHat className="h-4 w-4" />Na cozinha</p><p className="num mt-1 text-4xl font-bold">{today.preparing}</p></div>
-            <div className="rounded-[var(--radius-md)] bg-[hsl(var(--success)/0.12)] p-4"><p className="flex items-center gap-2 text-sm font-medium text-[hsl(var(--success))]"><HandPlatter className="h-4 w-4" />Para levar</p><p className="num mt-1 text-4xl font-bold">{today.ready}</p></div>
+            <Link href="/dashboard/cozinha" className="rounded-[var(--radius-md)] bg-[hsl(var(--gema)/0.16)] p-4 transition-colors hover:bg-[hsl(var(--gema)/0.26)]"><p className="flex items-center gap-2 text-sm font-medium text-[hsl(var(--warning))]"><ChefHat className="h-4 w-4" />Na cozinha</p><p className="num mt-1 text-4xl font-bold">{today.preparing}</p></Link>
+            {canSeeCalls ? <Link href="/dashboard/salao" className="rounded-[var(--radius-md)] bg-[hsl(var(--success)/0.12)] p-4 transition-colors hover:bg-[hsl(var(--success)/0.2)]"><p className="flex items-center gap-2 text-sm font-medium text-[hsl(var(--success))]"><HandPlatter className="h-4 w-4" />Para levar</p><p className="num mt-1 text-4xl font-bold">{today.ready}</p></Link> : null}
           </div>
         </AppSectionCard>
 
         {canSeeCalls ? (
-          <AppSectionCard icon={BellRing} tone="danger" title="Chamados de garçom" description="Atualiza a cada 10 segundos.">
-            {callsError ? <p className="text-sm text-[hsl(var(--danger))]">{callsError}</p> : null}
+          <AppSectionCard icon={BellRing} tone="danger" title="Chamados de garçom" description="Atualiza sozinho a cada poucos segundos.">
+            {callsError ? <p className="mb-2 text-sm text-[hsl(var(--danger))]">{callsError}</p> : null}
             <div className="space-y-2">
-              {openCalls.length === 0 ? <AppEmptyState icon={BellRing} title="Nenhum chamado aberto" description="Quando um cliente chamar pelo celular, aparece aqui." /> : openCalls.map((call) => (
-                <AppSurface key={call.id} className={`flex items-center justify-between gap-3 p-3 ${call.status === "pending" ? "border-[hsl(var(--danger)/0.5)] bg-[hsl(var(--danger)/0.06)]" : ""}`}>
-                  <div><strong className="flex items-center gap-2"><BellRing className="h-4 w-4" />Mesa {call.tableNumber}</strong><p className="text-sm">{call.reason}</p><p className="text-xs text-[hsl(var(--foreground-muted))]">{formatTime(call.createdAt)} · {call.status === "pending" ? "aguardando" : "em atendimento"}</p></div>
-                  <AppActionButton onClick={() => void updateCall(call)}>{call.status === "pending" ? "Atender" : "Concluir"}</AppActionButton>
+              {calls.length === 0 ? <AppEmptyState icon={BellRing} title="Nenhum chamado aberto" description="Quando um cliente chamar pelo celular, aparece aqui e na tela Salão." /> : calls.map((call) => (
+                <AppSurface key={call.id} className="flex items-center justify-between gap-3 border-[hsl(var(--danger)/0.5)] bg-[hsl(var(--danger)/0.06)] p-3">
+                  <div><strong className="flex items-center gap-2"><BellRing className="h-4 w-4" />Mesa {call.tableNumber}</strong><p className="text-sm">{waiterReasonLabel(call.reason)}</p><p className="text-xs text-[hsl(var(--foreground-muted))]">{formatTime(call.createdAt)}</p></div>
+                  <AppActionButton className="gap-2" disabled={resolving === call.id} onClick={() => void resolveCall(call.id)}>{resolving === call.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Resolvido</AppActionButton>
                 </AppSurface>
               ))}
             </div>

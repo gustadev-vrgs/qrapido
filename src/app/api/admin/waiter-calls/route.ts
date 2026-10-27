@@ -38,10 +38,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const snapshot = await tx.get(ref);
       if (!snapshot.exists || snapshot.data().restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Chamado não encontrado."), { status: 404 });
       const call = snapshot.data();
-      const expected = parsed.data.action === "attend" ? "pending" : "attending";
+      // "complete" also works straight from "pending": the waiter solved it at the table with one tap.
+      const expected = parsed.data.action === "attend" ? ["pending"] : ["pending", "attending"];
       const target = parsed.data.action === "attend" ? "attending" : "completed";
       if (call.status === target) return { status: target, replay: true };
-      if (call.status !== expected) throw Object.assign(new Error("Este chamado já mudou de status. Atualize a fila."), { status: 409 });
+      if (!expected.includes(call.status)) throw Object.assign(new Error("Este chamado já mudou de status. Atualize a fila."), { status: 409 });
       const now = new Date().toISOString();
       const fields = parsed.data.action === "attend"
         ? { status: target, attendedAt: now, attendedBy: staff.staffUser.id, updatedAt: now }

@@ -110,6 +110,10 @@ export interface TableSession extends BaseEntity {
   /** Current 6-digit code, readable by the restaurant staff only. */
   staffAccessCode?: string | null;
   accessCodeIssuedAt?: string | null;
+  /** Filled when the table is closed at the cashier. */
+  billTotal?: number | null;
+  paidWith?: PaymentMethod | null;
+  closeReason?: string | null;
 }
 
 export interface MenuCategory extends BaseEntity {
@@ -243,6 +247,9 @@ export interface Order extends BaseEntity {
   paymentMethod: PaymentMethod;
   paymentMode?: "system_simulated" | "counter" | "waiter";
   paymentStatus?: string;
+  /** Set when the cashier closes the table and records how the bill was paid. */
+  paidWith?: PaymentMethod | null;
+  paidAt?: ISODateTimeString | null;
   financialReceiptConfirmed?: boolean;
   simulation?: boolean;
   changeFor?: number | null;

@@ -112,7 +112,10 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     openedByStaffId: nullableStr(data.openedByStaffId),
     notes: nullableStr(data.notes),
     staffAccessCode: nullableStr(data.staffAccessCode),
-    accessCodeIssuedAt: nullableIso(data.accessCodeIssuedAt)
+    accessCodeIssuedAt: nullableIso(data.accessCodeIssuedAt),
+    billTotal: data.billTotal == null ? null : num(data.billTotal, 0),
+    paidWith: (PAYMENT_METHODS as readonly string[]).includes(data.paidWith) ? data.paidWith : null,
+    closeReason: nullableStr(data.closeReason)
   };
 }
 
@@ -175,6 +178,8 @@ export function mapOrder(id: string, data: DocumentData): Order {
     paymentMethod: oneOf<PaymentMethod>(data.paymentMethod, PAYMENT_METHODS, "cash"),
     paymentMode: data.paymentMode === "system_simulated" || data.paymentMode === "counter" || data.paymentMode === "waiter" ? data.paymentMode : undefined,
     paymentStatus: nullableStr(data.paymentStatus) ?? undefined,
+    paidWith: (PAYMENT_METHODS as readonly string[]).includes(data.paidWith) ? data.paidWith : null,
+    paidAt: nullableIso(data.paidAt),
     financialReceiptConfirmed: bool(data.financialReceiptConfirmed, false),
     simulation: bool(data.simulation, false),
     changeFor: data.changeFor == null ? null : num(data.changeFor, 0),

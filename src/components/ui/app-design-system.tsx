@@ -132,7 +132,8 @@ const badgeMap = {
   warning: "bg-[hsl(var(--gema)/0.2)] text-[hsl(var(--warning))]",
   danger: "bg-[hsl(var(--danger)/0.12)] text-[hsl(var(--danger))]",
   info: "bg-[hsl(var(--primary-soft))] text-[hsl(var(--info))]",
-  neutral: "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"
+  neutral: "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]",
+  primary: "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
 } as const;
 
 type BadgeTone = keyof typeof badgeMap;
