@@ -100,12 +100,14 @@ export default function MesasPage(): JSX.Element {
   const [qrTable, setQrTable] = useState<Table | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
 
+  // Browser-only values are set after mount so server and client render the same HTML.
+  const [urlProblem, setUrlProblem] = useState<string | null>(null);
+  useEffect(() => { setUrlProblem(describePublicUrlProblem()); }, []);
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(id); }, []);
 
   const views = useMemo(() => Object.fromEntries(tables.map((table) => [table.id, viewOf(table, sessionByTable[table.id])])) as Record<string, TableView>, [tables, sessionByTable, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const filtered = tables.filter((table) => filter === "all" || views[table.id] === filter);
   const ordersBySession = useMemo(() => orders.reduce<Record<string, number>>((acc, order) => { acc[order.sessionId] = (acc[order.sessionId] ?? 0) + (order.status === "cancelled" ? 0 : 1); return acc; }, {}), [orders]);
-  const urlProblem = typeof window === "undefined" ? null : describePublicUrlProblem();
   const summary = {
     occupied: tables.filter((table) => views[table.id] === "occupied").length,
     free: tables.filter((table) => views[table.id] === "free").length,
