@@ -17,7 +17,8 @@ export const dashboardNavItems: NavigationItem[] = [
   { href: "/dashboard/mesas", label: "Mesas", icon: AppIcons.tables, description: "Ocupação de mesas" },
   { href: "/dashboard/cardapio", label: "Cardápio", icon: AppIcons.menu, description: "Itens e categorias", roles: ["admin", "manager"] },
   { href: "/dashboard/relatorios", label: "Relatórios", icon: AppIcons.reports, description: "Métricas e desempenho", roles: ["admin", "manager"] },
-  { href: "/dashboard/configuracoes", label: "Configurações", icon: AppIcons.settings, description: "Preferências do sistema", roles: ["admin", "manager"] }
+  { href: "/dashboard/configuracoes", label: "Configurações", icon: AppIcons.settings, description: "Preferências do sistema", roles: ["admin", "manager"] },
+  { href: "/dashboard/diagnostico", label: "Diagnóstico", icon: AppIcons.diagnostics, description: "Verificar a configuração", roles: ["admin", "manager"] }
 ];
 
 export const authNavItems: NavigationItem[] = [{ href: "/login", label: "Entrar", icon: AppIcons.settings }];

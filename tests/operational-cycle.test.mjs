@@ -6,7 +6,8 @@ const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "
 test("abertura concorrente mantém uma única sessão ativa", () => {
   const source = read("src/app/api/admin/table/open/route.ts");
   assert.match(source, /runTransaction/);
-  assert.match(source, /where\("status", "in", \["active", "idle"\]\)/);
+  assert.match(source, /where\("tableId", "==", table\.id\)/);
+  assert.match(source, /session\.status === "active" && new Date\(session\.expiresAt\)\.getTime\(\) > nowMs/);
   assert.match(source, /currentSessionGroupId: sessionRef\.id/);
 });
 
@@ -19,10 +20,11 @@ test("pedido e fechamento disputam a mesma mesa transacionalmente", () => {
   assert.match(close, /PENDING_ORDER_STATUSES/);
 });
 
-test("expiração preserva pedidos e bloqueia acessos", () => {
+test("expiração preserva pedidos, pausa acessos e não trava a mesa", () => {
   const sessions = read("src/lib/server/public-session.ts");
   assert.match(sessions, /status: "expired"/);
-  assert.match(sessions, /status: "blocked"/);
+  // Expired attendances no longer move the table to "blocked" (it could not be reopened).
+  assert.doesNotMatch(sessions, /status: "blocked"/);
   assert.match(sessions, /resolveHistoricalAuthorizedSession/);
   assert.doesNotMatch(sessions, /collection\("orders"\).*delete/);
 });

@@ -4,20 +4,25 @@ import crypto from "node:crypto";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 
-const DEFAULT_WINDOW_SECONDS = 45;
-const DEFAULT_MAX_ORDERS = 3;
-const DEFAULT_SESSION_DURATION_MINUTES = 90;
-const ACCESS_TOKEN_TTL_MINUTES = 180;
+/** Firestore Admin handles are typed loosely on purpose: the SDK is loaded lazily. */
+type Db = any;
+type Doc = Record<string, any>;
+
+const ACCESS_TOKEN_TTL_MINUTES = 360;
+export const DEFAULT_SESSION_DURATION_MINUTES = 240;
 export const PUBLIC_ACCESS_COOKIE = "qrapido_table_access";
-export const MAX_ACCESS_ATTEMPTS = 5;
-const ACCESS_LOCK_MINUTES = 15;
+
+function db(): Db {
+  return getAdminFirestore() as Db;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-function toMillis(value: string): number {
-  return new Date(value).getTime();
+function toMillis(value: unknown): number {
+  const time = new Date(String(value)).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function hashValue(value: string): string {
@@ -42,136 +47,145 @@ export function createPublicTableToken(): string {
   return crypto.randomBytes(32).toString("base64url");
 }
 
-export function createDuplicateGuardHash(sessionToken: string, fingerprint: string): string {
-  return hashValue(`${sessionToken}:${fingerprint}`);
-}
-
-export async function resolveSession(sessionToken: string): Promise<any | null> {
-  const db = getAdminFirestore() as any;
-  const snapshot = await db.collection("tableSessions").where("sessionToken", "==", sessionToken).limit(1).get();
-  if (snapshot.empty) {
-    return null;
-  }
-
-  const doc = snapshot.docs[0];
-  return { id: doc.id, ...doc.data() };
-}
-
-export async function resolveSettings(restaurantId: string): Promise<any | null> {
-  const db = getAdminFirestore() as any;
-  const snapshot = await db.collection("restaurantSettings").where("restaurantId", "==", restaurantId).limit(1).get();
+export async function resolveSettings(restaurantId: string): Promise<Doc | null> {
+  const snapshot = await db().collection("restaurantSettings").where("restaurantId", "==", restaurantId).limit(1).get();
   if (snapshot.empty) return null;
   const doc = snapshot.docs[0];
   return { id: doc.id, ...doc.data() };
 }
 
-export async function resolveTable(tableId: string): Promise<any | null> {
-  const db = getAdminFirestore() as any;
-  const doc = await db.collection("tables").doc(tableId).get();
+export async function resolveTable(tableId: string): Promise<Doc | null> {
+  const doc = await db().collection("tables").doc(tableId).get();
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
 
-export function computeSessionStatus(session: any): "active" | "expired" | "blocked" | "closed" {
+export async function resolveTableByPublicToken(publicToken: string): Promise<Doc | null> {
+  const tables = await db().collection("tables").where("publicToken", "==", publicToken).limit(1).get();
+  if (tables.empty) return null;
+  return { id: tables.docs[0].id, ...tables.docs[0].data() };
+}
+
+/** Equality-only query: works without composite indexes. */
+export async function findLiveSessionForTable(table: Doc): Promise<Doc | null> {
+  if (table.currentSessionGroupId) {
+    const current = await db().collection("tableSessions").doc(table.currentSessionGroupId).get();
+    if (current.exists && current.data().status === "active") return { id: current.id, ...current.data() };
+  }
+  const sessions = await db().collection("tableSessions").where("tableId", "==", table.id).where("status", "==", "active").get();
+  if (sessions.empty) return null;
+  const docs = sessions.docs.map((doc: Doc) => ({ id: doc.id, ...doc.data() }));
+  return docs.sort((a: Doc, b: Doc) => toMillis(b.startedAt) - toMillis(a.startedAt))[0];
+}
+
+export function computeSessionStatus(session: Doc): "active" | "expired" | "blocked" | "closed" {
   if (session.status === "blocked") return "blocked";
   if (session.status === "closed") return "closed";
+  if (session.status === "expired") return "expired";
   if (toMillis(session.expiresAt) <= Date.now()) return "expired";
   return "active";
 }
 
+/**
+ * Marks the attendance as expired so no new orders or devices are accepted.
+ * The table stays occupied (status "active") so the team can renew or close it
+ * from the panel; it is no longer moved to "blocked", which looked like a
+ * disabled table and could not be reopened.
+ */
 export async function markSessionExpired(sessionId: string): Promise<void> {
-  const db = getAdminFirestore() as any;
-  const sessionRef = db.collection("tableSessions").doc(sessionId);
-  await db.runTransaction(async (tx: any) => {
+  const firestore = db();
+  const sessionRef = firestore.collection("tableSessions").doc(sessionId);
+  await firestore.runTransaction(async (tx: Db) => {
     const sessionSnap = await tx.get(sessionRef);
     if (!sessionSnap.exists || ["closed", "blocked", "expired"].includes(sessionSnap.data().status)) return;
     const session = sessionSnap.data();
-    const tableRef = db.collection("tables").doc(session.tableId);
-    const tableSnap = await tx.get(tableRef);
     const at = nowIso();
     tx.update(sessionRef, { status: "expired", expiredAt: at, updatedAt: at });
-    if (tableSnap.exists && tableSnap.data().currentSessionGroupId === sessionId) tx.update(tableRef, { status: "blocked", updatedAt: at });
-    tx.set(db.collection("orderEvents").doc(), { restaurantId: session.restaurantId, tableId: session.tableId, sessionId, orderId: "system", type: "session_expired", actorType: "system", actorId: null, message: "Atendimento expirado; novos pedidos e acessos foram bloqueados", metadata: {}, createdAt: at });
+    tx.set(firestore.collection("orderEvents").doc(), { restaurantId: session.restaurantId, tableId: session.tableId, sessionId, orderId: "system", type: "session_expired", actorType: "system", actorId: null, message: "Atendimento expirado; novos pedidos foram pausados", metadata: {}, createdAt: at });
   });
 }
 
-export async function createSessionAccessGrant(session: any): Promise<{ cookieValue: string; csrfToken: string; expiresAt: string }> {
-  const db = getAdminFirestore() as any;
+export async function createSessionAccessGrant(session: Doc): Promise<{ cookieValue: string; csrfToken: string; expiresAt: string }> {
+  const firestore = db();
   const grantId = crypto.randomBytes(18).toString("base64url");
   const secret = crypto.randomBytes(32).toString("base64url");
   const csrfToken = crypto.randomBytes(24).toString("base64url");
-  const expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MINUTES * 60_000).toISOString();
-  await db.collection("sessionAccessGrants").doc(grantId).set(
-    {
-      sessionId: session.id,
-      restaurantId: session.restaurantId,
-      tableId: session.tableId,
-      tokenHash: hashValue(secret),
-      csrfHash: hashValue(csrfToken),
-      expiresAt,
-      revokedAt: null,
-      blockedUntil: null,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    }
-  );
-
-  await db.collection("tableSessions").doc(session.id).set({ lastActivityAt: nowIso(), updatedAt: nowIso() }, { merge: true });
-
+  const sessionEnd = toMillis(session.expiresAt);
+  const ttlEnd = Date.now() + ACCESS_TOKEN_TTL_MINUTES * 60_000;
+  // Keep the cookie a little longer than the attendance so a renewal does not log customers out.
+  const expiresAt = new Date(Math.max(ttlEnd, sessionEnd + 60 * 60_000)).toISOString();
+  await firestore.collection("sessionAccessGrants").doc(grantId).set({
+    sessionId: session.id,
+    restaurantId: session.restaurantId,
+    tableId: session.tableId,
+    tokenHash: hashValue(secret),
+    csrfHash: hashValue(csrfToken),
+    expiresAt,
+    revokedAt: null,
+    blockedUntil: null,
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+  await firestore.collection("tableSessions").doc(session.id).set({ lastActivityAt: nowIso(), updatedAt: nowIso() }, { merge: true });
   return { cookieValue: `${grantId}.${secret}`, csrfToken, expiresAt };
 }
 
-export async function validateAccessGrant(session: any, cookieValue: string | null, csrfToken?: string | null): Promise<boolean> {
-  if (!cookieValue) return false;
+function splitCookie(cookieValue: string | null): { grantId: string; secret: string } | null {
+  if (!cookieValue) return null;
   const [grantId, secret, ...extra] = cookieValue.split(".");
-  if (!grantId || !secret || extra.length) return false;
-  const db = getAdminFirestore() as any;
-  const doc = await db.collection("sessionAccessGrants").doc(grantId).get();
+  if (!grantId || !secret || extra.length) return null;
+  return { grantId, secret };
+}
+
+/**
+ * Validates the browser authorization. Pass `csrfToken` (even an empty string)
+ * for state-changing requests; leave it undefined for reads.
+ */
+export async function validateAccessGrant(session: Doc, cookieValue: string | null, csrfToken?: string | null): Promise<boolean> {
+  const parts = splitCookie(cookieValue);
+  if (!parts) return false;
+  const doc = await db().collection("sessionAccessGrants").doc(parts.grantId).get();
   if (!doc.exists) return false;
   const data = doc.data();
   if (!data || data.revokedAt || toMillis(data.expiresAt) <= Date.now()) return false;
   if (data.blockedUntil && toMillis(data.blockedUntil) > Date.now()) return false;
   if (computeSessionStatus(session) !== "active") return false;
   if (data.sessionId !== session.id || data.restaurantId !== session.restaurantId || data.tableId !== session.tableId) return false;
-  if (data.tokenHash !== hashValue(secret)) return false;
+  if (data.tokenHash !== hashValue(parts.secret)) return false;
   const table = await resolveTable(session.tableId);
   if (!table || table.restaurantId !== session.restaurantId || table.status !== "active" || table.isActive === false) return false;
   return csrfToken === undefined || Boolean(csrfToken && data.csrfHash === hashValue(csrfToken));
 }
 
-export async function resolveAuthorizedSession(cookieValue: string | null, csrfToken?: string | null): Promise<any | null> {
-  if (!cookieValue) return null;
-  const grantId = cookieValue.split(".")[0];
-  if (!grantId) return null;
-  const grant = await (getAdminFirestore() as any).collection("sessionAccessGrants").doc(grantId).get();
+export async function resolveAuthorizedSession(cookieValue: string | null, csrfToken?: string | null): Promise<Doc | null> {
+  const parts = splitCookie(cookieValue);
+  if (!parts) return null;
+  const grant = await db().collection("sessionAccessGrants").doc(parts.grantId).get();
   if (!grant.exists) return null;
-  const sessionDoc = await (getAdminFirestore() as any).collection("tableSessions").doc(grant.data().sessionId).get();
+  const sessionDoc = await db().collection("tableSessions").doc(grant.data().sessionId).get();
   if (!sessionDoc.exists) return null;
   const session = { id: sessionDoc.id, ...sessionDoc.data() };
-  return await validateAccessGrant(session, cookieValue, csrfToken) ? session : null;
+  return (await validateAccessGrant(session, cookieValue, csrfToken)) ? session : null;
 }
 
-/** Read-only access for orders already created. Expiration blocks mutations but
- * does not hide their result from the grant that created them. */
-export async function resolveHistoricalAuthorizedSession(cookieValue: string | null): Promise<any | null> {
-  if (!cookieValue) return null;
-  const [grantId, secret, ...extra] = cookieValue.split(".");
-  if (!grantId || !secret || extra.length) return null;
-  const db = getAdminFirestore() as any;
-  const grantSnap = await db.collection("sessionAccessGrants").doc(grantId).get();
+/** Read-only access for orders already created; expiration or closing does not hide them from the device that ordered. */
+export async function resolveHistoricalAuthorizedSession(cookieValue: string | null): Promise<Doc | null> {
+  const parts = splitCookie(cookieValue);
+  if (!parts) return null;
+  const grantSnap = await db().collection("sessionAccessGrants").doc(parts.grantId).get();
   if (!grantSnap.exists) return null;
   const grant = grantSnap.data();
-  if (grant.revokedAt || grant.tokenHash !== hashValue(secret) || toMillis(grant.expiresAt) <= Date.now()) return null;
-  const sessionSnap = await db.collection("tableSessions").doc(grant.sessionId).get();
+  if (grant.tokenHash !== hashValue(parts.secret) || toMillis(grant.expiresAt) <= Date.now()) return null;
+  const sessionSnap = await db().collection("tableSessions").doc(grant.sessionId).get();
   if (!sessionSnap.exists) return null;
-  const session = { id: sessionSnap.id, ...sessionSnap.data() } as any;
+  const session = { id: sessionSnap.id, ...sessionSnap.data() } as Doc;
   return session.restaurantId === grant.restaurantId && session.tableId === grant.tableId ? session : null;
 }
 
-export async function verifyAttendanceCode(session: any, code: string): Promise<{ ok: true } | { ok: false; limited: boolean }> {
-  const db = getAdminFirestore() as any;
-  const ref = db.collection("tableSessions").doc(session.id);
-  return db.runTransaction(async (tx: any) => {
+export async function verifyAttendanceCode(session: Doc, code: string): Promise<{ ok: true } | { ok: false; limited: boolean }> {
+  const firestore = db();
+  const ref = firestore.collection("tableSessions").doc(session.id);
+  return firestore.runTransaction(async (tx: Db) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { ok: false, limited: false };
     const fresh = snap.data();
@@ -182,12 +196,33 @@ export async function verifyAttendanceCode(session: any, code: string): Promise<
       tx.update(ref, { accessFailedAttempts: 0, accessLockedUntil: null, updatedAt: nowIso() });
       return { ok: true };
     }
-    const attempts = (fresh.accessFailedAttempts ?? 0) + 1;
-    // The per-IP/table Firestore limiter protects attempts. Never lock the whole
-    // table because several legitimate diners commonly share the restaurant Wi-Fi.
-    tx.update(ref, { accessFailedAttempts: attempts, accessLockedUntil: null, updatedAt: nowIso() });
+    // The per-IP/table limiter protects against guessing. The whole table is never
+    // locked because diners commonly share the restaurant Wi-Fi.
+    tx.update(ref, { accessFailedAttempts: (fresh.accessFailedAttempts ?? 0) + 1, accessLockedUntil: null, updatedAt: nowIso() });
     return { ok: false, limited: false };
   });
+}
+
+/** Public menu with equality-only queries; filtering and sorting happen here so no composite index is needed. */
+export async function loadPublicMenu(restaurantId: string): Promise<{ categories: Doc[]; items: Doc[] }> {
+  const firestore = db();
+  const [categorySnap, itemSnap] = await Promise.all([
+    firestore.collection("menuCategories").where("restaurantId", "==", restaurantId).get(),
+    firestore.collection("menuItems").where("restaurantId", "==", restaurantId).get()
+  ]);
+  const bySort = (a: Doc, b: Doc) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR");
+  const categories = categorySnap.docs
+    .map((doc: Doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((category: Doc) => category.isActive !== false)
+    .sort(bySort)
+    .map((category: Doc) => ({ id: category.id, name: String(category.name ?? "Sem nome"), description: String(category.description ?? ""), sortOrder: Number(category.sortOrder ?? 0), isActive: true }));
+  const activeCategoryIds = new Set(categories.map((category: Doc) => category.id));
+  const items = itemSnap.docs
+    .map((doc: Doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((item: Doc) => item.isActive !== false && item.isAvailable !== false && activeCategoryIds.has(item.categoryId) && Number.isFinite(Number(item.price)))
+    .sort(bySort)
+    .map((item: Doc) => ({ id: item.id, categoryId: item.categoryId, name: String(item.name ?? ""), description: String(item.description ?? ""), price: Number(item.price), imageUrl: typeof item.imageUrl === "string" && item.imageUrl ? item.imageUrl : null, preparationTimeMinutes: Number(item.preparationTimeMinutes ?? 0), isActive: true, isAvailable: true, isFeatured: item.isFeatured === true, sortOrder: Number(item.sortOrder ?? 0) }));
+  return { categories, items };
 }
 
 export async function createOperationalEvent(input: {
@@ -201,8 +236,7 @@ export async function createOperationalEvent(input: {
   actorType?: "staff" | "customer" | "system";
   actorId?: string | null;
 }): Promise<void> {
-  const db = getAdminFirestore() as any;
-  await db.collection("orderEvents").add({
+  await db().collection("orderEvents").add({
     restaurantId: input.restaurantId,
     tableId: input.tableId,
     sessionId: input.sessionId,
@@ -214,81 +248,4 @@ export async function createOperationalEvent(input: {
     metadata: input.metadata ?? {},
     createdAt: nowIso()
   });
-}
-
-export async function createSessionForTable(input: {
-  restaurantId: string;
-  table: any;
-  customerName?: string | null;
-  deviceFingerprint?: string | null;
-  peopleCount?: number;
-  notes?: string | null;
-  openedByStaffId?: string | null;
-}): Promise<{ sessionId: string; sessionToken: string; expiresAt: string }> {
-  const db = getAdminFirestore() as any;
-  const settings = await resolveSettings(input.restaurantId);
-  const sessionDurationMinutes = settings?.defaultSessionDurationMinutes ?? DEFAULT_SESSION_DURATION_MINUTES;
-  const expiresAt = new Date(Date.now() + sessionDurationMinutes * 60_000).toISOString();
-  const sessionToken = createSessionToken();
-
-  const doc = await db.collection("tableSessions").add({
-    restaurantId: input.restaurantId,
-    tableId: input.table.id,
-    tableNumber: input.table.number,
-    sessionToken,
-    sessionLabel: `${input.table.label || `Mesa ${input.table.number}`} - ${new Date().toLocaleTimeString("pt-BR")}`,
-    customerName: input.customerName ?? null,
-    status: "active",
-    deviceFingerprint: input.deviceFingerprint ?? null,
-    startedAt: nowIso(),
-    expiresAt,
-    closedAt: null,
-    lastActivityAt: nowIso(),
-    requestCountWindow: 0,
-    peopleCount: input.peopleCount ?? input.table.currentPeopleCount ?? 1,
-    maxOrdersAllowed: input.peopleCount ?? input.table.currentPeopleCount ?? 1,
-    completedOrdersCount: 0,
-    openedByStaffId: input.openedByStaffId ?? null,
-    notes: input.notes ?? null,
-    createdAt: nowIso(),
-    updatedAt: nowIso()
-  });
-
-  return { sessionId: doc.id, sessionToken, expiresAt };
-}
-
-export async function guardOrderAbuse(input: {
-  restaurantId: string;
-  sessionId: string;
-  duplicateGuardHash: string;
-}): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const db = getAdminFirestore() as any;
-  const settings = await resolveSettings(input.restaurantId);
-  const antiSpamWindowSeconds = settings?.antiSpamWindowSeconds ?? DEFAULT_WINDOW_SECONDS;
-  const maxOrdersPerWindow = settings?.maxOrdersPerWindow ?? DEFAULT_MAX_ORDERS;
-
-  const windowStart = new Date(Date.now() - antiSpamWindowSeconds * 1000).toISOString();
-
-  const recentOrders = await db
-    .collection("orders")
-    .where("sessionId", "==", input.sessionId)
-    .where("receivedAt", ">=", windowStart)
-    .get();
-
-  if (recentOrders.size >= maxOrdersPerWindow) {
-    return { ok: false, reason: "Limite de frequência atingido para esta sessão." };
-  }
-
-  const duplicate = await db
-    .collection("orders")
-    .where("sessionId", "==", input.sessionId)
-    .where("duplicateGuardHash", "==", input.duplicateGuardHash)
-    .limit(1)
-    .get();
-
-  if (!duplicate.empty) {
-    return { ok: false, reason: "Pedido duplicado detectado." };
-  }
-
-  return { ok: true };
 }

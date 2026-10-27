@@ -2,25 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { requireStaffRequest } from "@/lib/server/admin-auth";
+import { FLOOR_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
+import { withApiErrors } from "@/lib/server/api-errors";
 
 const actionSchema = z.object({
   callId: z.string().min(1).max(128),
   action: z.enum(["attend", "complete"]),
 }).strict();
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const staff = await requireStaffRequest(request, ["admin", "manager", "attendant"]);
+/** Open calls only, through two equality queries so no composite index is required. */
+async function listOpenCalls(request: NextRequest): Promise<NextResponse> {
+  const staff = await requireStaffRequest(request, FLOOR_ROLES);
   if (staff instanceof NextResponse) return staff;
   const db = getAdminFirestore() as any;
-  const snapshot = await db.collection("waiterCalls")
-    .where("restaurantId", "==", staff.staffUser.restaurantId)
-    .orderBy("createdAt", "desc").limit(100).get();
-  return NextResponse.json({ calls: snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })) }, { headers: { "Cache-Control": "no-store" } });
+  const base = db.collection("waiterCalls").where("restaurantId", "==", staff.staffUser.restaurantId);
+  const [pending, attending] = await Promise.all([base.where("status", "==", "pending").get(), base.where("status", "==", "attending").get()]);
+  const calls = [...pending.docs, ...attending.docs]
+    .map((doc: any) => ({ id: doc.id, ...doc.data() }))
+    .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, 100);
+  return NextResponse.json({ calls }, { headers: { "Cache-Control": "no-store" } });
 }
 
+export const GET = withApiErrors("admin/waiter-calls", listOpenCalls, "Não foi possível carregar os chamados.");
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const staff = await requireStaffRequest(request, ["admin", "manager", "attendant"]);
+  const staff = await requireStaffRequest(request, FLOOR_ROLES);
   if (staff instanceof NextResponse) return staff;
   const parsed = actionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Ação de chamado inválida." }, { status: 400 });
@@ -50,3 +57,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: status === 500 ? "Não foi possível atualizar o chamado." : (error as Error).message }, { status });
   }
 }
+
+export const dynamic = "force-dynamic";

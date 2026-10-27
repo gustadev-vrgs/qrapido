@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { requireStaffRequest, STAFF_ROLES, logAdminFailure } from "@/lib/server/admin-auth";
+import { classifyServerError } from "@/lib/server/api-errors";
 
 const transitions: Record<string, readonly string[]> = {
   received: ["confirmed", "in_preparation", "cancelled"],
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const staff = await requireStaffRequest(request, STAFF_ROLES);
   if (staff instanceof NextResponse) return staff;
   const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Status ou motivo inválido." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues.some((issue) => issue.message === "Motivo obrigatório.") ? "Informe o motivo do cancelamento (mínimo 4 letras)." : "Status inválido." }, { status: 400 });
 
   const db = getAdminFirestore() as any;
   const orderRef = db.collection("orders").doc(parsed.data.orderId);
@@ -61,7 +62,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true, ...result, requestId: staff.requestId });
   } catch (error) {
     const status = Number((error as { status?: number }).status ?? 500);
-    if (status === 500) logAdminFailure(staff.requestId, "order_transition", error);
-    return NextResponse.json({ error: status === 500 ? "Não foi possível atualizar o pedido." : (error as Error).message, requestId: staff.requestId }, { status });
+    if (status !== 500) return NextResponse.json({ error: (error as Error).message, requestId: staff.requestId }, { status });
+    logAdminFailure(staff.requestId, "order_transition", error);
+    const failure = classifyServerError(error);
+    return NextResponse.json({ error: "Não foi possível atualizar o pedido.", code: failure.code, hint: failure.hint, requestId: staff.requestId }, { status: failure.status });
   }
 }

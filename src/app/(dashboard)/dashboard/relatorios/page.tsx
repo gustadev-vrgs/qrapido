@@ -11,6 +11,8 @@ import { ReportsService } from "@/lib/data/services/reports-service";
 import { SessionsService } from "@/lib/data/services/sessions-service";
 import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
+import { describeFirebaseError } from "@/lib/data/errors";
+import { toRestaurantDateKey } from "@/lib/utils/date-key";
 import type { MenuCategory, MenuItem, Order, OrderEvent, Restaurant, TableSession } from "@/lib/types/domain";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils/formatters";
 import { calculateSummary, compareValues, filterOrdersByPeriod, filterSessionsByPeriod, getOrderDate, getPreviousPeriod, groupCategories, groupPayments, groupProducts, groupTables, isBillableOrder, isCancelledOrder, resolveReportPeriod, safePercent, sessionDurationMinutes, toDateKey, type PeriodPreset } from "@/lib/utils/report-calculations";
@@ -27,7 +29,7 @@ type ExportKind = "resumo" | "pedidos" | "produtos" | "categorias" | "pagamentos
 type SortOrders = "recent" | "old" | "highest" | "lowest";
 type SortTables = "revenue" | "attendances" | "orders" | "duration";
 
-function isoLocalInput(date: Date): string { return toDateKey(date); }
+function isoLocalInput(date: Date): string { return toRestaurantDateKey(date); }
 function periodLabel(start: Date, end: Date): string { return `${formatDate(start)} a ${formatDate(end)}`; }
 function csvEscape(value: string | number): string { const text = String(value); const safe = /^[\t\r\n ]*[=+\-@]/.test(text) ? `'${text}` : text; return `"${safe.replaceAll('"', '""')}"`; }
 function downloadCsv(fileName: string, rows: Array<Array<string | number>>): void { const csv = `\ufeff${rows.map((row) => row.map(csvEscape).join(";")).join("\n")}`; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = fileName; link.click(); URL.revokeObjectURL(url); }
@@ -70,10 +72,10 @@ export default function RelatoriosPage(): JSX.Element {
         services.orders.listByRestaurantPeriod(user.restaurantId, previousPeriod.start.toISOString(), previousPeriod.end.toISOString()),
         services.sessions.listByRestaurantPeriod(user.restaurantId, period.start.toISOString(), period.end.toISOString()),
         services.reports.listOrderEventsPeriod(user.restaurantId, period.start.toISOString(), period.end.toISOString()),
-        services.menu.listCategories(user.restaurantId), services.menu.listItems(user.restaurantId), services.restaurants.getById(user.restaurantId)
+        services.menu.listCategories(user.restaurantId), services.menu.listItems(user.restaurantId), services.restaurants.getByRestaurantId(user.restaurantId)
       ]);
       setOrders(currentOrders); setPreviousOrders(prevOrders); setSessions(currentSessions); setEvents(currentEvents); setCategories(cats); setMenuItems(items); setRestaurant(restaurantData);
-    } catch { setError("Não foi possível carregar os relatórios. Tente atualizar os dados."); setOrders([]); setSessions([]); setEvents([]); }
+    } catch (failure) { setError(`Não foi possível carregar os relatórios. ${describeFirebaseError(failure)}`); setOrders([]); setSessions([]); setEvents([]); }
     finally { setLoading(false); setRefreshing(false); }
   }, [period, periodInvalid, previousPeriod, services, user?.restaurantId]);
 
@@ -97,7 +99,7 @@ export default function RelatoriosPage(): JSX.Element {
   const busiestRevenue = revenueData.reduce((best, item) => item.faturamento > best.faturamento ? item : best, { label: "-", faturamento: 0, pedidos: 0 });
   const averageDailyRevenue = summary.revenue / Math.max(1, Math.ceil((period.end.getTime() - period.start.getTime()) / 86400000));
   const statusCounts = filteredOrders.reduce<Record<Order["status"], number>>((acc, order) => { acc[order.status] += 1; return acc; }, { received: 0, confirmed: 0, in_preparation: 0, ready: 0, delivered: 0, cancelled: 0 });
-  const cancellationReasons = [{ reason: "Não informado", count: statusCounts.cancelled }];
+  const cancellationReasons = Object.entries(orders.filter(isCancelledOrder).reduce<Record<string, number>>((acc, order) => { const reason = order.cancellationReason?.trim() || "Não informado"; acc[reason] = (acc[reason] ?? 0) + 1; return acc; }, {})).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
 
   function exportReport(kind: ExportKind): void {
     const file = `qrapido-relatorio-${kind}-${toDateKey(period.start)}-a-${toDateKey(period.end)}.csv`;

@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "seed:staff-admin": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/bootstrap-staff-admin.ts --outDir .tmp/scripts && node .tmp/scripts/bootstrap-staff-admin.js",
     "audit:staff": "tsc --target es2022 --module commonjs --moduleResolution node --strict --esModuleInterop --skipLibCheck scripts/audit-staff-users.ts --outDir .tmp/scripts && node .tmp/scripts/audit-staff-users.js",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs && npm run test:integration",
+    "test:integration": "tsx --tsconfig tests/integration/tsconfig.json --test tests/integration/*.test.ts",
+    "firebase:deploy": "npx --yes firebase-tools@13 deploy --only firestore"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -39,6 +41,7 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
+    "tsx": "^4.23.15",
     "typescript": "^5.5.4"
   },
   "engines": {

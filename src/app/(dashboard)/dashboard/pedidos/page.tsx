@@ -1,467 +1,179 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { AlertTriangle, ChevronRight, CircleDashed, ClipboardList, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2, Volume2, VolumeX, XCircle } from "lucide-react";
 
-import {
-  AppActionButton,
-  AppEmptyState,
-  AppFilterBar,
-  AppSearchInput,
-  AppSectionCard,
-  AppSelect,
-  AppSkeleton,
-  AppStatusBadge,
-  AppSurface,
-  AppTextarea
-} from "@/components/ui/app-design-system";
+import { AppActionButton, AppEmptyState, AppFilterBar, AppSearchInput, AppSectionCard, AppSkeleton, AppStatusBadge, AppSurface, AppTextarea } from "@/components/ui/app-design-system";
 import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
-import { OrdersService } from "@/lib/data/services/orders-service";
+import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { getClientFirestore } from "@/lib/firebase/firestore";
-import { getFirebaseClientAuth } from "@/lib/firebase/client";
+import { playNewOrderChime, useLiveOrders } from "@/lib/hooks/use-live-orders";
 import type { Order, OrderStatus } from "@/lib/types/domain";
-import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils/formatters";
+import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
 
-const EXPECTED_STATUSES: OrderStatus[] = ["received", "in_preparation", "ready", "delivered", "cancelled"];
+type View = "open" | "ready" | "delivered" | "cancelled" | "today";
 
-type StatusFilter = "all" | OrderStatus;
-
-const STATUS_FILTERS: Array<{ value: StatusFilter; label: string }> = [
-  { value: "all", label: "Todos" },
-  { value: "received", label: "Recebidos" },
-  { value: "in_preparation", label: "Em preparo" },
-  { value: "ready", label: "Prontos" },
-  { value: "delivered", label: "Entregues" },
-  { value: "cancelled", label: "Cancelados" }
+const VIEWS: Array<{ value: View; label: string; match: (order: Order, todayKey: string) => boolean }> = [
+  { value: "open", label: "Em andamento", match: (order) => ["received", "confirmed", "in_preparation"].includes(order.status) },
+  { value: "ready", label: "Prontos", match: (order) => order.status === "ready" },
+  { value: "delivered", label: "Entregues hoje", match: (order, today) => order.status === "delivered" && order.dateKey === today },
+  { value: "cancelled", label: "Cancelados hoje", match: (order, today) => order.status === "cancelled" && order.dateKey === today },
+  { value: "today", label: "Todos de hoje", match: (order, today) => order.dateKey === today }
 ];
 
-const STATUS_TONE: Record<OrderStatus, "info" | "warning" | "success" | "neutral" | "danger"> = {
-  received: "info",
-  confirmed: "info",
-  in_preparation: "warning",
-  ready: "success",
-  delivered: "neutral",
-  cancelled: "danger"
-};
+const NEXT_STEP: Partial<Record<OrderStatus, OrderStatus>> = { received: "in_preparation", confirmed: "in_preparation", in_preparation: "ready", ready: "delivered" };
+const NEXT_LABEL: Partial<Record<OrderStatus, string>> = { in_preparation: "Começar preparo", ready: "Marcar pronto", delivered: "Marcar entregue" };
+const TONE: Record<OrderStatus, "info" | "warning" | "success" | "neutral" | "danger"> = { received: "info", confirmed: "info", in_preparation: "warning", ready: "success", delivered: "neutral", cancelled: "danger" };
+const SOUND_KEY = "qrapido-sound-enabled";
 
-const NEXT_STATUS_OPTIONS: Record<OrderStatus, OrderStatus[]> = {
-  received: ["in_preparation", "cancelled"],
-  confirmed: ["in_preparation", "cancelled"],
-  in_preparation: ["ready", "cancelled"],
-  ready: ["delivered", "cancelled"],
-  delivered: [],
-  cancelled: []
-};
-
-function isImportantNote(note: string | null): boolean {
-  if (!note) return false;
-  const normalized = note.toLowerCase();
-  return ["alerg", "urg", "sem", "aten", "ráp", "rap"].some((token) => normalized.includes(token));
-}
-
-function resolveSessionLabel(order: Order): string {
-  return order.sessionToken || order.sessionId;
-}
-
-interface OrderQuickCardProps {
-  order: Order;
-  isUpdating: boolean;
-  onOpenDetails: (order: Order) => void;
-  onAdvanceStatus: (order: Order, nextStatus: OrderStatus) => void;
-  onCancel: (order: Order) => void;
-}
-
-function OrderQuickCard({ order, isUpdating, onOpenDetails, onAdvanceStatus, onCancel }: OrderQuickCardProps): JSX.Element {
-  const nextSteps = NEXT_STATUS_OPTIONS[order.status];
-  const relevantNextStatus = nextSteps.find((step) => step !== "cancelled") ?? null;
-  const importantNotes = isImportantNote(order.notes);
-
-  return (
-    <AppSurface className="space-y-4 border border-[hsl(var(--border-strong))] p-4 md:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Pedido #{order.id.slice(-6).toUpperCase()}</p>
-          <h3 className="text-lg font-semibold">Mesa {order.tableNumber} • {order.customerName || "Cliente não identificado"}</h3>
-          <p className="text-xs text-[hsl(var(--foreground-muted))]">Sessão {resolveSessionLabel(order)} • {formatTime(order.receivedAt)}</p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <AppStatusBadge tone={STATUS_TONE[order.status]}>{orderStatusLabels[order.status]}</AppStatusBadge>
-          <AppActionButton variant="ghost" className="gap-1" onClick={() => onOpenDetails(order)}>
-            Detalhes
-            <ChevronRight className="h-4 w-4" />
-          </AppActionButton>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {order.items.map((item) => (
-          <div key={`${order.id}-${item.menuItemId}-${item.nameSnapshot}`} className="flex items-start justify-between gap-4 rounded-lg border border-[hsl(var(--border))] px-3 py-2">
-            <div>
-              <p className="text-sm font-medium">{item.quantity}x {item.nameSnapshot}</p>
-              {item.notes ? <p className="text-xs text-[hsl(var(--foreground-muted))]">Obs. item: {item.notes}</p> : null}
-            </div>
-            <p className="text-sm text-[hsl(var(--foreground-muted))]">{formatCurrency(item.total)}</p>
-          </div>
-        ))}
-      </div>
-
-      {order.notes ? (
-        <div
-          className={`rounded-xl border px-3 py-2 text-sm ${
-            importantNotes
-              ? "border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--foreground))]"
-              : "border-[hsl(var(--border))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"
-          }`}
-        >
-          <span className="font-medium">Observações:</span> {order.notes}
-        </div>
-      ) : null}
-
-      <div className="grid gap-2 text-sm text-[hsl(var(--foreground-muted))] md:grid-cols-4">
-        <p>Subtotal: <span className="font-medium text-[hsl(var(--foreground))]">{formatCurrency(order.subtotal)}</span></p>
-        <p>Total: <span className="font-medium text-[hsl(var(--foreground))]">{formatCurrency(order.total)}</span></p>
-        <p>Pagamento: <span className="font-medium text-[hsl(var(--foreground))]">{paymentMethodLabels[order.paymentMethod]}</span></p>
-        <p>Criado em: <span className="font-medium text-[hsl(var(--foreground))]">{formatDateTime(order.createdAt)}</span></p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {relevantNextStatus ? (
-          <AppActionButton
-            variant="primary"
-            onClick={() => onAdvanceStatus(order, relevantNextStatus)}
-            disabled={isUpdating}
-            className="gap-2"
-          >
-            {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDashed className="h-4 w-4" />}
-            Mover para {orderStatusLabels[relevantNextStatus]}
-          </AppActionButton>
-        ) : (
-          <AppActionButton variant="secondary" disabled>
-            Fluxo concluído
-          </AppActionButton>
-        )}
-
-        {NEXT_STATUS_OPTIONS[order.status].includes("cancelled") ? (
-          <AppActionButton variant="destructive" onClick={() => onCancel(order)} disabled={isUpdating} className="gap-2">
-            <XCircle className="h-4 w-4" />
-            Cancelar pedido
-          </AppActionButton>
-        ) : null}
-      </div>
-    </AppSurface>
-  );
-}
-
-interface CancelDialogState {
-  order: Order;
-  reason: string;
+function minutesAgo(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  return minutes < 1 ? "agora" : `há ${minutes} min`;
 }
 
 export default function PedidosPage(): JSX.Element {
-  const { user, firebaseUser } = useAdminAuth();
-  const ordersService = useMemo(() => new OrdersService({ scope: "admin" }), []);
+  const { user } = useAdminAuth();
+  const api = useAdminApi();
+  const [soundOn, setSoundOn] = useState(true);
+  const { orders, loading, error, dateKey } = useLiveOrders(user?.restaurantId, (order) => {
+    if (soundOn) playNewOrderChime();
+    appToast.info(`Novo pedido ${order.orderCode}`, `Mesa ${order.tableNumber} · ${order.items.length} item(ns)`);
+  });
+  const [view, setView] = useState<View>("open");
+  const [search, setSearch] = useState("");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Order | null>(null);
+  const [cancel, setCancel] = useState<{ order: Order; reason: string } | null>(null);
+  const [, setTick] = useState(0);
 
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  useEffect(() => {
+    try { setSoundOn(window.localStorage.getItem(SOUND_KEY) !== "off"); } catch { /* storage unavailable */ }
+    const id = window.setInterval(() => setTick((tick) => tick + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [cancelDialog, setCancelDialog] = useState<CancelDialogState | null>(null);
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    try { window.localStorage.setItem(SOUND_KEY, next ? "on" : "off"); } catch { /* ignore */ }
+    if (next) playNewOrderChime();
+  };
 
-  const loadOrders = async (refreshing = false) => {
-    if (!user?.restaurantId) return;
+  const counts = useMemo(() => Object.fromEntries(VIEWS.map((item) => [item.value, orders.filter((order) => item.match(order, dateKey)).length])) as Record<View, number>, [orders, dateKey]);
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const matcher = VIEWS.find((item) => item.value === view)!.match;
+    const list = orders.filter((order) => matcher(order, dateKey)).filter((order) => !term || `${order.orderCode} ${order.tableNumber} ${order.customerName ?? ""}`.toLowerCase().includes(term));
+    // Kitchen reads oldest first; history newest first.
+    return view === "open" || view === "ready" ? [...list].reverse() : list;
+  }, [orders, view, search, dateKey]);
 
-    if (refreshing) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
-
+  const move = async (order: Order, nextStatus: OrderStatus, reason?: string) => {
+    setUpdatingId(order.id);
     try {
-      const data = await ordersService.listByRestaurant(user.restaurantId);
-      setOrders(data);
-    } catch (error) {
-      console.error(error);
-      appToast.error("Falha ao carregar pedidos", "Verifique conexão e permissões da conta administrativa.");
+      await api("/api/admin/order/transition", { orderId: order.id, nextStatus, ...(reason ? { reason } : {}) });
+      appToast.success(`${order.orderCode}: ${orderStatusLabels[nextStatus]}`);
+      return true;
+    } catch (failure) {
+      appToast.error("Não foi possível atualizar", failure instanceof Error ? failure.message : "Tente novamente.");
+      return false;
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setUpdatingId(null);
     }
   };
 
-  useEffect(() => {
-    void loadOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.restaurantId]);
-
-  useEffect(() => {
-    if (!user?.restaurantId) return;
-
-    const db = getClientFirestore();
-    const ordersQuery = query(collection(db, "orders"), where("restaurantId", "==", user.restaurantId), orderBy("receivedAt", "desc"));
-    const unsubscribe = onSnapshot(ordersQuery, () => {
-      void loadOrders(true);
-    });
-
-    return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.restaurantId]);
-
-  const filteredOrders = useMemo(() => {
-    const normalized = searchTerm.trim().toLowerCase();
-
-    return orders
-      .filter((order) => (statusFilter === "all" ? true : order.status === statusFilter))
-      .filter((order) => {
-        if (!normalized) return true;
-
-        const byOrderId = order.id.toLowerCase().includes(normalized);
-        const byTable = String(order.tableNumber).includes(normalized);
-        const byCustomer = (order.customerName || "").toLowerCase().includes(normalized);
-
-        return byOrderId || byTable || byCustomer;
-      });
-  }, [orders, searchTerm, statusFilter]);
-
-  const summary = useMemo(() => {
-    const inFlow = orders.filter((order) => EXPECTED_STATUSES.includes(order.status));
-    const received = inFlow.filter((order) => order.status === "received").length;
-    const preparing = inFlow.filter((order) => order.status === "in_preparation").length;
-    const ready = inFlow.filter((order) => order.status === "ready").length;
-
-    return {
-      total: inFlow.length,
-      received,
-      preparing,
-      ready,
-      cancelled: inFlow.filter((order) => order.status === "cancelled").length
-    };
-  }, [orders]);
-
-  const updateOrderStatus = async (order: Order, nextStatus: OrderStatus, reason?: string) => {
-    if (order.status === nextStatus) return;
-
-    try {
-      setUpdatingOrderId(order.id);
-
-      const authUser = firebaseUser ?? getFirebaseClientAuth().currentUser;
-      const token = await authUser?.getIdToken();
-      if (!token) throw new Error("Sessão administrativa ausente.");
-      const response = await fetch("/api/admin/order/transition", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId: order.id, nextStatus, reason }) });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(payload?.error ?? "Transição recusada pelo servidor.");
-      }
-
-      setOrders((previous) =>
-        previous.map((item) =>
-          item.id === order.id
-            ? {
-                ...item,
-                status: nextStatus,
-                cancelledAt: nextStatus === "cancelled" ? new Date().toISOString() : null,
-                deliveredAt: nextStatus === "delivered" ? new Date().toISOString() : item.deliveredAt,
-                notes: nextStatus === "cancelled" && reason ? `${item.notes ? `${item.notes} • ` : ""}Cancelado: ${reason}` : item.notes,
-                updatedAt: new Date().toISOString()
-              }
-            : item
-        )
-      );
-      appToast.success("Status atualizado", `Pedido movido para ${orderStatusLabels[nextStatus]}.`);
-      if (selectedOrder?.id === order.id) {
-        setSelectedOrder((current) => (current ? { ...current, status: nextStatus } : null));
-      }
-    } catch (error) {
-      console.error(error);
-      appToast.error("Não foi possível atualizar o status", error instanceof Error ? error.message : "Tente novamente em instantes.");
-    } finally {
-      setUpdatingOrderId(null);
-    }
-  };
-
-  const confirmCancellation = async () => {
-    if (!cancelDialog) return;
-
-    const reason = cancelDialog.reason.trim();
-    if (reason.length < 4) {
-      appToast.error("Motivo obrigatório", "Informe um motivo com pelo menos 4 caracteres para cancelar o pedido.");
-      return;
-    }
-
-    await updateOrderStatus(cancelDialog.order, "cancelled", reason);
-    setCancelDialog(null);
+  const confirmCancel = async () => {
+    if (!cancel) return;
+    if (cancel.reason.trim().length < 4) return appToast.error("Informe o motivo", "Escreva pelo menos 4 letras (ex.: item em falta).");
+    if (await move(cancel.order, "cancelled", cancel.reason.trim())) setCancel(null);
   };
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <AppSurface className="p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Pedidos no turno</p>
-          <p className="mt-2 text-2xl font-semibold">{summary.total}</p>
-        </AppSurface>
-        <AppSurface className="p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Recebidos</p>
-          <p className="mt-2 text-2xl font-semibold text-[hsl(var(--info))]">{summary.received}</p>
-        </AppSurface>
-        <AppSurface className="p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Em preparo</p>
-          <p className="mt-2 text-2xl font-semibold text-[hsl(var(--warning))]">{summary.preparing}</p>
-        </AppSurface>
-        <AppSurface className="p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Prontos para entrega</p>
-          <p className="mt-2 text-2xl font-semibold text-[hsl(var(--success))]">{summary.ready}</p>
-        </AppSurface>
-      </div>
+      {error ? <AppSurface className="flex items-start gap-3 border border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error}</p></AppSurface> : null}
 
-      <AppFilterBar className="gap-2 md:flex-wrap">
-        <AppSearchInput
-          className="flex-1"
-          placeholder="Buscar por mesa, cliente ou nº pedido"
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-        />
-
-        <div className="flex min-w-[220px] items-center gap-2">
-          <Search className="h-4 w-4 text-[hsl(var(--foreground-muted))]" />
-          <AppSelect value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-            {STATUS_FILTERS.map((filter) => (
-              <option key={filter.value} value={filter.value}>{filter.label}</option>
-            ))}
-          </AppSelect>
+      <AppFilterBar className="flex-wrap gap-2">
+        <div className="flex flex-1 flex-wrap gap-2">
+          {VIEWS.map((item) => (
+            <button key={item.value} type="button" onClick={() => setView(item.value)} className={`h-9 rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.1em] transition ${view === item.value ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"}`}>
+              {item.label} <span className="ml-1 opacity-70">{counts[item.value]}</span>
+            </button>
+          ))}
         </div>
-
-        <AppActionButton variant="secondary" onClick={() => void loadOrders(true)} disabled={isRefreshing} className="gap-2">
-          {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Atualizar
-        </AppActionButton>
+        <AppSearchInput className="md:max-w-xs" placeholder="Buscar código, mesa ou cliente" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <AppActionButton variant="secondary" className="gap-2" onClick={toggleSound} aria-pressed={soundOn}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}{soundOn ? "Som ligado" : "Som desligado"}</AppActionButton>
       </AppFilterBar>
 
-      <AppSectionCard
-        title="Fila operacional de pedidos"
-        description="Leitura rápida por cartões, com ações diretas de status e cancelamento protegido por confirmação."
-        action={<AppStatusBadge tone="warning">{summary.cancelled} cancelados</AppStatusBadge>}
-      >
-        {isLoading ? (
-          <div className="space-y-3">
-            <AppSkeleton className="h-40 w-full" />
-            <AppSkeleton className="h-40 w-full" />
-            <AppSkeleton className="h-40 w-full" />
-          </div>
-        ) : filteredOrders.length === 0 ? (
-          <AppEmptyState
-            title={orders.length === 0 ? "Nenhum pedido registrado ainda" : "Nenhum pedido encontrado"}
-            description={
-              orders.length === 0
-                ? "Quando os clientes iniciarem pedidos, eles aparecerão aqui em tempo real."
-                : "Ajuste os filtros para visualizar os pedidos existentes."
-            }
-          />
+      <AppSectionCard title="Pedidos" description="Atualiza sozinho. Novos pedidos tocam um aviso sonoro (mantenha esta aba aberta).">
+        {loading ? (
+          <div className="space-y-3">{[0, 1, 2].map((index) => <AppSkeleton key={index} className="h-36 w-full" />)}</div>
+        ) : visible.length === 0 ? (
+          <AppEmptyState title={view === "open" ? "Nenhum pedido em andamento" : "Nada por aqui"} description={view === "open" ? "Quando um cliente pedir pelo QR Code, o pedido aparece aqui na hora." : "Escolha outro filtro."} />
         ) : (
-          <div className="space-y-3">
-            {filteredOrders.map((order) => (
-              <OrderQuickCard
-                key={order.id}
-                order={order}
-                isUpdating={updatingOrderId === order.id}
-                onOpenDetails={setSelectedOrder}
-                onAdvanceStatus={(currentOrder, nextStatus) => void updateOrderStatus(currentOrder, nextStatus)}
-                onCancel={(currentOrder) => setCancelDialog({ order: currentOrder, reason: "" })}
-              />
-            ))}
+          <div className="grid gap-3 lg:grid-cols-2">
+            {visible.map((order) => {
+              const next = NEXT_STEP[order.status];
+              const busy = updatingId === order.id;
+              return (
+                <AppSurface key={order.id} className="space-y-3 border border-[hsl(var(--border-strong))] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-mono text-sm font-semibold">{order.orderCode}</p>
+                      <h3 className="text-lg font-semibold">Mesa {order.tableNumber}{order.customerName ? ` · ${order.customerName}` : ""}</h3>
+                      <p className="text-xs text-[hsl(var(--foreground-muted))]">{formatTime(order.receivedAt)} · {minutesAgo(order.receivedAt)}</p>
+                    </div>
+                    <AppStatusBadge tone={TONE[order.status]}>{orderStatusLabels[order.status]}</AppStatusBadge>
+                  </div>
+                  <ul className="space-y-1">
+                    {order.items.map((item, index) => (
+                      <li key={`${item.menuItemId}-${index}`} className="text-sm"><span className="font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="block pl-6 text-xs text-[hsl(var(--warning))]">Obs.: {item.notes}</span> : null}</li>
+                    ))}
+                  </ul>
+                  {order.notes ? <p className="rounded-lg border border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-sm">Observação: {order.notes}</p> : null}
+                  {order.status === "cancelled" && order.cancellationReason ? <p className="text-sm text-[hsl(var(--danger))]">Cancelado: {order.cancellationReason}</p> : null}
+                  <p className="text-sm text-[hsl(var(--foreground-muted))]">{formatCurrency(order.total)} · {paymentMethodLabels[order.paymentMethod]}{order.changeFor ? ` · troco para ${formatCurrency(order.changeFor)}` : ""}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {next ? <AppActionButton className="gap-2" disabled={busy} onClick={() => void move(order, next)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{NEXT_LABEL[next]}</AppActionButton> : null}
+                    {next ? <AppActionButton variant="ghost" className="gap-2 text-[hsl(var(--danger))]" disabled={busy} onClick={() => setCancel({ order, reason: "" })}><XCircle className="h-4 w-4" />Cancelar</AppActionButton> : null}
+                    <AppActionButton variant="ghost" className="gap-1" onClick={() => setDetails(order)}>Detalhes<ChevronRight className="h-4 w-4" /></AppActionButton>
+                  </div>
+                </AppSurface>
+              );
+            })}
           </div>
         )}
       </AppSectionCard>
 
-      {selectedOrder ? (
-        <div className="fixed inset-0 z-40 bg-black/40 p-4" onClick={() => setSelectedOrder(null)} role="presentation">
-          <aside
-            className="ml-auto h-full w-full max-w-2xl overflow-y-auto rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] p-5"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Detalhes completos</p>
-                <h3 className="text-xl font-semibold">Pedido #{selectedOrder.id.slice(-6).toUpperCase()}</h3>
-                <p className="text-sm text-[hsl(var(--foreground-muted))]">Mesa {selectedOrder.tableNumber} • Sessão {resolveSessionLabel(selectedOrder)}</p>
-              </div>
-              <AppActionButton variant="ghost" onClick={() => setSelectedOrder(null)}>Fechar</AppActionButton>
-            </div>
-
-            <div className="space-y-4">
-              <AppSurface className="space-y-2 p-4">
-                <p><strong>Cliente:</strong> {selectedOrder.customerName || "Não informado"}</p>
-                <p><strong>Status:</strong> {orderStatusLabels[selectedOrder.status]}</p>
-                <p><strong>Pagamento:</strong> {paymentMethodLabels[selectedOrder.paymentMethod]}</p>
-                <p><strong>Criado em:</strong> {formatDateTime(selectedOrder.createdAt)}</p>
-                <p><strong>Recebido em:</strong> {formatDateTime(selectedOrder.receivedAt)}</p>
-              </AppSurface>
-
-              <AppSurface className="space-y-2 p-4">
-                <h4 className="font-semibold">Itens do pedido</h4>
-                {selectedOrder.items.map((item) => (
-                  <div key={`${selectedOrder.id}-drawer-${item.menuItemId}-${item.nameSnapshot}`} className="rounded-lg border border-[hsl(var(--border))] px-3 py-2">
-                    <p className="font-medium">{item.quantity}x {item.nameSnapshot}</p>
-                    <p className="text-sm text-[hsl(var(--foreground-muted))]">Unitário {formatCurrency(item.priceSnapshot)} • Total {formatCurrency(item.total)}</p>
-                    {item.notes ? <p className="text-sm text-[hsl(var(--foreground-muted))]">Obs. item: {item.notes}</p> : null}
-                  </div>
-                ))}
-              </AppSurface>
-
-              <AppSurface className="space-y-2 p-4">
-                <h4 className="font-semibold">Resumo financeiro</h4>
-                <p>Subtotal: <strong>{formatCurrency(selectedOrder.subtotal)}</strong></p>
-                <p>Taxa de serviço: <strong>{formatCurrency(selectedOrder.serviceFee)}</strong></p>
-                <p>Total: <strong>{formatCurrency(selectedOrder.total)}</strong></p>
-              </AppSurface>
-
-              {selectedOrder.notes ? (
-                <AppSurface className="p-4">
-                  <h4 className="mb-1 font-semibold">Observações</h4>
-                  <p className="text-sm text-[hsl(var(--foreground-muted))]">{selectedOrder.notes}</p>
-                </AppSurface>
-              ) : null}
-            </div>
+      {details ? (
+        <div className="fixed inset-0 z-40 bg-black/40 p-4" onClick={() => setDetails(null)} role="presentation">
+          <aside className="ml-auto h-full w-full max-w-xl space-y-3 overflow-y-auto rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] p-5" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between"><div><p className="font-mono text-sm">{details.orderCode}</p><h3 className="text-xl font-semibold">Mesa {details.tableNumber}</h3></div><AppActionButton variant="ghost" onClick={() => setDetails(null)}>Fechar</AppActionButton></div>
+            <AppSurface className="space-y-1 p-4 text-sm">
+              <p>Cliente: <strong>{details.customerName || "não informado"}</strong></p>
+              <p>Status: <strong>{orderStatusLabels[details.status]}</strong></p>
+              <p>Recebido: <strong>{formatTime(details.receivedAt)}</strong></p>
+              <p>Pagamento: <strong>{paymentMethodLabels[details.paymentMethod]}</strong>{details.paymentStatus ? ` (${details.paymentStatus})` : ""}</p>
+            </AppSurface>
+            <AppSurface className="space-y-2 p-4 text-sm">
+              {details.items.map((item, index) => <p key={index} className="flex justify-between gap-2"><span>{item.quantity}x {item.nameSnapshot}{item.notes ? ` (${item.notes})` : ""}</span><span>{formatCurrency(item.total)}</span></p>)}
+              <p className="flex justify-between border-t border-[hsl(var(--border))] pt-2"><span>Subtotal</span><span>{formatCurrency(details.subtotal)}</span></p>
+              {details.serviceFee ? <p className="flex justify-between"><span>Taxa de serviço</span><span>{formatCurrency(details.serviceFee)}</span></p> : null}
+              <p className="flex justify-between font-semibold"><span>Total</span><span>{formatCurrency(details.total)}</span></p>
+            </AppSurface>
           </aside>
         </div>
       ) : null}
 
-      {cancelDialog ? (
+      {cancel ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-xl rounded-2xl border border-[hsl(var(--danger)/0.45)] bg-[hsl(var(--background-elevated))] p-5 shadow-2xl">
-            <div className="mb-4 flex items-center gap-2 text-[hsl(var(--danger))]">
-              <AlertTriangle className="h-5 w-5" />
-              <h3 className="text-lg font-semibold">Cancelar pedido #{cancelDialog.order.id.slice(-6).toUpperCase()}</h3>
-            </div>
-            <p className="mb-3 text-sm text-[hsl(var(--foreground-muted))]">
-              Esta ação é crítica para o fluxo do salão e cozinha. Confirme apenas se o cancelamento foi validado com a operação.
-            </p>
-            <AppTextarea
-              placeholder="Motivo obrigatório do cancelamento"
-              value={cancelDialog.reason}
-              onChange={(event) => setCancelDialog((current) => (current ? { ...current, reason: event.target.value } : null))}
-            />
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <AppActionButton variant="secondary" onClick={() => setCancelDialog(null)}>Voltar</AppActionButton>
-              <AppActionButton variant="destructive" onClick={() => void confirmCancellation()} disabled={updatingOrderId === cancelDialog.order.id}>
-                Confirmar cancelamento
-              </AppActionButton>
-            </div>
+          <div className="w-full max-w-md space-y-3 rounded-2xl border border-[hsl(var(--danger)/0.45)] bg-[hsl(var(--background-elevated))] p-5">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-[hsl(var(--danger))]"><AlertTriangle className="h-5 w-5" />Cancelar {cancel.order.orderCode}?</h3>
+            <p className="text-sm text-[hsl(var(--foreground-muted))]">O cliente verá o pedido como cancelado, com o motivo abaixo.</p>
+            <AppTextarea autoFocus value={cancel.reason} maxLength={300} onChange={(event) => setCancel({ ...cancel, reason: event.target.value })} placeholder="Motivo (ex.: item em falta)" />
+            <div className="flex justify-end gap-2"><AppActionButton variant="secondary" onClick={() => setCancel(null)}>Voltar</AppActionButton><AppActionButton variant="destructive" disabled={updatingId === cancel.order.id} onClick={() => void confirmCancel()}>Cancelar pedido</AppActionButton></div>
           </div>
         </div>
-      ) : null}
-
-      {!isLoading && orders.length > 0 ? (
-        <p className="flex items-center gap-2 text-xs text-[hsl(var(--foreground-muted))]">
-          <ClipboardList className="h-4 w-4" />
-          Fluxo pronto para integração de atualização em tempo real e registro de eventos na próxima etapa.
-        </p>
       ) : null}
     </section>
   );

@@ -1,27 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { computeSessionStatus, markSessionExpired, PUBLIC_ACCESS_COOKIE, validateAccessGrant } from "@/lib/server/public-session";
+import { withApiErrors } from "@/lib/server/api-errors";
+import { computeSessionStatus, findLiveSessionForTable, loadPublicMenu, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveSettings, resolveTableByPublicToken, validateAccessGrant } from "@/lib/server/public-session";
+import type { PublicTableAccess } from "@/lib/types/domain";
+import { isValidPublicTableToken } from "@/lib/utils/public-url";
 
-const TOKEN_PATTERN = /^[a-zA-Z0-9_-]{24,128}$/;
-const category = (doc: any) => { const d = doc.data(); return { id: doc.id, name: d.name, description: d.description ?? "", sortOrder: d.sortOrder ?? 0, isActive: true }; };
-const item = (doc: any) => { const d = doc.data(); return { id: doc.id, categoryId: d.categoryId, name: d.name, description: d.description ?? "", price: d.price, imageUrl: d.imageUrl ?? null, preparationTimeMinutes: d.preparationTimeMinutes ?? 0, isActive: true, isAvailable: true, isFeatured: d.isFeatured === true, sortOrder: d.sortOrder ?? 0 }; };
-
-export async function GET(request: NextRequest, { params }: { params: { token: string } }): Promise<NextResponse> {
+async function handler(request: NextRequest, { params }: { params: { token: string } }): Promise<NextResponse> {
   const token = decodeURIComponent(params.token ?? "").trim();
-  if (!TOKEN_PATTERN.test(token)) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada." }, { status: 404 });
+  if (!isValidPublicTableToken(token)) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada.", code: "invalid_qr" }, { status: 404 });
+
+  const table = await resolveTableByPublicToken(token);
+  if (!table) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada. Peça à equipe o QR Code atualizado desta mesa.", code: "invalid_qr" }, { status: 404 });
+  if (table.isActive === false) return NextResponse.json({ error: "Esta mesa está temporariamente indisponível. Chame um atendente.", code: "table_disabled" }, { status: 423 });
+
   const db = getAdminFirestore() as any;
-  const tables = await db.collection("tables").where("publicToken", "==", token).limit(1).get();
-  if (tables.empty) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada." }, { status: 404 });
-  const tableDoc = tables.docs[0]; const table = { id: tableDoc.id, ...tableDoc.data() } as any;
-  if (table.isActive === false || table.status === "blocked") return NextResponse.json({ error: "Esta mesa está temporariamente indisponível." }, { status: 423 });
-  const sessions = await db.collection("tableSessions").where("tableId", "==", table.id).where("status", "==", "active").limit(1).get();
-  if (sessions.empty) return NextResponse.json({ error: table.status === "closed" ? "Esta mesa está fechada. Solicite um novo atendimento à equipe." : "Solicite a liberação da mesa a um funcionário.", code: table.status === "closed" ? "table_closed" : "no_session", requiresAccessCode: true, table: { number: table.number, label: table.label } }, { status: 409 });
-  const sessionDoc = sessions.docs[0]; const session = { id: sessionDoc.id, ...sessionDoc.data() } as any;
-  if (computeSessionStatus(session) !== "active") { if (computeSessionStatus(session) === "expired") await markSessionExpired(session.id); return NextResponse.json({ error: "Esta sessão expirou. Seu carrinho continua salvo neste atendimento; solicite a renovação à equipe.", code: "session_expired" }, { status: 409 }); }
-  const authorized = await validateAccessGrant(session, request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null);
-  if (!authorized) return NextResponse.json({ requiresAccessCode: true, table: { number: table.number, label: table.label }, message: "Peça à equipe o código temporário deste atendimento." }, { status: 401 });
-  const [restaurant, categories, items, settings] = await Promise.all([db.collection("restaurants").doc(table.restaurantId).get(), db.collection("menuCategories").where("restaurantId", "==", table.restaurantId).where("isActive", "==", true).orderBy("sortOrder", "asc").get(), db.collection("menuItems").where("restaurantId", "==", table.restaurantId).where("isActive", "==", true).where("isAvailable", "==", true).orderBy("sortOrder", "asc").get(), db.collection("restaurantSettings").where("restaurantId", "==", table.restaurantId).limit(1).get()]);
-  const s = settings.empty ? null : settings.docs[0].data();
-  const response = NextResponse.json({ restaurantName: restaurant.exists ? restaurant.data()?.name ?? null : null, table: { number: table.number, label: table.label }, session: { id: session.id, tableNumber: session.tableNumber, peopleCount: session.peopleCount, orderLimitEnabled: session.orderLimitEnabled !== false, maxOrdersAllowed: session.maxOrdersAllowed, completedOrdersCount: session.completedOrdersCount, startedAt: session.startedAt }, categories: categories.docs.map(category), items: items.docs.map(item), settings: s ? { acceptedPaymentMethods: s.acceptedPaymentMethods ?? ["pix"], allowCustomerNotes: s.allowCustomerNotes ?? true, allowWaiterCall: s.waiterCallEnabled ?? s.allowWaiterCall ?? true, billRequestEnabled: s.billRequestEnabled ?? true, requireCustomerName: s.requireCustomerName ?? false, serviceFeePercent: s.serviceFeePercent ?? 0, pixKey: s.pixKey ?? null, pixReceiverName: s.pixReceiverName ?? null } : null });
-  response.headers.set("Cache-Control", "private, no-store"); return response;
+  const [session, menu, settings, restaurant] = await Promise.all([
+    findLiveSessionForTable(table),
+    loadPublicMenu(table.restaurantId),
+    resolveSettings(table.restaurantId),
+    db.collection("restaurants").doc(table.restaurantId).get()
+  ]);
+
+  let access: PublicTableAccess = "no_session";
+  if (session) {
+    const status = computeSessionStatus(session);
+    if (status === "expired") {
+      await markSessionExpired(session.id);
+      access = "expired";
+    } else if (status === "active" && table.status === "active") {
+      access = (await validateAccessGrant(session, request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null)) ? "authorized" : "needs_code";
+    }
+  }
+
+  const authorized = access === "authorized" && session;
+  const response = NextResponse.json({
+    restaurantName: restaurant.exists ? restaurant.data()?.name ?? null : null,
+    table: { number: table.number, label: table.label ?? `Mesa ${table.number}` },
+    access,
+    session: authorized ? {
+      id: session.id,
+      tableNumber: session.tableNumber,
+      peopleCount: session.peopleCount,
+      orderLimitEnabled: session.orderLimitEnabled === true,
+      maxOrdersAllowed: session.maxOrdersAllowed ?? 0,
+      completedOrdersCount: session.completedOrdersCount ?? 0,
+      startedAt: session.startedAt,
+      expiresAt: session.expiresAt
+    } : null,
+    categories: menu.categories,
+    items: menu.items,
+    settings: {
+      acceptedPaymentMethods: Array.isArray(settings?.acceptedPaymentMethods) && settings.acceptedPaymentMethods.length ? settings.acceptedPaymentMethods : ["pix", "cash", "debit_card", "credit_card"],
+      allowCustomerNotes: settings?.allowCustomerNotes ?? true,
+      allowWaiterCall: settings ? (settings.waiterCallEnabled ?? settings.allowWaiterCall ?? true) !== false : true,
+      billRequestEnabled: settings?.billRequestEnabled ?? true,
+      requireCustomerName: settings?.requireCustomerName ?? false,
+      serviceFeePercent: Number(settings?.serviceFeePercent ?? 0),
+      pixKey: authorized ? settings?.pixKey ?? null : null,
+      pixReceiverName: authorized ? settings?.pixReceiverName ?? null : null
+    }
+  });
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
 }
+
+export const GET = withApiErrors("public/table", handler, "Não foi possível carregar esta mesa agora. Avise a equipe do restaurante.");
+
+export const dynamic = "force-dynamic";

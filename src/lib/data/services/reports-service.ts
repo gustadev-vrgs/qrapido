@@ -4,7 +4,7 @@ import { COLLECTIONS } from "@/lib/data/constants/collections";
 import { DataLayerError } from "@/lib/data/errors";
 import { createOne, getCollection, getDocumentRef, patchOne, readMany, readPeriodPaginated } from "@/lib/data/helpers/firestore-io";
 import { mapDailyMetric, mapOrderEvent } from "@/lib/data/mappers/domain-mappers";
-import { byRestaurantOrdered } from "@/lib/data/queries";
+import { byRestaurant } from "@/lib/data/queries";
 import { resolveContext, ServiceContext } from "@/lib/data/services/base-service";
 import { createDailyMetricPayloadSchema, updateDailyMetricPayloadSchema } from "@/lib/schemas";
 import type { CreateDailyMetricPayload, DailyMetric, OrderEvent, UpdateDailyMetricPayload } from "@/lib/types/domain";
@@ -15,7 +15,8 @@ export class ReportsService {
 
   async listDailyMetrics(restaurantId: string): Promise<DailyMetric[]> {
     const { db } = resolveContext(this.context);
-    return readMany(getCollection(db, COLLECTIONS.dailyMetrics), byRestaurantOrdered(restaurantId, "dateKey", "desc"), mapDailyMetric);
+    const metrics = await readMany(getCollection(db, COLLECTIONS.dailyMetrics), byRestaurant(restaurantId), mapDailyMetric);
+    return metrics.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
   }
 
   async listOrderEventsPeriod(restaurantId: string, startIso: string, endIso: string): Promise<OrderEvent[]> {

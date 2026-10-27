@@ -1,38 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { computeSessionStatus, createSessionAccessGrant, markSessionExpired, PUBLIC_ACCESS_COOKIE, verifyAttendanceCode } from "@/lib/server/public-session";
+import { withApiErrors } from "@/lib/server/api-errors";
 import { clientIpHint, consumeRateLimits, payloadTooLargeResponse, rateLimitedResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
+import { computeSessionStatus, createSessionAccessGrant, findLiveSessionForTable, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveTableByPublicToken, verifyAttendanceCode } from "@/lib/server/public-session";
+import { PUBLIC_TABLE_TOKEN_PATTERN } from "@/lib/utils/public-url";
 
-const schema = z.object({ publicToken: z.string().regex(/^[a-zA-Z0-9_-]{24,128}$/), accessCode: z.string().regex(/^\d{6}$/) });
+const schema = z.object({ publicToken: z.string().regex(PUBLIC_TABLE_TOKEN_PATTERN), accessCode: z.string().trim().regex(/^\d{6}$/) });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  let body: unknown; try { body = await readLimitedJson(request, 1024); } catch { return payloadTooLargeResponse(); }
+async function handler(request: NextRequest): Promise<NextResponse> {
+  let body: unknown;
+  try { body = await readLimitedJson(request, 1024); } catch { return payloadTooLargeResponse(); }
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Informe o código de 6 dígitos do atendimento." }, { status: 400 });
-  const db = getAdminFirestore() as any;
-  const tables = await db.collection("tables").where("publicToken", "==", parsed.data.publicToken).limit(1).get();
-  if (tables.empty) return NextResponse.json({ error: "Mesa não encontrada." }, { status: 404 });
-  const tableDoc = tables.docs[0];
-  const table = { id: tableDoc.id, ...tableDoc.data() } as any;
-  if (table.isActive === false || table.status !== "active") return NextResponse.json({ error: "Mesa indisponível. Solicite a liberação a um funcionário." }, { status: 403 });
+  if (!parsed.success) return NextResponse.json({ error: "Informe o código de 6 dígitos que a equipe passou para a sua mesa.", code: "invalid_payload" }, { status: 400 });
+
+  const table = await resolveTableByPublicToken(parsed.data.publicToken);
+  if (!table) return NextResponse.json({ error: "Mesa não encontrada. Leia novamente o QR Code.", code: "invalid_qr" }, { status: 404 });
+  if (table.isActive === false) return NextResponse.json({ error: "Esta mesa está indisponível. Chame um atendente.", code: "table_disabled" }, { status: 403 });
+
   const ip = stableHash(clientIpHint(request));
-  const rate = await consumeRateLimits([{ scope: "access_table", key: table.id, limit: 40, windowSeconds: 300 }, { scope: "access_table_ip", key: `${table.id}:${ip}`, limit: 6, windowSeconds: 300 }]);
+  const rate = await consumeRateLimits([
+    { scope: "access_table", key: table.id, limit: 40, windowSeconds: 300 },
+    { scope: "access_table_ip", key: `${table.id}:${ip}`, limit: 8, windowSeconds: 300 }
+  ]);
   if (!rate.ok) return rateLimitedResponse(rate.retryAfter);
-  const sessions = await db.collection("tableSessions").where("tableId", "==", table.id).where("status", "==", "active").limit(1).get();
-  if (sessions.empty) return NextResponse.json({ error: "Atendimento não está aberto." }, { status: 409 });
-  const doc = sessions.docs[0];
-  const session = { id: doc.id, ...doc.data() } as any;
+
+  const session = await findLiveSessionForTable(table);
+  if (!session || table.status !== "active") return NextResponse.json({ error: "O atendimento desta mesa ainda não foi aberto. Peça a um atendente para abrir a mesa.", code: "no_session" }, { status: 409 });
   if (session.restaurantId !== table.restaurantId || computeSessionStatus(session) !== "active") {
     if (computeSessionStatus(session) === "expired") await markSessionExpired(session.id);
-    return NextResponse.json({ error: "Atendimento indisponível." }, { status: 403 });
+    return NextResponse.json({ error: "O tempo deste atendimento acabou. Peça à equipe para renová-lo.", code: "session_expired" }, { status: 409 });
   }
+
   const verified = await verifyAttendanceCode(session, parsed.data.accessCode);
-  if (!verified.ok) return NextResponse.json({ error: verified.limited ? "Muitas tentativas. Aguarde ou solicite um novo código à equipe." : "Código inválido." }, { status: verified.limited ? 429 : 401 });
+  if (!verified.ok) return NextResponse.json({ error: "Código incorreto. Confira com a equipe o código desta mesa.", code: "wrong_code" }, { status: 401 });
+
   const grant = await createSessionAccessGrant(session);
   const response = NextResponse.json({ ok: true, csrfToken: grant.csrfToken, expiresAt: grant.expiresAt });
-  response.cookies.set(PUBLIC_ACCESS_COOKIE, grant.cookieValue, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", expires: new Date(grant.expiresAt) });
+  response.cookies.set(PUBLIC_ACCESS_COOKIE, grant.cookieValue, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", expires: new Date(grant.expiresAt) });
   response.headers.set("Cache-Control", "no-store");
   return response;
 }
+
+export const POST = withApiErrors("public/session/access", handler, "Não foi possível validar o código agora. Tente novamente ou avise a equipe.");

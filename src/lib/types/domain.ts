@@ -97,6 +97,9 @@ export interface TableSession extends BaseEntity {
   completedOrdersCount: number;
   openedByStaffId: string | null;
   notes: string | null;
+  /** Current 6-digit code, readable by the restaurant staff only. */
+  staffAccessCode?: string | null;
+  accessCodeIssuedAt?: string | null;
 }
 
 export interface MenuCategory extends BaseEntity {
@@ -122,12 +125,34 @@ export interface MenuItem extends BaseEntity {
 }
 
 
+/**
+ * What a scanned QR may do right now:
+ *  - no_session: the team has not opened this table yet (menu is browsable);
+ *  - needs_code: attendance is open, this phone still needs the 6-digit code;
+ *  - expired:    attendance time ran out, the team must renew it;
+ *  - authorized: this phone can order.
+ */
+export type PublicTableAccess = "no_session" | "needs_code" | "expired" | "authorized";
+
+export interface PublicMenuCategory { id: string; name: string; description: string; sortOrder: number; isActive: boolean }
+export interface PublicMenuItem { id: string; categoryId: string; name: string; description: string; price: number; imageUrl: string | null; preparationTimeMinutes: number; isActive: boolean; isAvailable: boolean; isFeatured: boolean; sortOrder: number }
+
 export interface PublicTableData {
   restaurantName: string | null;
-  table: Pick<Table, "id" | "number" | "label" | "status" | "isActive" | "capacity">;
-  session: Pick<TableSession, "id" | "tableId" | "tableNumber" | "sessionToken" | "status" | "peopleCount" | "maxOrdersAllowed" | "completedOrdersCount" | "startedAt">;
-  categories: MenuCategory[];
-  items: MenuItem[];
+  table: { number: number; label: string };
+  access: PublicTableAccess;
+  session: {
+    id: string;
+    tableNumber: number;
+    peopleCount: number;
+    orderLimitEnabled: boolean;
+    maxOrdersAllowed: number;
+    completedOrdersCount: number;
+    startedAt: string;
+    expiresAt: string;
+  } | null;
+  categories: PublicMenuCategory[];
+  items: PublicMenuItem[];
   settings: {
     acceptedPaymentMethods: PaymentMethod[];
     allowCustomerNotes: boolean;
@@ -135,9 +160,28 @@ export interface PublicTableData {
     billRequestEnabled: boolean;
     requireCustomerName: boolean;
     serviceFeePercent: number;
-    pixKey?: string | null;
-    pixReceiverName?: string | null;
-  } | null;
+    pixKey: string | null;
+    pixReceiverName: string | null;
+  };
+}
+
+/** Order as returned to the customer's phone. */
+export interface PublicOrder {
+  id: string;
+  orderCode: string;
+  tableNumber: number;
+  items: Array<{ menuItemId: string; nameSnapshot: string; priceSnapshot: number; quantity: number; notes: string | null; total: number }>;
+  subtotal: number;
+  serviceFee: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+  paymentMode: "system_simulated" | "counter" | "waiter" | null;
+  paymentStatus: string | null;
+  status: OrderStatus;
+  cancellationReason: string | null;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CartItem {
@@ -161,6 +205,10 @@ export interface OrderItem {
 }
 
 export interface Order extends BaseEntity {
+  /** Short code shown to both the customer and the team, e.g. "M3-01-AB12". */
+  orderCode?: string;
+  /** Restaurant-local day (YYYY-MM-DD) used by the operational screens. */
+  dateKey?: string;
   tableId: string;
   tableNumber: number;
   sessionId: string;
@@ -192,7 +240,7 @@ export interface OrderEvent {
   orderId: string;
   tableId: string;
   sessionId: string;
-  type: OrderEventType;
+  type: OrderEventType | (string & {});
   actorType: ActorType;
   actorId: string | null;
   message: string;

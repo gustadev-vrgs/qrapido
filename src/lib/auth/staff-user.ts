@@ -59,7 +59,7 @@ export async function validateAdminStaffUser(db: Firestore, user: { uid: string;
 
 export function getStaffValidationMessage(error: StaffValidationError): string {
   if (error === "missing_staff_user") {
-    return "Usuário autenticado no Firebase, mas sem cadastro ativo em staffUsers.";
+    return "Login correto, mas este usuário não tem cadastro ativo na equipe (coleção staffUsers, documento com o mesmo UID do usuário). Rode \"npm run seed:staff-admin\" ou crie o documento no console do Firebase.";
   }
 
   return "Seu usuário existe, mas não possui permissão para acessar o painel.";

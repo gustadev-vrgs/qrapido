@@ -34,8 +34,8 @@ export const restaurantSchema = baseEntitySchema.extend({
   name: z.string().min(2).max(120),
   slug: z.string().min(2).max(80).regex(/^[a-z0-9-]+$/),
   description: z.string().max(600),
-  address: z.string().min(8).max(180),
-  phone: z.string().min(8).max(20),
+  address: z.string().max(180),
+  phone: z.string().max(20),
   logoUrl: z.string().url().nullable(),
   isActive: z.boolean()
 });
@@ -79,8 +79,8 @@ export const tableSessionSchema = baseEntitySchema.extend({
   lastActivityAt: isoDateTimeSchema,
   requestCountWindow: z.number().int().min(0),
   peopleCount: z.number().int().positive().default(1),
-  maxOrdersAllowed: z.number().int().positive().default(1),
-  orderLimitEnabled: z.boolean().default(true),
+  maxOrdersAllowed: z.number().int().nonnegative().default(0),
+  orderLimitEnabled: z.boolean().default(false),
   completedOrdersCount: z.number().int().min(0).default(0),
   openedByStaffId: entityIdSchema.nullable().default(null),
   notes: z.string().max(500).nullable().default(null)
@@ -184,7 +184,7 @@ export const restaurantSettingsSchema = baseEntitySchema.extend({
   businessHours: businessHoursSchema,
   antiSpamWindowSeconds: z.number().int().positive().max(3600),
   maxOrdersPerWindow: z.number().int().positive().max(20),
-  defaultSessionDurationMinutes: z.number().int().positive().max(360),
+  defaultSessionDurationMinutes: z.number().int().min(15).max(720),
   allowSessionPin: z.boolean(),
   requireCustomerName: z.boolean(),
   allowCustomerNotes: z.boolean().default(true),

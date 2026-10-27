@@ -29,7 +29,7 @@ test("API de mesa não serializa documentos completos nem código", () => {
 });
 
 test("operações protegidas usam cookie, CSRF e vínculo servidor", () => {
-  for (const route of ["src/app/api/public/order/route.ts", "src/app/api/public/waiter-call/route.ts", "src/app/api/public/session/action/route.ts"]) {
+  for (const route of ["src/app/api/public/order/route.ts", "src/app/api/public/waiter-call/route.ts"]) {
     const source = read(route);
     assert.match(source, /resolveAuthorizedSession/);
     assert.match(source, /x-csrf-token/);

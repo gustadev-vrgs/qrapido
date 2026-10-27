@@ -13,6 +13,7 @@ import { AppActionButton, AppFormField, AppTextInput } from "@/components/ui/app
 import { getStaffValidationMessage, validateAdminStaffUser } from "@/lib/auth/staff-user";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { getFirebaseClientAuth, getFirebaseClientFirestore } from "@/lib/firebase/client";
+import { describeFirebaseError } from "@/lib/data/errors";
 import { adminLoginSchema, type AdminLoginInput } from "@/lib/schemas";
 
 const firebaseErrorMap: Record<string, string> = {
@@ -102,8 +103,13 @@ export function AdminLoginForm(): JSX.Element {
         return;
       }
 
-      const message = (error as Error).message;
-      setSubmitError(firebaseErrorMap[firebaseCode ?? ""] ?? message ?? "Não foi possível autenticar agora. Tente novamente em instantes.");
+      if (firebaseCode && firebaseErrorMap[firebaseCode]) {
+        setSubmitError(firebaseErrorMap[firebaseCode]);
+        return;
+      }
+      // Firestore errors (e.g. "permission-denied" when the rules were never published)
+      // carry no "auth/" prefix: explain what to fix instead of the raw SDK message.
+      setSubmitError(firebaseCode?.startsWith("auth/") ? "Não foi possível autenticar agora. Tente novamente em instantes." : describeFirebaseError(error));
     }
   });
 

@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
+import { withApiErrors } from "@/lib/server/api-errors";
+import { toRestaurantDateKey } from "@/lib/utils/date-key";
 import { computeSessionStatus, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession } from "@/lib/server/public-session";
 import { consumeRateLimits, payloadTooLargeResponse, rateLimitedResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
 
 const schema = z.object({ reason: z.enum(["fazer pagamento", "pedir ajuda", "solicitar talheres", "outra necessidade"]) });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function handler(request: NextRequest): Promise<NextResponse> {
   let body: unknown; try { body = await readLimitedJson(request, 1024); } catch { return payloadTooLargeResponse(); }
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
   const session = await resolveAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null, request.headers.get("x-csrf-token"));
-  if (!session) return NextResponse.json({ error: "Acesso não autorizado." }, { status: 401 });
-  if (computeSessionStatus(session) !== "active") return NextResponse.json({ error: "Sessão indisponível." }, { status: 403 });
+  if (!session) return NextResponse.json({ error: "Este celular precisa do código da mesa para chamar o garçom.", code: "needs_code" }, { status: 401 });
+  if (computeSessionStatus(session) !== "active") return NextResponse.json({ error: "O atendimento desta mesa não está ativo. Chame um atendente pessoalmente.", code: "session_inactive" }, { status: 409 });
   const db = getAdminFirestore() as any;
   const settings = await db.collection("restaurantSettings").where("restaurantId", "==", session.restaurantId).limit(1).get();
   const configuration = settings.empty ? null : settings.docs[0].data();
@@ -34,13 +36,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const lock = await tx.get(lockRef);
       if (lock.exists) throw new Error("DUPLICATE_CALL");
       tx.create(lockRef, { waiterCallId: ref.id, sessionId: session.id, reason: parsed.data.reason, createdAt: now });
-      tx.create(ref, { restaurantId: session.restaurantId, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, reason: parsed.data.reason, status: "pending", lockId: lockRef.id, attendedAt: null, attendedBy: null, completedAt: null, completedBy: null, createdAt: now, updatedAt: now });
+      tx.create(ref, { restaurantId: session.restaurantId, tableId: session.tableId, tableNumber: session.tableNumber, sessionId: session.id, reason: parsed.data.reason, status: "pending", lockId: lockRef.id, dateKey: toRestaurantDateKey(), attendedAt: null, attendedBy: null, completedAt: null, completedBy: null, createdAt: now, updatedAt: now });
       tx.create(db.collection("orderEvents").doc(), { restaurantId: session.restaurantId, orderId: `waiter-call:${ref.id}`, tableId: session.tableId, sessionId: session.id, type: "waiter_called", actorType: "customer", actorId: grantId, message: `Chamado de garçom: ${parsed.data.reason}`, metadata: { waiterCallId: ref.id, reason: parsed.data.reason }, createdAt: now });
       tx.create(db.collection("adminAlerts").doc(), { restaurantId: session.restaurantId, type: "waiter_call", title: "Chamada de garçom", message: `Mesa ${session.tableNumber}: ${parsed.data.reason}.`, targetType: "waiterCall", targetId: ref.id, read: false, createdAt: now });
     });
     return NextResponse.json({ callId: ref.id }, { status: 201 });
   } catch (error) {
-    if (error instanceof Error && error.message === "DUPLICATE_CALL") return NextResponse.json({ error: "Já existe um chamado igual em aberto para esta mesa." }, { status: 409 });
+    if (error instanceof Error && error.message === "DUPLICATE_CALL") return NextResponse.json({ error: "A equipe já recebeu este chamado e está a caminho.", code: "duplicate_call" }, { status: 409 });
     throw error;
   }
 }
+
+export const POST = withApiErrors("public/waiter-call", handler, "Não foi possível chamar o garçom agora. Chame um atendente pessoalmente.");

@@ -2,48 +2,67 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { requireStaffRequest, ADMIN_ROLES, logAdminFailure } from "@/lib/server/admin-auth";
+import { FLOOR_ROLES, logAdminFailure, requireStaffRequest } from "@/lib/server/admin-auth";
+import { classifyServerError } from "@/lib/server/api-errors";
 
-const payloadSchema = z.object({ tableId: z.string().min(1), reason: z.string().trim().min(4).max(300) }).strict();
-const PENDING_ORDER_STATUSES = ["received", "confirmed", "in_preparation", "ready"];
+const payloadSchema = z.object({ tableId: z.string().min(1).max(128), reason: z.string().trim().max(300).optional() }).strict();
+const PENDING_ORDER_STATUSES = new Set(["received", "confirmed", "in_preparation", "ready"]);
+type Db = any;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const staff = await requireStaffRequest(request, ADMIN_ROLES);
+  const staff = await requireStaffRequest(request, FLOOR_ROLES);
   if (staff instanceof NextResponse) return staff;
   const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Informe a mesa e o motivo do encerramento." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: "Mesa inválida." }, { status: 400 });
+  const reason = parsed.data.reason?.trim() || "Atendimento encerrado pela equipe";
 
-  const db = getAdminFirestore() as any;
+  const db = getAdminFirestore() as Db;
   const tableRef = db.collection("tables").doc(parsed.data.tableId);
   try {
-    const result = await db.runTransaction(async (tx: any) => {
+    const result = await db.runTransaction(async (tx: Db) => {
       const tableSnap = await tx.get(tableRef);
-      if (!tableSnap.exists) throw Object.assign(new Error("Mesa não encontrada."), { status: 404 });
+      if (!tableSnap.exists || tableSnap.data().restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Mesa não encontrada."), { status: 404 });
       const table = tableSnap.data();
-      if (table.restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Mesa não encontrada."), { status: 404 });
-      if (!table.currentSessionGroupId) {
-        if (table.status === "free") return { replay: true };
-        throw Object.assign(new Error("Mesa sem referência de atendimento. Execute o diagnóstico antes de recuperar."), { status: 409 });
+      const sessionId: string | null = table.currentSessionGroupId ?? null;
+
+      // Equality-only queries (no composite index); filtering happens here.
+      const [sessionSnap, ordersSnap, grantsSnap] = sessionId
+        ? await Promise.all([
+          tx.get(db.collection("tableSessions").doc(sessionId)),
+          tx.get(db.collection("orders").where("sessionId", "==", sessionId)),
+          tx.get(db.collection("sessionAccessGrants").where("sessionId", "==", sessionId))
+        ])
+        : [null, null, null];
+
+      const pending = (ordersSnap?.docs ?? []).filter((doc: Db) => doc.data().restaurantId === staff.staffUser.restaurantId && PENDING_ORDER_STATUSES.has(doc.data().status));
+      if (pending.length) {
+        const codes = pending.map((doc: Db) => doc.data().orderCode ?? `#${doc.id.slice(-6).toUpperCase()}`).join(", ");
+        throw Object.assign(new Error(`Há ${pending.length} pedido(s) em andamento (${codes}). Marque como entregue ou cancele em Pedidos antes de encerrar.`), { status: 409 });
       }
-      const sessionRef = db.collection("tableSessions").doc(table.currentSessionGroupId);
-      const sessionSnap = await tx.get(sessionRef);
-      if (!sessionSnap.exists || sessionSnap.data().restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Atendimento inconsistente. Nenhum dado foi apagado; execute o diagnóstico."), { status: 409 });
-      const ordersQuery = db.collection("orders").where("restaurantId", "==", staff.staffUser.restaurantId).where("sessionId", "==", sessionSnap.id).where("status", "in", PENDING_ORDER_STATUSES);
-      const grantsQuery = db.collection("sessionAccessGrants").where("sessionId", "==", sessionSnap.id).where("revokedAt", "==", null);
-      const [pendingOrders, grants] = await Promise.all([tx.get(ordersQuery), tx.get(grantsQuery)]);
-      if (!pendingOrders.empty) throw Object.assign(new Error(`Há ${pendingOrders.size} pedido(s) pendente(s). Conclua ou cancele antes de encerrar.`), { status: 409 });
 
       const now = new Date().toISOString();
-      tx.update(sessionRef, { status: "closed", closedAt: now, closeReason: parsed.data.reason, updatedAt: now });
-      grants.docs.forEach((grant: any) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
+      const sessionBelongs = sessionSnap?.exists && sessionSnap.data().restaurantId === staff.staffUser.restaurantId;
+      if (sessionBelongs && sessionSnap.data().status !== "closed") {
+        tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closeReason: reason, staffAccessCode: null, updatedAt: now });
+      }
+      const openGrants = (grantsSnap?.docs ?? []).filter((doc: Db) => !doc.data().revokedAt);
+      openGrants.forEach((grant: Db) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
+      const alreadyFree = table.status === "free" && !sessionId;
       tx.update(tableRef, { status: "free", closedAt: now, currentPeopleCount: 0, activeSessionCount: 0, currentSessionGroupId: null, updatedAt: now });
-      tx.set(db.collection("orderEvents").doc(), { restaurantId: staff.staffUser.restaurantId, tableId: tableSnap.id, sessionId: sessionSnap.id, orderId: "system", type: "table_closed", actorType: "staff", actorId: staff.staffUser.id, message: "Atendimento encerrado e acessos revogados", metadata: { reason: parsed.data.reason, revokedGrantCount: grants.size }, createdAt: now });
-      return { replay: false };
+      tx.set(db.collection("orderEvents").doc(), {
+        restaurantId: staff.staffUser.restaurantId, tableId: tableSnap.id, sessionId: sessionId ?? "none", orderId: "system", type: "table_closed",
+        actorType: "staff", actorId: staff.staffUser.id,
+        message: sessionBelongs ? "Atendimento encerrado e acessos revogados" : "Mesa liberada (não havia atendimento válido vinculado)",
+        metadata: { reason, revokedGrantCount: openGrants.length, recovered: !sessionBelongs }, createdAt: now
+      });
+      return { replay: alreadyFree, recovered: !sessionBelongs };
     });
     return NextResponse.json({ ok: true, ...result, requestId: staff.requestId });
   } catch (error) {
     const status = Number((error as { status?: number }).status ?? 500);
-    if (status === 500) logAdminFailure(staff.requestId, "close_table", error);
-    return NextResponse.json({ error: status === 500 ? "Não foi possível encerrar; nenhuma alteração parcial foi confirmada." : (error as Error).message, requestId: staff.requestId }, { status });
+    if (status !== 500) return NextResponse.json({ error: (error as Error).message, requestId: staff.requestId }, { status });
+    logAdminFailure(staff.requestId, "close_table", error);
+    const failure = classifyServerError(error);
+    return NextResponse.json({ error: "Não foi possível encerrar a mesa; nada foi alterado.", code: failure.code, hint: failure.hint, requestId: staff.requestId }, { status: failure.status });
   }
 }
