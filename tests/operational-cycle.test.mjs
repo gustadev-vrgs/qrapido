@@ -17,7 +17,8 @@ test("pedido e fechamento disputam a mesma mesa transacionalmente", () => {
   assert.match(order, /tx\.get\(tableRef\)/);
   assert.match(order, /freshTable\.currentSessionGroupId !== session\.id/);
   assert.match(close, /runTransaction/);
-  assert.match(close, /PENDING_ORDER_STATUSES/);
+  assert.match(close, /KITCHEN_PENDING/);
+  assert.match(close, /kitchen_pending/);
 });
 
 test("expiração preserva pedidos, pausa acessos e não trava a mesa", () => {
@@ -48,8 +49,8 @@ test("cancelamento é idempotente e libera cota uma vez", () => {
 
 test("pedido e alerta são confirmados atomicamente", () => {
   const source = read("src/app/api/public/order/route.ts");
-  assert.match(source, /tx\.set\(alertRef/);
-  assert.match(source, /tx\.set\(eventRef/);
+  assert.match(source, /tx\.set\(db\.collection\("adminAlerts"\)/);
+  assert.match(source, /tx\.set\(db\.collection\("orderEvents"\)/);
 });
 
 test("transição inválida é recusada no servidor e navegador não escreve pedidos", () => {

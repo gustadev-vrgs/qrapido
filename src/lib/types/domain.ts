@@ -29,6 +29,14 @@ export const ORDER_EVENT_TYPES = [
 ] as const;
 export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
 
+/**
+ * Where an item is prepared. "kitchen" items wait for the kitchen to tap "Pronto";
+ * "ready" items (drinks, ready desserts) skip the kitchen and go straight to the
+ * waiter. Products without a value follow their category (see inferStation).
+ */
+export const ORDER_STATIONS = ["kitchen", "ready"] as const;
+export type OrderStation = (typeof ORDER_STATIONS)[number];
+
 export const ACTOR_TYPES = ["staff", "customer", "system"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
@@ -76,6 +84,8 @@ export interface Table extends BaseEntity {
   isActive: boolean;
   openedAt: ISODateTimeString | null;
   closedAt: ISODateTimeString | null;
+  /** Set when the table was "excluída": hidden from the floor, history kept. */
+  archivedAt?: ISODateTimeString | null;
 }
 
 export interface TableSession extends BaseEntity {
@@ -122,6 +132,8 @@ export interface MenuItem extends BaseEntity {
   isAvailable: boolean;
   isFeatured: boolean;
   sortOrder: number;
+  /** null = decided by the category name (drinks are "ready"). */
+  station?: OrderStation | null;
 }
 
 
@@ -171,6 +183,8 @@ export interface PublicOrder {
   orderCode: string;
   tableNumber: number;
   items: Array<{ menuItemId: string; nameSnapshot: string; priceSnapshot: number; quantity: number; notes: string | null; total: number }>;
+  station: OrderStation;
+  groupCode: string | null;
   subtotal: number;
   serviceFee: number;
   total: number;
@@ -202,6 +216,7 @@ export interface OrderItem {
   total: number;
   categoryIdSnapshot?: string | null;
   categoryNameSnapshot?: string | null;
+  station?: OrderStation;
 }
 
 export interface Order extends BaseEntity {
@@ -209,6 +224,13 @@ export interface Order extends BaseEntity {
   orderCode?: string;
   /** Restaurant-local day (YYYY-MM-DD) used by the operational screens. */
   dateKey?: string;
+  /** Kitchen order or ready-to-serve order (drinks). A mixed cart creates one of each. */
+  station?: OrderStation;
+  /** Shared by the orders created from the same cart, e.g. "M4-03". */
+  groupCode?: string;
+  readyAt?: ISODateTimeString | null;
+  /** True when "entregue" was set by the system (table closed), not by a person. */
+  autoDelivered?: boolean;
   tableId: string;
   tableNumber: number;
   sessionId: string;

@@ -5,10 +5,21 @@ import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { FLOOR_ROLES, logAdminFailure, requireStaffRequest } from "@/lib/server/admin-auth";
 import { classifyServerError } from "@/lib/server/api-errors";
 
-const payloadSchema = z.object({ tableId: z.string().min(1).max(128), reason: z.string().trim().max(300).optional() }).strict();
-const PENDING_ORDER_STATUSES = new Set(["received", "confirmed", "in_preparation", "ready"]);
+const payloadSchema = z.object({
+  tableId: z.string().min(1).max(128),
+  reason: z.string().trim().max(300).optional(),
+  /** Confirms closing while orders are still in the kitchen: they are marked as delivered. */
+  force: z.boolean().optional()
+}).strict();
+
+const KITCHEN_PENDING = new Set(["received", "confirmed", "in_preparation"]);
 type Db = any;
 
+/**
+ * Closes the attendance (the bill was settled). Ready orders become "entregue"
+ * automatically, so nobody has to remember that tap. Orders still in the kitchen
+ * need an explicit confirmation (force), which also marks them as delivered.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const staff = await requireStaffRequest(request, FLOOR_ROLES);
   if (staff instanceof NextResponse) return staff;
@@ -26,43 +37,55 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const sessionId: string | null = table.currentSessionGroupId ?? null;
 
       // Equality-only queries (no composite index); filtering happens here.
-      const [sessionSnap, ordersSnap, grantsSnap] = sessionId
+      const [sessionSnap, ordersSnap, grantsSnap, callsSnap] = sessionId
         ? await Promise.all([
           tx.get(db.collection("tableSessions").doc(sessionId)),
           tx.get(db.collection("orders").where("sessionId", "==", sessionId)),
-          tx.get(db.collection("sessionAccessGrants").where("sessionId", "==", sessionId))
+          tx.get(db.collection("sessionAccessGrants").where("sessionId", "==", sessionId)),
+          tx.get(db.collection("waiterCalls").where("sessionId", "==", sessionId))
         ])
-        : [null, null, null];
+        : [null, null, null, null];
 
-      const pending = (ordersSnap?.docs ?? []).filter((doc: Db) => doc.data().restaurantId === staff.staffUser.restaurantId && PENDING_ORDER_STATUSES.has(doc.data().status));
-      if (pending.length) {
-        const codes = pending.map((doc: Db) => doc.data().orderCode ?? `#${doc.id.slice(-6).toUpperCase()}`).join(", ");
-        throw Object.assign(new Error(`Há ${pending.length} pedido(s) em andamento (${codes}). Marque como entregue ou cancele em Pedidos antes de encerrar.`), { status: 409 });
+      const ownOrders = (ordersSnap?.docs ?? []).filter((doc: Db) => doc.data().restaurantId === staff.staffUser.restaurantId);
+      const inKitchen = ownOrders.filter((doc: Db) => KITCHEN_PENDING.has(doc.data().status));
+      if (inKitchen.length && !parsed.data.force) {
+        const codes = inKitchen.map((doc: Db) => doc.data().orderCode ?? `#${doc.id.slice(-6).toUpperCase()}`);
+        throw Object.assign(new Error(`Ainda na cozinha: ${codes.join(", ")}. Encerrar mesmo assim marca esses pedidos como entregues; se não foram servidos, cancele-os em Pedidos.`), { status: 409, code: "kitchen_pending", pending: codes });
       }
 
       const now = new Date().toISOString();
+      const toDeliver = ownOrders.filter((doc: Db) => doc.data().status === "ready" || KITCHEN_PENDING.has(doc.data().status));
+      toDeliver.forEach((doc: Db) => tx.update(doc.ref, { status: "delivered", deliveredAt: now, readyAt: doc.data().readyAt ?? now, autoDelivered: true, updatedAt: now }));
+
       const sessionBelongs = sessionSnap?.exists && sessionSnap.data().restaurantId === staff.staffUser.restaurantId;
       if (sessionBelongs && sessionSnap.data().status !== "closed") {
         tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closeReason: reason, staffAccessCode: null, updatedAt: now });
       }
       const openGrants = (grantsSnap?.docs ?? []).filter((doc: Db) => !doc.data().revokedAt);
       openGrants.forEach((grant: Db) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
+      const openCalls = (callsSnap?.docs ?? []).filter((doc: Db) => doc.data().restaurantId === staff.staffUser.restaurantId && doc.data().status !== "completed");
+      openCalls.forEach((call: Db) => {
+        tx.update(call.ref, { status: "completed", completedAt: now, completedBy: staff.staffUser.id, updatedAt: now });
+        if (call.data().lockId) tx.delete(db.collection("waiterCallLocks").doc(call.data().lockId));
+      });
+
       const alreadyFree = table.status === "free" && !sessionId;
       tx.update(tableRef, { status: "free", closedAt: now, currentPeopleCount: 0, activeSessionCount: 0, currentSessionGroupId: null, updatedAt: now });
       tx.set(db.collection("orderEvents").doc(), {
         restaurantId: staff.staffUser.restaurantId, tableId: tableSnap.id, sessionId: sessionId ?? "none", orderId: "system", type: "table_closed",
         actorType: "staff", actorId: staff.staffUser.id,
         message: sessionBelongs ? "Atendimento encerrado e acessos revogados" : "Mesa liberada (não havia atendimento válido vinculado)",
-        metadata: { reason, revokedGrantCount: openGrants.length, recovered: !sessionBelongs }, createdAt: now
+        metadata: { reason, revokedGrantCount: openGrants.length, autoDelivered: toDeliver.length, forcedKitchen: inKitchen.length, recovered: !sessionBelongs }, createdAt: now
       });
-      return { replay: alreadyFree, recovered: !sessionBelongs };
+      return { replay: alreadyFree, recovered: !sessionBelongs, autoDelivered: toDeliver.length };
     });
     return NextResponse.json({ ok: true, ...result, requestId: staff.requestId });
   } catch (error) {
-    const status = Number((error as { status?: number }).status ?? 500);
-    if (status !== 500) return NextResponse.json({ error: (error as Error).message, requestId: staff.requestId }, { status });
+    const failure = error as { status?: number; code?: string; pending?: string[] };
+    const status = Number(failure.status ?? 500);
+    if (status !== 500) return NextResponse.json({ error: (error as Error).message, code: failure.code, pending: failure.pending, requestId: staff.requestId }, { status });
     logAdminFailure(staff.requestId, "close_table", error);
-    const failure = classifyServerError(error);
-    return NextResponse.json({ error: "Não foi possível encerrar a mesa; nada foi alterado.", code: failure.code, hint: failure.hint, requestId: staff.requestId }, { status: failure.status });
+    const classified = classifyServerError(error);
+    return NextResponse.json({ error: "Não foi possível encerrar a mesa; nada foi alterado.", code: classified.code, hint: classified.hint, requestId: staff.requestId }, { status: classified.status });
   }
 }

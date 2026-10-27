@@ -5,20 +5,26 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChefHat, Clock3, UtensilsCrossed } from "lucide-react";
 
 import { AppActionButton, AppSkeleton, AppStatusBadge, AppSurface } from "@/components/ui/app-design-system";
-import { orderStatusLabels, paymentMethodLabels } from "@/lib/constants/status-labels";
+import { paymentMethodLabels } from "@/lib/constants/status-labels";
+import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { PublicOrder } from "@/lib/types/domain";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 
-const STEPS = [
-  { key: "received", label: "Recebido", icon: Clock3 },
-  { key: "in_preparation", label: "Em preparo", icon: ChefHat },
+const KITCHEN_STEPS = [
+  { key: "received", label: "Na cozinha", icon: ChefHat },
   { key: "ready", label: "Pronto", icon: UtensilsCrossed },
+  { key: "delivered", label: "Entregue", icon: CheckCircle2 }
+] as const;
+const READY_STEPS = [
+  { key: "received", label: "Recebido", icon: Clock3 },
+  { key: "ready", label: "A caminho", icon: UtensilsCrossed },
   { key: "delivered", label: "Entregue", icon: CheckCircle2 }
 ] as const;
 
 function stepIndex(status: PublicOrder["status"]): number {
-  if (status === "confirmed") return 0;
-  return STEPS.findIndex((step) => step.key === status);
+  if (status === "delivered") return 2;
+  if (status === "ready") return 1;
+  return 0;
 }
 
 export default function PublicOrderPage({ params }: { params: { token: string; orderId: string } }): JSX.Element {
@@ -60,6 +66,7 @@ export default function PublicOrderPage({ params }: { params: { token: string; o
   if (!order) return <main className="mx-auto max-w-md p-4"><AppSkeleton className="h-64" /></main>;
 
   const current = stepIndex(order.status);
+  const STEPS = order.station === "ready" ? READY_STEPS : KITCHEN_STEPS;
   const cancelled = order.status === "cancelled";
   return (
     <main className="min-h-screen bg-[hsl(var(--background))] p-4">
@@ -67,14 +74,14 @@ export default function PublicOrderPage({ params }: { params: { token: string; o
         <AppSurface className="space-y-2 p-4">
           <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber} · {formatTime(order.receivedAt)}</p>
           <h1 className="font-mono text-2xl">{order.orderCode}</h1>
-          <AppStatusBadge tone={cancelled ? "danger" : order.status === "delivered" ? "success" : "info"}>{orderStatusLabels[order.status]}</AppStatusBadge>
+          <AppStatusBadge tone={cancelled ? "danger" : order.status === "delivered" ? "success" : "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge>
         </AppSurface>
 
         <AppSurface className="p-4">
           {cancelled ? (
             <p className="text-sm text-[hsl(var(--danger))]">Este pedido foi cancelado pelo restaurante.{order.cancellationReason ? ` Motivo: ${order.cancellationReason}.` : ""} Fale com um atendente se tiver dúvidas.</p>
           ) : (
-            <ol className="grid grid-cols-4 gap-2 text-center text-xs">
+            <ol className="grid grid-cols-3 gap-2 text-center text-xs">
               {STEPS.map((step, index) => {
                 const Icon = step.icon;
                 const done = index <= current;

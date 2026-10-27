@@ -5,9 +5,10 @@ import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { requireStaffRequest, STAFF_ROLES, logAdminFailure } from "@/lib/server/admin-auth";
 import { classifyServerError } from "@/lib/server/api-errors";
 
+// "Pronto" is one tap from "recebido"; the intermediate steps remain valid for older orders.
 const transitions: Record<string, readonly string[]> = {
-  received: ["confirmed", "in_preparation", "cancelled"],
-  confirmed: ["in_preparation", "cancelled"],
+  received: ["confirmed", "in_preparation", "ready", "cancelled"],
+  confirmed: ["in_preparation", "ready", "cancelled"],
   in_preparation: ["ready", "cancelled"],
   ready: ["delivered", "cancelled"],
   delivered: [],
@@ -41,7 +42,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       const now = new Date().toISOString();
       const cancelling = parsed.data.nextStatus === "cancelled";
-      let releaseQuota = cancelling && !order.quotaReleasedAt;
+      // Only the first order of a cart counts toward the table quota (see public/order).
+      let releaseQuota = cancelling && !order.quotaReleasedAt && order.quotaCounted !== false;
       const sessionRef = db.collection("tableSessions").doc(order.sessionId);
       if (releaseQuota) {
         const sessionSnap = await tx.get(sessionRef);
