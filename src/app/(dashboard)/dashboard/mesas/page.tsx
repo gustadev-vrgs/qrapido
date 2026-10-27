@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ArchiveRestore, CheckCircle2, Clock3, Copy, DoorClosed, DoorOpen, Download, Edit2, ExternalLink, History, KeyRound, Loader2, Plus, Power, Printer, Trash2, QrCode, RefreshCw, TriangleAlert, Users, X } from "lucide-react";
+import { ArchiveRestore, CheckCircle2, Clock3, Copy, DoorClosed, DoorOpen, Download, Edit2, ExternalLink, History, KeyRound, Loader2, Plus, Power, Printer, Trash2, QrCode, RefreshCw, TriangleAlert, Users, X, Armchair, CircleDot, Hourglass, UtensilsCrossed } from "lucide-react";
 
-import { AppActionButton, AppEmptyState, AppFilterBar, AppFormField, AppSectionCard, AppSelect, AppStatusBadge, AppSurface, AppTextInput, AppTextarea } from "@/components/ui/app-design-system";
+import { AppActionButton, AppChips, AppEmptyState, AppFilterBar, AppStatCard, AppFormField, AppSectionCard, AppSelect, AppStatusBadge, AppSurface, AppTextInput, AppTextarea } from "@/components/ui/app-design-system";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { TablesService } from "@/lib/data/services/tables-service";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
@@ -32,8 +32,8 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 ];
 
 const VIEW_META: Record<TableView, { label: string; tone: "success" | "info" | "warning" | "neutral"; accent: string }> = {
-  free: { label: "Livre", tone: "success", accent: "border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)]" },
-  occupied: { label: "Ocupada", tone: "info", accent: "border-[hsl(var(--info)/0.4)] bg-[hsl(var(--info)/0.07)]" },
+  free: { label: "Livre", tone: "success", accent: "border-[hsl(var(--border))] bg-[hsl(var(--surface))]" },
+  occupied: { label: "Ocupada", tone: "info", accent: "border-[hsl(var(--primary)/0.45)] bg-[hsl(var(--primary-soft))] shadow-[inset_4px_0_0_hsl(var(--primary))]" },
   expired: { label: "Tempo esgotado", tone: "warning", accent: "border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.08)]" },
   disabled: { label: "Desativada", tone: "neutral", accent: "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))]" },
   archived: { label: "Excluída", tone: "neutral", accent: "border-dashed border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] opacity-80" }
@@ -243,21 +243,18 @@ export default function MesasPage(): JSX.Element {
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {[["Ocupadas", summary.occupied], ["Livres", summary.free], ["Tempo esgotado", summary.expired], ["Pessoas no salão", summary.people]].map(([label, value]) => (
-          <AppSurface key={label} className="p-4"><p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">{label}</p><p className="mt-1 text-2xl font-semibold">{value}</p></AppSurface>
-        ))}
+        <AppStatCard icon={UtensilsCrossed} label="Ocupadas" value={String(summary.occupied)} />
+        <AppStatCard icon={CircleDot} tone="success" label="Livres" value={String(summary.free)} />
+        <AppStatCard icon={Hourglass} tone="warning" label="Tempo esgotado" value={String(summary.expired)} />
+        <AppStatCard icon={Users} tone="neutral" label="Pessoas no salão" value={String(summary.people)} />
       </div>
 
-      <AppFilterBar className="items-center gap-3">
-        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
-          {FILTERS.map((item) => (
-            <button key={item.value} type="button" onClick={() => setFilter(item.value)} className={`h-9 rounded-full border px-4 text-xs font-semibold uppercase tracking-[0.12em] transition ${filter === item.value ? "border-[hsl(var(--focus-ring)/0.45)] bg-[hsl(var(--primary)/0.2)]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"}`}>{item.label}</button>
-          ))}
-        </div>
+      <AppFilterBar className="gap-3">
+        <AppChips className="min-w-0 flex-1" value={filter} onChange={setFilter} options={FILTERS} />
         {canManageTables ? <AppActionButton className="gap-2" onClick={() => setTableForm({ id: "", number: String((tables.at(-1)?.number ?? 0) + 1), label: "", capacity: "4" })}><Plus className="h-4 w-4" />Nova mesa</AppActionButton> : null}
       </AppFilterBar>
 
-      <AppSectionCard title="Salão" description="Atualiza sozinho. O código de cada mesa ocupada fica visível aqui para você passar aos clientes.">
+      <AppSectionCard icon={Armchair} tone="success" title="Salão" description="Atualiza sozinho. O código de cada mesa ocupada fica visível aqui para você passar aos clientes.">
         {loading ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <AppSurface key={index} className="h-48 animate-pulse" />)}</div>
         ) : filtered.length === 0 ? (
@@ -273,14 +270,14 @@ export default function MesasPage(): JSX.Element {
               return (
                 <article key={table.id} className={`flex flex-col gap-3 rounded-2xl border p-4 ${meta.accent}`}>
                   <header className="flex items-start justify-between gap-3">
-                    <div><p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Mesa {table.number}</p><h3 className="text-xl font-semibold">{table.label}</h3></div>
+                    <div className="flex items-center gap-3"><span className="num inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--foreground))] text-lg font-bold text-[hsl(var(--background))]">{table.number}</span><h3 className="text-xl font-semibold">{table.label}</h3></div>
                     <AppStatusBadge tone={meta.tone}>{meta.label}</AppStatusBadge>
                   </header>
 
                   {session && view !== "free" ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 rounded-xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] px-3 py-2">
-                        <div><p className="text-[11px] uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Código da mesa</p><p className="font-mono text-2xl font-semibold tracking-[0.2em]">{formatCode(session.staffAccessCode)}</p></div>
+                        <div><p className="text-[11px] text-[hsl(var(--foreground-muted))]">Código da mesa</p><p className="num text-2xl font-bold tracking-[0.18em]">{formatCode(session.staffAccessCode)}</p></div>
                         <div className="flex gap-1">
                           {session.staffAccessCode ? <button type="button" onClick={() => copy(session.staffAccessCode ?? "", "Código")} className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))]" aria-label="Copiar código"><Copy className="h-4 w-4" /></button> : null}
                         </div>
@@ -346,7 +343,7 @@ export default function MesasPage(): JSX.Element {
         <Modal title={`${codeShown.table.label} aberta`} onClose={() => setCodeShown(null)}>
           <div className="space-y-3 text-center">
             <p className="text-sm text-[hsl(var(--foreground-muted))]">Passe este código aos clientes. Eles leem o QR da mesa e digitam o código no celular.</p>
-            <p className="font-mono text-5xl font-semibold tracking-[0.25em]">{formatCode(codeShown.code)}</p>
+            <p className="num text-5xl font-bold tracking-[0.2em]">{formatCode(codeShown.code)}</p>
             <p className="text-xs text-[hsl(var(--foreground-muted))]">O código continua visível no card da mesa enquanto ela estiver aberta.</p>
             <AppActionButton className="w-full" onClick={() => setCodeShown(null)}>Pronto</AppActionButton>
           </div>

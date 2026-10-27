@@ -72,8 +72,8 @@ export default function PublicOrderPage({ params }: { params: { token: string; o
     <main className="min-h-screen bg-[hsl(var(--background))] p-4">
       <section className="mx-auto max-w-md space-y-4">
         <AppSurface className="space-y-2 p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber} · {formatTime(order.receivedAt)}</p>
-          <h1 className="font-mono text-2xl">{order.orderCode}</h1>
+          <p className="text-xs text-[hsl(var(--foreground-muted))]">Mesa {order.tableNumber} · {formatTime(order.receivedAt)}</p>
+          <h1 className="num text-2xl">{order.orderCode}</h1>
           <AppStatusBadge tone={cancelled ? "danger" : order.status === "delivered" ? "success" : "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge>
         </AppSurface>
 

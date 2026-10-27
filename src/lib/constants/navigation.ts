@@ -1,7 +1,11 @@
 import type { Route } from "next";
 import type { LucideIcon } from "lucide-react";
-import { AppIcons } from "@/lib/icons";
+import { Armchair, BarChart3, BookOpenText, House, ReceiptText, Settings, Stethoscope } from "lucide-react";
+
+import type { AppTone } from "@/components/ui/app-design-system";
 import type { UserRole } from "@/lib/types/domain";
+
+export type NavigationGroup = "operacao" | "gestao" | "sistema";
 
 export interface NavigationItem {
   href: Route;
@@ -9,16 +13,28 @@ export interface NavigationItem {
   icon: LucideIcon;
   description?: string;
   roles?: UserRole[];
+  group: NavigationGroup;
+  tone: AppTone;
+  /** Shown in the phone's bottom bar (waiter use). */
+  mobileTab?: boolean;
 }
 
-export const dashboardNavItems: NavigationItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: AppIcons.dashboard, description: "Resumo operacional" },
-  { href: "/dashboard/pedidos", label: "Pedidos", icon: AppIcons.orders, description: "Fila de pedidos" },
-  { href: "/dashboard/mesas", label: "Mesas", icon: AppIcons.tables, description: "Ocupação de mesas" },
-  { href: "/dashboard/cardapio", label: "Cardápio", icon: AppIcons.menu, description: "Itens e categorias", roles: ["admin", "manager"] },
-  { href: "/dashboard/relatorios", label: "Relatórios", icon: AppIcons.reports, description: "Métricas e desempenho", roles: ["admin", "manager"] },
-  { href: "/dashboard/configuracoes", label: "Configurações", icon: AppIcons.settings, description: "Preferências do sistema", roles: ["admin", "manager"] },
-  { href: "/dashboard/diagnostico", label: "Diagnóstico", icon: AppIcons.diagnostics, description: "Verificar a configuração", roles: ["admin", "manager"] }
+export const NAVIGATION_GROUPS: Array<{ id: NavigationGroup; label: string }> = [
+  { id: "operacao", label: "Operação" },
+  { id: "gestao", label: "Gestão" },
+  { id: "sistema", label: "Sistema" }
 ];
 
-export const authNavItems: NavigationItem[] = [{ href: "/login", label: "Entrar", icon: AppIcons.settings }];
+export const dashboardNavItems: NavigationItem[] = [
+  { href: "/dashboard", label: "Início", icon: House, description: "O dia do restaurante em um olhar", group: "operacao", tone: "primary", mobileTab: true },
+  { href: "/dashboard/pedidos", label: "Pedidos", icon: ReceiptText, description: "Cozinha e pedidos para levar à mesa", group: "operacao", tone: "warning", mobileTab: true },
+  { href: "/dashboard/mesas", label: "Mesas", icon: Armchair, description: "Abrir, encerrar e acompanhar as mesas", group: "operacao", tone: "success", mobileTab: true },
+  { href: "/dashboard/cardapio", label: "Cardápio", icon: BookOpenText, description: "Categorias, pratos e bebidas", roles: ["admin", "manager"], group: "gestao", tone: "primary" },
+  { href: "/dashboard/relatorios", label: "Relatórios", icon: BarChart3, description: "Vendas, produtos e mesas por período", roles: ["admin", "manager"], group: "gestao", tone: "primary" },
+  { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings, description: "Restaurante, pagamentos e atendimento", roles: ["admin", "manager"], group: "sistema", tone: "neutral" },
+  { href: "/dashboard/diagnostico", label: "Diagnóstico", icon: Stethoscope, description: "Verificar se está tudo configurado", roles: ["admin", "manager"], group: "sistema", tone: "neutral" }
+];
+
+export function findNavItem(pathname: string): NavigationItem | undefined {
+  return [...dashboardNavItems].sort((a, b) => b.href.length - a.href.length).find((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)));
+}
