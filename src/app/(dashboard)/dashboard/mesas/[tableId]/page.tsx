@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { buildBill, elapsedLabel, formatAccessCode, TABLE_VIEW_META, tableViewOf, timeLeft } from "@/lib/utils/table-view";
 import { appToast } from "@/lib/utils/toast";
+import { formatOptions } from "@/lib/utils/menu-options";
 
 const STATUS_TEXT: Record<Order["status"], { label: string; className: string }> = {
   received: { label: "Na cozinha", className: "bg-[hsl(var(--gema)/0.2)] text-[hsl(var(--warning))]" },
@@ -151,7 +152,7 @@ export default function MesaDetailPage({ params }: { params: { tableId: string }
                     <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TEXT[order.status].className)}>{STATUS_TEXT[order.status].label}</span>
                   </div>
                   <ul className={cn("mt-2 space-y-0.5 text-sm", order.status === "cancelled" ? "line-through" : "")}>
-                    {order.items.map((item, index) => <li key={index} className="flex justify-between gap-3"><span><span className="num font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="text-[hsl(var(--foreground-muted))]"> ({item.notes})</span> : null}</span><span className="num shrink-0">{formatCurrency(item.total)}</span></li>)}
+                    {order.items.map((item, index) => <li key={index} className="flex justify-between gap-3"><span><span className="num font-semibold">{item.quantity}x</span> {item.nameSnapshot}{item.notes ? <span className="text-[hsl(var(--foreground-muted))]"> ({item.notes})</span> : null}{item.options?.length ? <span className="block text-xs text-[hsl(var(--foreground-muted))]">{formatOptions(item.options)}</span> : null}</span><span className="num shrink-0">{formatCurrency(item.total)}</span></li>)}
                   </ul>
                   {order.status === "cancelled" && order.cancellationReason ? <p className="mt-1 text-xs text-[hsl(var(--danger))]">Cancelado: {order.cancellationReason}</p> : null}
                 </div>

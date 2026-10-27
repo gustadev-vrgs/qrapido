@@ -2,6 +2,7 @@ import type { DocumentData } from "firebase/firestore";
 
 import { DEFAULT_BUSINESS_HOURS } from "@/lib/constants/restaurant-settings";
 import { ensureIsoTimestamp } from "@/lib/data/helpers/serialization";
+import { normalizeDays, normalizeOptionGroups } from "@/lib/utils/menu-options";
 import {
   ORDER_STATUSES,
   PAYMENT_METHODS,
@@ -137,7 +138,9 @@ export function mapMenuItem(id: string, data: DocumentData): MenuItem {
     isAvailable: bool(data.isAvailable, true),
     isFeatured: bool(data.isFeatured, false),
     sortOrder: num(data.sortOrder, 0),
-    station: data.station === "kitchen" || data.station === "ready" ? data.station : null
+    station: data.station === "kitchen" || data.station === "ready" ? data.station : null,
+    optionGroups: normalizeOptionGroups(data.optionGroups),
+    availableDays: normalizeDays(data.availableDays)
   };
 }
 
@@ -152,7 +155,12 @@ function mapOrderItem(raw: unknown): OrderItem {
     total: num(item.total, num(item.priceSnapshot ?? item.price, 0) * Math.max(1, num(item.quantity, 1))),
     categoryIdSnapshot: nullableStr(item.categoryIdSnapshot),
     categoryNameSnapshot: nullableStr(item.categoryNameSnapshot),
-    station: item.station === "ready" ? "ready" : "kitchen"
+    station: item.station === "ready" ? "ready" : "kitchen",
+    options: Array.isArray(item.options) ? item.options.flatMap((option: unknown) => {
+      if (!option || typeof option !== "object") return [];
+      const value = option as Record<string, unknown>;
+      return [{ groupName: str(value.groupName), name: str(value.name, "Opção"), price: num(value.price, 0) }];
+    }) : []
   };
 }
 

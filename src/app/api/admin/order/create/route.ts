@@ -4,10 +4,10 @@ import { z } from "zod";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { FLOOR_ROLES, logAdminFailure, requireStaffRequest } from "@/lib/server/admin-auth";
 import { classifyServerError } from "@/lib/server/api-errors";
-import { CartError, readCartItems, writeCartOrders } from "@/lib/server/place-order";
+import { CartError, cartErrorMessage, readCartItems, writeCartOrders } from "@/lib/server/place-order";
 import { stableHash } from "@/lib/server/public-api-security";
 
-const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(50), notes: z.string().trim().max(180).nullable().optional() }).strict();
+const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(50), notes: z.string().trim().max(180).nullable().optional(), options: z.array(z.object({ groupId: z.string().trim().min(1).max(40), optionId: z.string().trim().min(1).max(40) }).strict()).max(40).optional() }).strict();
 const payloadSchema = z.object({
   tableId: z.string().trim().min(1).max(128),
   items: z.array(itemSchema).min(1).max(40),
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json({ ...result, requestId: staff.requestId }, { status: result.replay ? 200 : 201 });
   } catch (error) {
-    if (error instanceof CartError) return NextResponse.json({ error: "Um dos produtos ficou indisponível. Remova-o e tente de novo.", code: "item_unavailable" }, { status: 409 });
+    if (error instanceof CartError) return NextResponse.json({ error: cartErrorMessage(error), code: error.code === "OPTION_INVALID" ? "option_invalid" : "item_unavailable" }, { status: 409 });
     const failure = error as { status?: number; code?: string };
     if (failure.status && failure.status !== 500) return NextResponse.json({ error: (error as Error).message, code: failure.code, requestId: staff.requestId }, { status: failure.status });
     logAdminFailure(staff.requestId, "create_staff_order", error);

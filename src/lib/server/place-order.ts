@@ -1,6 +1,8 @@
 import "server-only";
 
+import type { OrderItemOption } from "@/lib/types/domain";
 import { toRestaurantDateKey } from "@/lib/utils/date-key";
+import { isServedOn, normalizeDays, normalizeOptionGroups, resolveChoices, restaurantWeekday } from "@/lib/utils/menu-options";
 import { resolveStation } from "@/lib/utils/stations";
 
 type Tx = any;
@@ -8,7 +10,7 @@ type Db = any;
 
 export const money = (value: number): number => Math.round(value * 100) / 100;
 
-export interface CartInput { menuItemId: string; quantity: number; notes?: string | null }
+export interface CartInput { menuItemId: string; quantity: number; notes?: string | null; options?: Array<{ groupId: string; optionId: string }> }
 
 export interface ResolvedItem {
   menuItemId: string;
@@ -20,10 +22,17 @@ export interface ResolvedItem {
   quantity: number;
   notes: string | null;
   total: number;
+  options: OrderItemOption[];
 }
 
 export class CartError extends Error {
-  constructor(public readonly code: "ITEM_UNAVAILABLE" | "ITEM_INVALID") { super(code); }
+  constructor(public readonly code: "ITEM_UNAVAILABLE" | "ITEM_INVALID" | "OPTION_INVALID", public readonly detail?: string) { super(code); }
+}
+
+/** Message for the person who sent the cart. */
+export function cartErrorMessage(error: CartError): string {
+  if (error.code === "OPTION_INVALID") return error.detail ? `Revise as escolhas de "${error.detail}" e tente de novo.` : "As opções de um prato mudaram. Escolha de novo e tente outra vez.";
+  return "Um dos produtos acabou de ficar indisponível. Remova-o e tente novamente.";
 }
 
 /**
@@ -36,12 +45,17 @@ export async function readCartItems(tx: Tx, db: Db, restaurantId: string, cart: 
   const categorySnaps = await Promise.all(categoryIds.map((id) => tx.get(db.collection("menuCategories").doc(id))));
   const activeCategories = categorySnaps.filter((snap: any) => snap.exists && snap.data().isActive !== false && snap.data().restaurantId === restaurantId);
   const categoryNames = new Map(activeCategories.map((snap: any) => [snap.id, String(snap.data().name ?? "Sem categoria").slice(0, 80)]));
+  const today = restaurantWeekday();
   return cart.map((input, index) => {
     const snap = menuSnaps[index];
     const product = snap.exists ? snap.data() : null;
     if (!product || product.restaurantId !== restaurantId || product.isActive === false || product.isAvailable === false || !categoryNames.has(product.categoryId)) throw new CartError("ITEM_UNAVAILABLE");
-    const price = Number(product.price);
-    if (!Number.isFinite(price) || price < 0) throw new CartError("ITEM_INVALID");
+    if (!isServedOn(normalizeDays(product.availableDays), today)) throw new CartError("ITEM_UNAVAILABLE");
+    const basePrice = Number(product.price);
+    if (!Number.isFinite(basePrice) || basePrice < 0) throw new CartError("ITEM_INVALID");
+    const choices = resolveChoices(normalizeOptionGroups(product.optionGroups), input.options);
+    if ("error" in choices) throw new CartError("OPTION_INVALID", choices.group);
+    const price = basePrice + choices.extra;
     const categoryName = categoryNames.get(product.categoryId) ?? "Sem categoria";
     return {
       menuItemId: snap.id,
@@ -52,7 +66,8 @@ export async function readCartItems(tx: Tx, db: Db, restaurantId: string, cart: 
       priceSnapshot: money(price),
       quantity: input.quantity,
       notes: input.notes || null,
-      total: money(price * input.quantity)
+      total: money(price * input.quantity),
+      options: choices.options
     };
   });
 }

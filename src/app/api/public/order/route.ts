@@ -5,10 +5,10 @@ import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { withApiErrors } from "@/lib/server/api-errors";
 import { MAX_PUBLIC_BODY_BYTES, payloadTooLargeResponse, readLimitedJson, stableHash } from "@/lib/server/public-api-security";
 import { computeSessionStatus, PUBLIC_ACCESS_COOKIE, resolveAuthorizedSession, resolveTable } from "@/lib/server/public-session";
-import { CartError, cartTotal, readCartItems, writeCartOrders } from "@/lib/server/place-order";
+import { CartError, cartErrorMessage, cartTotal, readCartItems, writeCartOrders } from "@/lib/server/place-order";
 
 const MAX_CART_LINES = 30;
-const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(20), notes: z.string().trim().max(180).nullable().optional() }).strict();
+const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), quantity: z.number().int().min(1).max(20), notes: z.string().trim().max(180).nullable().optional(), options: z.array(z.object({ groupId: z.string().trim().min(1).max(40), optionId: z.string().trim().min(1).max(40) }).strict()).max(40).optional() }).strict();
 const payloadSchema = z.object({
   items: z.array(itemSchema).min(1).max(MAX_CART_LINES),
   customerName: z.string().trim().max(80).nullable().optional(), notes: z.string().trim().max(500).nullable().optional(),
@@ -91,7 +91,8 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "O carrinho mudou durante o envio. Confirme o pedido novamente.", code: "idempotency_conflict" }, { status: 409 });
     if (code === "ORDER_LIMIT") return NextResponse.json({ error: "Esta mesa atingiu o limite de pedidos definido pela equipe. Chame um atendente.", code: "order_limit" }, { status: 409 });
     if (code === "INVALID_CHANGE") return NextResponse.json({ error: "O valor para troco deve ser igual ou maior que o total do pedido." }, { status: 400 });
-    if (error instanceof CartError || code === "ITEM_UNAVAILABLE" || code === "ITEM_INVALID") return NextResponse.json({ error: "Um dos produtos do carrinho acabou de ficar indisponível. Remova-o e tente novamente.", code: "item_unavailable" }, { status: 409 });
+    if (error instanceof CartError) return NextResponse.json({ error: cartErrorMessage(error), code: error.code === "OPTION_INVALID" ? "option_invalid" : "item_unavailable" }, { status: 409 });
+    if (code === "ITEM_UNAVAILABLE" || code === "ITEM_INVALID") return NextResponse.json({ error: "Um dos produtos do carrinho acabou de ficar indisponível. Remova-o e tente novamente.", code: "item_unavailable" }, { status: 409 });
     if (code === "RATE_LIMIT") { const retryAfter = (error as Error & { retryAfter?: number }).retryAfter ?? 60; return NextResponse.json({ error: `Muitas tentativas desta autorização. Tente novamente em ${retryAfter} segundos.`, retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } }); }
     if (code === "SESSION_INACTIVE") return NextResponse.json({ error: "O atendimento desta mesa foi encerrado ou pausado. Chame um atendente.", code: "session_inactive" }, { status: 409 });
     throw error;

@@ -10,6 +10,7 @@ import { OrdersService } from "@/lib/data/services/orders-service";
 import { SessionsService } from "@/lib/data/services/sessions-service";
 import type { Order, Table, TableSession } from "@/lib/types/domain";
 import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils/formatters";
+import { describeOrderItem } from "@/lib/utils/menu-options";
 
 const TONE: Record<Order["status"], "info" | "warning" | "success" | "neutral" | "danger"> = { received: "info", confirmed: "info", in_preparation: "warning", ready: "success", delivered: "neutral", cancelled: "danger" };
 
@@ -69,7 +70,7 @@ export function TableHistory({ table, restaurantId }: { table: Table; restaurant
             <ul className="space-y-1">
               {entry.orders.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt)).map((order) => (
                 <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-sm">
-                  <span className="min-w-0"><span className="num text-xs">{order.orderCode}</span> · {order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", ")}</span>
+                  <span className="min-w-0"><span className="num text-xs">{order.orderCode}</span> · {order.items.map(describeOrderItem).join(", ")}</span>
                   <span className="flex items-center gap-2"><AppStatusBadge tone={TONE[order.status]}>{orderStatusLabels[order.status]}</AppStatusBadge>{formatCurrency(order.total)}</span>
                 </li>
               ))}

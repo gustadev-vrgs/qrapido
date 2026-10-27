@@ -11,6 +11,7 @@ import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { CartItem, PaymentMethod, PublicMenuItem, PublicOrder, PublicTableData } from "@/lib/types/domain";
 import { randomKey, readStored, storageKeys, writeStored } from "@/lib/utils/customer-storage";
 import { cn } from "@/lib/utils/cn";
+import { describeOrderItem, groupRuleLabel, resolveChoices } from "@/lib/utils/menu-options";
 import { formatCurrency } from "@/lib/utils/formatters";
 
 type LoadState = { kind: "loading" } | { kind: "error"; title: string; message: string } | { kind: "ready"; data: PublicTableData };
@@ -55,6 +56,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
   const [selected, setSelected] = useState<PublicMenuItem | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [itemNotes, setItemNotes] = useState("");
+  const [choices, setChoices] = useState<Record<string, string[]>>({});
+  const [choiceError, setChoiceError] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
   const [customerName, setCustomerName] = useState("");
@@ -126,7 +129,14 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
     if (!data) return;
     const byId = new Map(data.items.map((item) => [item.id, item]));
     setCart((current) => {
-      const next = current.filter((line) => byId.has(line.menuItemId)).map((line) => ({ ...line, price: byId.get(line.menuItemId)!.price, name: byId.get(line.menuItemId)!.name }));
+      // Prices come from the menu again (options included); a line whose options no longer exist is dropped.
+      const next = current.flatMap((line) => {
+        const item = byId.get(line.menuItemId);
+        if (!item) return [];
+        const resolved = resolveChoices(item.optionGroups ?? [], line.options);
+        if ("error" in resolved) return [];
+        return [{ ...line, name: item.name, price: Math.round((item.price + resolved.extra) * 100) / 100 }];
+      });
       if (next.length !== current.length) setNotice("Alguns itens saíram do cardápio e foram removidos do carrinho.");
       return next;
     });
@@ -180,20 +190,56 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
     void fetchTable(true);
   }
 
-  function addLine(item: PublicMenuItem, count: number, notes: string): void {
+  function addLine(item: PublicMenuItem, count: number, notes: string, picked: Array<{ groupId: string; optionId: string }> = []): boolean {
+    const resolved = resolveChoices(item.optionGroups ?? [], picked);
+    if ("error" in resolved) return false;
+    const key = picked.map((choice) => `${choice.groupId}:${choice.optionId}`).sort().join("|");
+    const optionsLabel = resolved.options.map((option) => option.name).join(", ");
+    const price = Math.round((item.price + resolved.extra) * 100) / 100;
     setCart((current) => {
-      const found = current.find((line) => line.menuItemId === item.id && line.notes === notes);
+      const sameKey = (line: CartItem) => (line.options ?? []).map((choice) => `${choice.groupId}:${choice.optionId}`).sort().join("|") === key;
+      const found = current.find((line) => line.menuItemId === item.id && line.notes === notes && sameKey(line));
       if (found) return current.map((line) => (line === found ? { ...line, quantity: Math.min(20, line.quantity + count) } : line));
-      return [...current, { menuItemId: item.id, name: item.name, price: item.price, quantity: count, notes, imageUrl: item.imageUrl }];
+      return [...current, { menuItemId: item.id, name: item.name, price, quantity: count, notes, imageUrl: item.imageUrl, options: picked, optionsLabel }];
+    });
+    return true;
+  }
+
+  function openItem(item: PublicMenuItem): void {
+    setSelected(item);
+    setQuantity(1);
+    setItemNotes("");
+    setChoiceError("");
+    // Single-choice required groups start with the first option chosen: one tap less.
+    setChoices(Object.fromEntries((item.optionGroups ?? []).map((group) => [group.id, group.min === 1 && group.max === 1 ? [group.options[0].id] : []])));
+  }
+
+  function toggleChoice(groupId: string, optionId: string, max: number): void {
+    setChoiceError("");
+    setChoices((current) => {
+      const chosen = current[groupId] ?? [];
+      if (chosen.includes(optionId)) return { ...current, [groupId]: chosen.filter((id) => id !== optionId) };
+      if (max === 1) return { ...current, [groupId]: [optionId] };
+      if (chosen.length >= max) return current;
+      return { ...current, [groupId]: [...chosen, optionId] };
     });
   }
 
   function addFromSheet(): void {
     if (!selected) return;
-    addLine(selected, quantity, itemNotes.trim());
+    const picked = Object.entries(choices).flatMap(([groupId, ids]) => ids.map((optionId) => ({ groupId, optionId })));
+    const resolved = resolveChoices(selected.optionGroups ?? [], picked);
+    if ("error" in resolved) { setChoiceError(resolved.group ? `Escolha em "${resolved.group}".` : "Revise as escolhas."); return; }
+    addLine(selected, quantity, itemNotes.trim(), picked);
     setSelected(null);
     setNotice(`${quantity}x ${selected.name} no carrinho`);
   }
+
+  const sheetExtra = (() => {
+    if (!selected) return 0;
+    const picked = Object.entries(choices).flatMap(([groupId, ids]) => ids.map((optionId) => ({ groupId, optionId })));
+    return (selected.optionGroups ?? []).reduce((sum, group) => sum + group.options.filter((option) => picked.some((choice) => choice.groupId === group.id && choice.optionId === option.id)).reduce((acc, option) => acc + option.price, 0), 0);
+  })();
 
   function changeLine(index: number, delta: number): void {
     setCart((current) => current.map((line, position) => (position === index ? { ...line, quantity: Math.min(20, line.quantity + delta) } : line)).filter((line) => line.quantity > 0));
@@ -214,7 +260,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
         method: "POST",
         headers: { "Content-Type": "application/json", "x-csrf-token": csrf, "Idempotency-Key": attempt },
         body: JSON.stringify({
-          items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes || null })),
+          items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes || null, ...(line.options?.length ? { options: line.options } : {}) })),
           customerName: customerName.trim() || null,
           notes: orderNotes.trim() || null,
           paymentMethod,
@@ -229,6 +275,8 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
         if (payload.code === "idempotency_conflict" && !retry) { writeStored(storageKeys.attempt(token), null); await submitOrder(true); return; }
         if (response.status < 500) writeStored(storageKeys.attempt(token), null);
         setFeedback(payload.error ?? "Não foi possível enviar o pedido.");
+        // Something sold out or changed: reload the menu so the cart drops/reprices it.
+        if (payload.code === "item_unavailable" || payload.code === "option_invalid") void fetchTable(true);
         if (["session_expired", "no_session", "session_inactive"].includes(payload.code)) void fetchTable(true);
         return;
       }
@@ -356,7 +404,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
         {category === "all" && !search && featured.length ? (
           <div className="flex gap-3 overflow-x-auto pb-1">
             {featured.map((item) => (
-              <button key={item.id} type="button" onClick={() => { setSelected(item); setQuantity(1); setItemNotes(""); }} className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] text-left">
+              <button key={item.id} type="button" onClick={() => openItem(item)} className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[hsl(var(--border-strong))] bg-[hsl(var(--background-elevated))] text-left">
                 <div className="h-24 w-full"><ItemImage item={item} size={160} emoji={emojiFor(item)} /></div>
                 <div className="p-2"><p className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--warning))]"><Sparkles className="h-3 w-3" />Destaque</p><p className="line-clamp-1 text-sm font-semibold">{item.name}</p><p className="num text-sm">{formatCurrency(item.price)}</p></div>
               </button>
@@ -371,16 +419,16 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
             const count = inCart(item.id);
             return (
               <AppSurface key={item.id} className={cn("relative overflow-hidden p-0", count ? "border-[hsl(var(--primary)/0.5)]" : "")}>
-                <button type="button" className="flex w-full gap-3 p-3 pr-16 text-left" onClick={() => { setSelected(item); setQuantity(1); setItemNotes(""); }}>
+                <button type="button" className="flex w-full gap-3 p-3 pr-16 text-left" onClick={() => openItem(item)}>
                   <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl"><ItemImage item={item} emoji={emojiFor(item)} /></div>
                   <div className="min-w-0 flex-1 space-y-1">
-                    <h2 className="text-base leading-tight">{item.name}</h2>
+                    <h2 className="text-base leading-tight">{item.dailySpecial ? <span className="mr-1.5 inline-block rounded-full bg-[hsl(var(--gema))] px-2 py-0.5 align-middle text-xs font-bold text-[hsl(217_28%_15%)]">Hoje</span> : null}{item.name}</h2>
                     {item.description ? <p className="line-clamp-2 text-xs text-[hsl(var(--foreground-muted))]">{item.description}</p> : null}
                     <div className="flex items-center gap-3 pt-1 text-sm"><strong className="num text-[hsl(var(--primary))]">{formatCurrency(item.price)}</strong>{item.preparationTimeMinutes ? <span className="inline-flex items-center gap-1 text-xs text-[hsl(var(--foreground-muted))]"><Clock3 className="h-3 w-3" />{item.preparationTimeMinutes} min</span> : null}</div>
                   </div>
                 </button>
                 {/* One tap adds one; tapping the card opens quantity and notes. */}
-                <button type="button" aria-label={`Adicionar ${item.name}`} onClick={() => { addLine(item, 1, ""); setNotice(`${item.name} no carrinho`); }} className="absolute bottom-3 right-3 inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full bg-[hsl(var(--primary))] px-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-md">
+                <button type="button" aria-label={`Adicionar ${item.name}`} onClick={() => { if ((item.optionGroups ?? []).some((group) => group.min > 0)) { openItem(item); return; } addLine(item, 1, ""); setNotice(`${item.name} no carrinho`); }} className="absolute bottom-3 right-3 inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full bg-[hsl(var(--primary))] px-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-md">
                   {count ? <span className="num">{count}</span> : null}<Plus className="h-5 w-5" />
                 </button>
               </AppSurface>
@@ -412,8 +460,25 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
               <AppActionButton variant="secondary" className="h-10 w-10 px-0" aria-label="Aumentar" onClick={() => setQuantity(Math.min(20, quantity + 1))}><Plus className="h-4 w-4" /></AppActionButton>
             </div>
           </div>
+          {(selected.optionGroups ?? []).map((group) => (
+            <fieldset key={group.id} className="mb-4 space-y-2">
+              <legend className="flex w-full items-center justify-between gap-2 pb-1"><span className="font-semibold">{group.name}</span><span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", group.min > 0 ? "bg-[hsl(var(--gema)/0.22)] text-[hsl(var(--warning))]" : "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]")}>{groupRuleLabel(group)}</span></legend>
+              <div className="grid gap-1.5">
+                {group.options.map((option) => {
+                  const active = (choices[group.id] ?? []).includes(option.id);
+                  return (
+                    <button key={option.id} type="button" role={group.max === 1 ? "radio" : "checkbox"} aria-checked={active} onClick={() => toggleChoice(group.id, option.id, group.max)} className={cn("flex min-h-11 items-center justify-between gap-3 rounded-[var(--radius-md)] border px-3 py-2 text-left text-sm", active ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary-soft))] font-semibold" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))]")}>
+                      <span className="flex items-center gap-2"><span className={cn("inline-flex h-5 w-5 shrink-0 items-center justify-center border-2", group.max === 1 ? "rounded-full" : "rounded-md", active ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary))]" : "border-[hsl(var(--border-strong))]")}>{active ? <span className={cn("bg-white", group.max === 1 ? "h-2 w-2 rounded-full" : "h-2.5 w-2.5 rounded-sm")} /> : null}</span>{option.name}</span>
+                      {option.price > 0 ? <span className="num shrink-0 text-[hsl(var(--foreground-muted))]">+{formatCurrency(option.price)}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ))}
+          {choiceError ? <p className="mb-2 text-sm text-[hsl(var(--danger))]">{choiceError}</p> : null}
           {loaded.settings.allowCustomerNotes ? <textarea className="app-field mb-3 min-h-20 py-2" value={itemNotes} maxLength={180} onChange={(event) => setItemNotes(event.target.value)} placeholder="Alguma observação? Ex.: sem cebola" /> : null}
-          <AppActionButton className="h-12 w-full justify-between text-base" onClick={addFromSheet}><span>Adicionar</span><span className="num">{formatCurrency(selected.price * quantity)}</span></AppActionButton>
+          <AppActionButton className="h-12 w-full justify-between text-base" onClick={addFromSheet}><span>Adicionar</span><span className="num">{formatCurrency((selected.price + sheetExtra) * quantity)}</span></AppActionButton>
         </Sheet>
       ) : null}
 
@@ -423,9 +488,10 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
             <div className="space-y-4">
               <ul className="divide-y divide-[hsl(var(--border))]">
                 {cart.map((line, index) => (
-                  <li key={`${line.menuItemId}-${line.notes}`} className="flex items-center gap-3 py-2.5">
+                  <li key={`${line.menuItemId}-${line.notes}-${line.optionsLabel ?? ""}`} className="flex items-center gap-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold">{line.name}</p>
+                      {line.optionsLabel ? <p className="text-xs text-[hsl(var(--primary))]">{line.optionsLabel}</p> : null}
                       {line.notes ? <p className="text-xs text-[hsl(var(--foreground-muted))]">{line.notes}</p> : null}
                       <p className="num text-sm text-[hsl(var(--foreground-muted))]">{formatCurrency(line.price * line.quantity)}</p>
                     </div>
@@ -512,7 +578,7 @@ export default function PublicMesaPage({ params }: { params: { token: string } }
               <Link key={order.id} href={`/mesa/${encodeURIComponent(token)}/pedido/${order.id}`} className="block">
                 <AppSurface className="space-y-1 p-3">
                   <div className="flex items-center justify-between gap-2"><span className="num text-sm font-semibold">{order.orderCode}</span><AppStatusBadge tone={ORDER_TONE[order.status] ?? "info"}>{customerStatusLabel(order.status, order.station)}</AppStatusBadge></div>
-                  <p className="text-sm text-[hsl(var(--foreground-muted))]">{order.items.map((item) => `${item.quantity}x ${item.nameSnapshot}`).join(", ")}</p>
+                  <p className="text-sm text-[hsl(var(--foreground-muted))]">{order.items.map(describeOrderItem).join(", ")}</p>
                   <p className="num text-sm font-semibold">{formatCurrency(order.total)}</p>
                 </AppSurface>
               </Link>

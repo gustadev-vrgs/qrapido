@@ -100,13 +100,22 @@ export const menuItemSchema = baseEntitySchema.extend({
   slug: z.string().min(2).max(80).regex(/^[a-z0-9-]+$/),
   description: z.string().max(600),
   price: moneySchema,
-  imageUrl: z.string().url().nullable(),
+  // Either an external link or a photo uploaded to the restaurant (served by /api/public/menu-image).
+  imageUrl: z.string().max(500).refine((value) => value.startsWith("/api/public/menu-image/") || /^https?:\/\//.test(value), "Link de imagem inválido").nullable(),
   preparationTimeMinutes: z.number().int().min(0).max(180),
   isActive: z.boolean(),
   isAvailable: z.boolean(),
   isFeatured: z.boolean(),
   sortOrder: z.number().int().nonnegative(),
-  station: z.enum(["kitchen", "ready"]).nullable().optional()
+  station: z.enum(["kitchen", "ready"]).nullable().optional(),
+  optionGroups: z.array(z.object({
+    id: z.string().min(1).max(40),
+    name: z.string().trim().min(1).max(60),
+    min: z.number().int().min(0).max(15),
+    max: z.number().int().min(1).max(15),
+    options: z.array(z.object({ id: z.string().min(1).max(40), name: z.string().trim().min(1).max(60), price: z.number().min(0).max(10000) })).min(1).max(15)
+  }).refine((group) => group.min <= group.max && group.max <= group.options.length, "Regra de escolha inválida")).max(6).optional(),
+  availableDays: z.array(z.number().int().min(0).max(6)).max(7).optional()
 });
 
 export const orderItemSchema = z.object({
