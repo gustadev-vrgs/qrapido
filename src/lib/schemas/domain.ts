@@ -165,7 +165,7 @@ export const orderEventSchema = z.object({
   actorType: actorTypeSchema,
   actorId: entityIdSchema.nullable(),
   message: z.string().min(1).max(280),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: isoDateTimeSchema
 });
 

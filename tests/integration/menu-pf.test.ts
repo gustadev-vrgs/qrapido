@@ -62,7 +62,7 @@ test("prato do dia só aparece e só pode ser pedido nos dias marcados", async (
   const today = restaurantWeekday();
   await fakeDb.collection("menuItems").doc("drink-1").update({ availableDays: [(today + 1) % 7] });
   await fakeDb.collection("menuItems").doc("item-1").update({ availableDays: [today], optionGroups: [] });
-  const menu = await json(await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: { token: publicToken } }));
+  const menu = await json(await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) }));
   const ids = menu.items.map((item: { id: string }) => item.id);
   assert.ok(!ids.includes("drink-1"), "fora do dia não aparece");
   assert.equal(menu.items.find((item: { id: string }) => item.id === "item-1").dailySpecial, true);
@@ -75,7 +75,7 @@ test("cozinha marca esgotado com um toque e o item some do cardápio do cliente"
   const { publicToken } = seedRestaurant();
   const response = await setAvailability(staffRequest("/api/admin/menu/availability", KITCHEN_UID, { itemId: "drink-1", isAvailable: false }));
   assert.equal(response.status, 200);
-  const menu = await json(await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: { token: publicToken } }));
+  const menu = await json(await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) }));
   assert.ok(!menu.items.some((item: { id: string }) => item.id === "drink-1"));
   assert.equal((await setAvailability(staffRequest("/api/admin/menu/availability", KITCHEN_UID, { itemId: "nao-existe", isAvailable: true }))).status, 404);
 });
@@ -90,7 +90,7 @@ test("foto do prato: salva sem Storage, é servida com cache e pode ser removida
   assert.match(saved.imageUrl, /^\/api\/public\/menu-image\/item-1\?v=/);
   assert.equal(fakeDb.all("menuItems").find((item) => item.id === "item-1")!.imageUrl, saved.imageUrl);
 
-  const served = await menuImage(new Browser().request("/api/public/menu-image/item-1"), { params: { itemId: "item-1" } });
+  const served = await menuImage(new Browser().request("/api/public/menu-image/item-1"), { params: Promise.resolve({ itemId: "item-1" }) });
   assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "image/jpeg");
   assert.match(served.headers.get("cache-control") ?? "", /immutable/);
@@ -102,5 +102,5 @@ test("foto do prato: salva sem Storage, é servida com cache e pode ser removida
 
   assert.equal((await uploadImage(staffRequest("/api/admin/menu/image", ADMIN_UID, { itemId: "item-1", dataUrl: null }))).status, 200);
   assert.equal(fakeDb.all("menuItems").find((item) => item.id === "item-1")!.imageUrl, null);
-  assert.equal((await menuImage(new Browser().request("/api/public/menu-image/item-1"), { params: { itemId: "item-1" } })).status, 404);
+  assert.equal((await menuImage(new Browser().request("/api/public/menu-image/item-1"), { params: Promise.resolve({ itemId: "item-1" }) })).status, 404);
 });

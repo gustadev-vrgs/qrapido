@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChefHat, Clock3, UtensilsCrossed } from "lucide-react";
 
@@ -28,7 +29,8 @@ function stepIndex(status: PublicOrder["status"]): number {
   return 0;
 }
 
-export default function PublicOrderPage({ params }: { params: { token: string; orderId: string } }): JSX.Element {
+export default function PublicOrderPage(): JSX.Element {
+  const params = useParams<{ token: string; orderId: string }>();
   const token = useMemo(() => decodeURIComponent(params.token), [params.token]);
   const [order, setOrder] = useState<PublicOrder | null>(null);
   const [error, setError] = useState("");

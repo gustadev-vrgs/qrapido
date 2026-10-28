@@ -88,7 +88,7 @@ test("encerrar marca prontos como entregues sozinho e pede confirmação se algo
   assert.ok(fakeDb.all("waiterCalls").every((call) => call.status === "completed"), "chamados da mesa são concluídos ao encerrar");
   assert.equal(fakeDb.all("waiterCallLocks").length, 0);
 
-  const scanned = await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: { token: publicToken } });
+  const scanned = await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) });
   assert.equal((await json(scanned)).access, "no_session");
 });
 
@@ -113,7 +113,7 @@ test("excluir mesa arquiva, mantém histórico e pode ser restaurada", async () 
   assert.equal(archived.status, 200);
   assert.ok(fakeDb.all("tables")[0].archivedAt);
   assert.equal(fakeDb.all("orders").length, 1, "pedidos continuam no histórico");
-  const scanned = await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: { token: publicToken } });
+  const scanned = await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) });
   assert.equal(scanned.status, 423, "QR de mesa excluída não abre");
 
   const kitchenTry = await archiveTable(staffRequest("/api/admin/table/archive", KITCHEN_UID, { tableId: "table-1", archived: false }));
@@ -121,5 +121,5 @@ test("excluir mesa arquiva, mantém histórico e pode ser restaurada", async () 
   const restored = await archiveTable(staffRequest("/api/admin/table/archive", ADMIN_UID, { tableId: "table-1", archived: false }));
   assert.equal(restored.status, 200);
   assert.equal(fakeDb.all("tables")[0].archivedAt, null);
-  assert.equal((await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: { token: publicToken } })).status, 200);
+  assert.equal((await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) })).status, 200);
 });

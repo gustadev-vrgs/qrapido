@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import type { Route } from "next";
 import { useEffect, useState } from "react";
 import { ArchiveRestore, ArrowLeft, ChefHat, ClipboardPen, Copy, CupSoda, DoorOpen, Edit2, History, KeyRound, Loader2, Power, QrCode, ReceiptText, RefreshCw, Trash2, TriangleAlert, Users, Wallet } from "lucide-react";
@@ -32,7 +33,8 @@ const STATUS_TEXT: Record<Order["status"], { label: string; className: string }>
 
 type Dialog = "open" | "close" | "edit" | "archive" | "qr" | null;
 
-export default function MesaDetailPage({ params }: { params: { tableId: string } }): JSX.Element {
+export default function MesaDetailPage(): JSX.Element {
+  const params = useParams<{ tableId: string }>();
   const { user } = useAdminAuth();
   const api = useAdminApi();
   const canManage = user?.role === "admin" || user?.role === "manager";

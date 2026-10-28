@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ChefHat, ChevronRight, Clock3, HandPlatter, KeyRound, Loader2, MessageSquarePlus, Minus, Plus, ReceiptText, RefreshCw, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
@@ -43,7 +44,8 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-export default function PublicMesaPage({ params }: { params: { token: string } }): JSX.Element {
+export default function PublicMesaPage(): JSX.Element {
+  const params = useParams<{ token: string }>();
   const token = useMemo(() => decodeURIComponent(params.token ?? "").trim(), [params.token]);
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [refreshing, setRefreshing] = useState(false);

@@ -5,7 +5,8 @@ import { withApiErrors } from "@/lib/server/api-errors";
 import { toPublicOrder } from "@/lib/server/public-orders";
 import { PUBLIC_ACCESS_COOKIE, resolveHistoricalAuthorizedSession } from "@/lib/server/public-session";
 
-async function handler(request: NextRequest, { params }: { params: { orderId: string } }): Promise<NextResponse> {
+async function handler(request: NextRequest, context: { params: Promise<{ orderId: string }> }): Promise<NextResponse> {
+  const params = await context.params;
   const session = await resolveHistoricalAuthorizedSession(request.cookies.get(PUBLIC_ACCESS_COOKIE)?.value ?? null);
   if (!session) return NextResponse.json({ error: "Este celular não tem acesso a este pedido.", code: "needs_code" }, { status: 401 });
   const orderId = String(params.orderId ?? "").slice(0, 128);
