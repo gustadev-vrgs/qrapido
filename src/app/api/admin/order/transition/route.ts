@@ -20,7 +20,7 @@ const payloadSchema = z.object({
   nextStatus: z.enum(["confirmed", "in_preparation", "ready", "delivered", "cancelled"]),
   reason: z.string().trim().min(4).max(300).optional()
 }).strict().superRefine((value, context) => {
-  if (value.nextStatus === "cancelled" && !value.reason) context.addIssue({ code: z.ZodIssueCode.custom, message: "Motivo obrigatório." });
+  if (value.nextStatus === "cancelled" && !value.reason) context.addIssue({ code: "custom", message: "Motivo obrigatório." });
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Loader2, MessageSquarePlus, Minus, Plus, Send, TriangleAlert } from "lucide-react";
 
@@ -23,7 +23,8 @@ import { appToast } from "@/lib/utils/toast";
 interface Line { itemId: string; quantity: number; notes: string; showNotes: boolean; options: Array<{ groupId: string; optionId: string }>; optionsLabel: string; unitPrice: number }
 
 /** The waiter takes the order on the phone for customers who prefer not to use theirs. */
-export default function LancarPedidoPage({ params }: { params: { tableId: string } }): JSX.Element {
+export default function LancarPedidoPage(): JSX.Element {
+  const params = useParams<{ tableId: string }>();
   const { user } = useAdminAuth();
   const api = useAdminApi();
   const router = useRouter();

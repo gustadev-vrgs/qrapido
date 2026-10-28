@@ -24,7 +24,7 @@ import { ADMIN_UID, Browser, KITCHEN_UID, json, ORIGIN, seedRestaurant, staffReq
 // path and in the operational panel must work on a brand-new Firebase project.
 
 async function scan(phone: Browser, token: string) {
-  const response = await getTable(phone.request(`/api/public/table/${token}`), { params: { token } });
+  const response = await getTable(phone.request(`/api/public/table/${token}`), { params: Promise.resolve({ token }) });
   return { status: response.status, body: await json(response) };
 }
 
@@ -90,7 +90,7 @@ test("fluxo completo: abrir mesa, código, vários pedidos, cozinha, encerrar", 
     const response = await transition(staffRequest("/api/admin/order/transition", KITCHEN_UID, { orderId: first.body.orderId, nextStatus: next }));
     assert.equal(response.status, 200, next);
   }
-  const tracked = await json(await getOrder(phone.request(`/api/public/order/${first.body.orderId}`), { params: { orderId: first.body.orderId } }));
+  const tracked = await json(await getOrder(phone.request(`/api/public/order/${first.body.orderId}`), { params: Promise.resolve({ orderId: first.body.orderId }) }));
   assert.equal(tracked.status, "delivered");
   assert.equal(tracked.orderCode, first.body.orderCode);
 
@@ -105,7 +105,7 @@ test("fluxo completo: abrir mesa, código, vários pedidos, cozinha, encerrar", 
   }
   const friendOrder = fakeDb.all("orders").find((item) => item.status === "received")!;
   await transition(staffRequest("/api/admin/order/transition", ADMIN_UID, { orderId: friendOrder.id, nextStatus: "cancelled", reason: "Teste de cancelamento" }));
-  const cancelled = await json(await getOrder(phone.request(`/api/public/order/${second.body.orderId}`), { params: { orderId: second.body.orderId } }));
+  const cancelled = await json(await getOrder(phone.request(`/api/public/order/${second.body.orderId}`), { params: Promise.resolve({ orderId: second.body.orderId }) }));
   assert.equal(cancelled.cancellationReason, "Cliente desistiu");
 
   const closed = await closeTable(staffRequest("/api/admin/table/close", ADMIN_UID, { tableId: "table-1" }));

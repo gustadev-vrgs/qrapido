@@ -6,7 +6,8 @@ import { computeSessionStatus, findLiveSessionForTable, loadPublicMenu, markSess
 import type { PublicTableAccess } from "@/lib/types/domain";
 import { isValidPublicTableToken } from "@/lib/utils/public-url";
 
-async function handler(request: NextRequest, { params }: { params: { token: string } }): Promise<NextResponse> {
+async function handler(request: NextRequest, context: { params: Promise<{ token: string }> }): Promise<NextResponse> {
+  const params = await context.params;
   const token = decodeURIComponent(params.token ?? "").trim();
   if (!isValidPublicTableToken(token)) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada.", code: "invalid_qr" }, { status: 404 });
 

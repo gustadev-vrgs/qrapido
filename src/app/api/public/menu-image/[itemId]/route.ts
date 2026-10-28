@@ -5,7 +5,8 @@ import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 export const dynamic = "force-dynamic";
 
 /** Serves a dish photo. The URL carries a version (?v=), so browsers and the CDN may cache it for a long time. */
-export async function GET(_request: NextRequest, { params }: { params: { itemId: string } }): Promise<NextResponse> {
+export async function GET(_request: NextRequest, context: { params: Promise<{ itemId: string }> }): Promise<NextResponse> {
+  const params = await context.params;
   const id = String(params.itemId ?? "").slice(0, 128);
   if (!id) return new NextResponse(null, { status: 404 });
   try {
