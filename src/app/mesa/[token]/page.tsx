@@ -74,6 +74,7 @@ export default function PublicMesaPage(): JSX.Element {
   const [orders, setOrders] = useState<PublicOrder[]>([]);
   const [calling, setCalling] = useState(false);
   const [notice, setNotice] = useState("");
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
 
   const visible = usePageVisible();
   const data = load.kind === "ready" ? load.data : null;
@@ -100,7 +101,11 @@ export default function PublicMesaPage(): JSX.Element {
   const fetchOrders = useCallback(async () => {
     try {
       const response = await fetch("/api/public/orders", { cache: "no-store" });
-      if (response.ok) setOrders(((await response.json()) as { orders: PublicOrder[] }).orders ?? []);
+      if (response.ok) {
+        const payload = (await response.json()) as { orders: PublicOrder[]; receiptUrl?: string | null };
+        setOrders(payload.orders ?? []);
+        setReceiptUrl(payload.receiptUrl ?? null);
+      }
     } catch { /* keeps the last list */ }
   }, []);
 
@@ -391,6 +396,14 @@ export default function PublicMesaPage(): JSX.Element {
             ) : null}
           </div>
         </AppSurface>
+
+        {receiptUrl && !canOrder ? (
+          <a href={receiptUrl} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--success)/0.45)] bg-[hsl(var(--success)/0.08)] p-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--success))] text-white"><ReceiptText className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1"><span className="block font-semibold">Conta fechada. Obrigado!</span><span className="block text-sm text-[hsl(var(--foreground-muted))]">Toque para ver ou salvar o comprovante.</span></span>
+            <ChevronRight className="h-5 w-5 text-[hsl(var(--foreground-muted))]" />
+          </a>
+        ) : null}
 
         {activeOrders.length ? (
           <button type="button" onClick={() => setPanel("orders")} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-3 text-left">
