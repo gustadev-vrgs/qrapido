@@ -13,7 +13,7 @@ import { toRestaurantDateKey } from "@/lib/utils/date-key";
 import { appToast } from "@/lib/utils/toast";
 
 type Check = { label: string; ok: boolean | null; detail: string; link?: string };
-type Health = { firebaseAdmin: { ok: boolean; source: string; projectId: string | null; problems: string[] }; firestore: { ok: boolean; code?: string; hint?: string }; firebaseClient: { projectId: string | null }; publicUrl: { base: string; problem: string | null } };
+type Health = { firebaseAdmin: { ok: boolean; source: string; projectId: string | null; problems: string[] }; firestore: { ok: boolean; code?: string; hint?: string; detail?: string }; firebaseClient: { projectId: string | null }; publicUrl: { base: string; problem: string | null } };
 type Issue = { code: string; severity: "error" | "warning"; message: string; fix: string; link?: string };
 
 function Row({ check }: { check: Check }): JSX.Element {
@@ -51,7 +51,7 @@ export default function DiagnosticoPage(): JSX.Element {
       const mismatch = health.firebaseAdmin.projectId && health.firebaseClient.projectId && health.firebaseAdmin.projectId !== health.firebaseClient.projectId;
       setServer([
         { label: "Credenciais do Firebase Admin no servidor", ok: health.firebaseAdmin.ok, detail: health.firebaseAdmin.ok ? `Configuradas (projeto ${health.firebaseAdmin.projectId}).` : health.firebaseAdmin.problems.join(" ") || "Ausentes." },
-        { label: "Servidor acessa o Firestore", ok: health.firestore.ok, detail: health.firestore.ok ? "Conectado." : health.firestore.hint ?? "Sem acesso." },
+        { label: "Servidor acessa o Firestore", ok: health.firestore.ok, detail: health.firestore.ok ? "Conectado." : [health.firestore.hint ?? "Sem acesso.", health.firestore.detail].filter(Boolean).join(" Detalhe: ") },
         { label: "Site e servidor usam o mesmo projeto Firebase", ok: !mismatch, detail: mismatch ? `Site: ${health.firebaseClient.projectId} · Servidor: ${health.firebaseAdmin.projectId}. Use as credenciais do mesmo projeto.` : `Projeto ${health.firebaseClient.projectId ?? "?"}.` },
         { label: "Endereço usado nos QR Codes", ok: !health.publicUrl.problem, detail: health.publicUrl.problem ?? `${health.publicUrl.base} (abre no celular).` }
       ]);
@@ -105,7 +105,6 @@ export default function DiagnosticoPage(): JSX.Element {
   };
 
   const fixable = (issues ?? []).some((issue) => ["RESTAURANT_DOC_MISSING", "SETTINGS_MISSING", "TABLE_QR_INVALID"].includes(issue.code));
-  const rulesFailing = rules.some((check) => check.ok === false);
 
   return (
     <section className="space-y-4">
@@ -116,24 +115,10 @@ export default function DiagnosticoPage(): JSX.Element {
 
       <AppSectionCard title="1. Servidor (Vercel)" description="Necessário para o QR Code, abrir/encerrar mesas e receber pedidos.">
         <ul className="space-y-2">{server.map((check) => <Row key={check.label} check={check} />)}</ul>
-        {server.some((check) => check.ok === false) ? (
-          <AppSurface className="mt-3 space-y-1 p-3 text-sm">
-            <p className="font-semibold">Como corrigir as credenciais</p>
-            <p>No Firebase: Configurações do projeto → Contas de serviço → Gerar nova chave privada (baixa um .json).</p>
-            <p>Na Vercel: Settings → Environment Variables → crie <code>FIREBASE_SERVICE_ACCOUNT</code> e cole o conteúdo inteiro do .json. Depois faça um novo deploy (Deployments → Redeploy).</p>
-          </AppSurface>
-        ) : null}
       </AppSectionCard>
 
       <AppSectionCard title="2. Regras do Firestore (painel)" description="O painel lê o banco direto do navegador; se as regras não estiverem publicadas, aparece erro de permissão.">
         <ul className="space-y-2">{rules.map((check) => <Row key={check.label} check={check} />)}</ul>
-        {rulesFailing ? (
-          <AppSurface className="mt-3 space-y-1 p-3 text-sm">
-            <p className="font-semibold">Como publicar as regras</p>
-            <p>No computador, na pasta do projeto: <code>npm run firebase:deploy</code> (pede login no Firebase na primeira vez).</p>
-            <p>Ou no console do Firebase: Firestore → Regras → cole o conteúdo de <code>firestore/firestore.rules</code> → Publicar.</p>
-          </AppSurface>
-        ) : null}
       </AppSectionCard>
 
       <AppSectionCard title="3. Dados do restaurante" description="Cadastros que faltam e mesas com QR Code inválido." action={fixable ? <AppActionButton className="gap-2" disabled={repairing} onClick={() => void repair()}>{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}Corrigir automaticamente</AppActionButton> : null}>
