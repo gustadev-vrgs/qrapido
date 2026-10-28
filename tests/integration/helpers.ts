@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { fakeDb } from "../fakes/firebase-admin";
+import { fakeAuth, fakeDb } from "../fakes/firebase-admin";
 
 export const RESTAURANT_ID = "rest-demo";
 export const ADMIN_UID = "admin-uid-123";
@@ -12,6 +12,7 @@ const now = () => new Date().toISOString();
 /** Seeds what a real project has after following the README: staff, one table created by the panel and a small menu. */
 export function seedRestaurant(options: { withSettings?: boolean; withRestaurantDoc?: boolean } = {}) {
   fakeDb.reset();
+  fakeAuth.reset();
   const db = fakeDb;
   if (options.withRestaurantDoc !== false) {
     void db.collection("restaurants").doc(RESTAURANT_ID).set({ restaurantId: RESTAURANT_ID, name: "Cantina Teste", isActive: true, createdAt: now(), updatedAt: now() });

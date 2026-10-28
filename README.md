@@ -6,11 +6,12 @@ Projeto de extensão (Engenharia de Software), gratuito para pequenos restaurant
 
 ## Como funciona
 
-1. **Cada mesa tem um QR Code fixo** (impresso uma vez). Ler o QR abre o cardápio da mesa — mesmo com a mesa fechada, o cliente já pode olhar o cardápio e montar o carrinho.
-2. **A equipe abre a mesa** quando os clientes sentam (Mesas → Abrir mesa). O sistema gera um **código de 6 dígitos**, que fica visível no card da mesa.
-3. **O cliente digita o código** no celular uma vez. A partir daí ele (e quem estiver na mesa com o mesmo código) pode pedir quantas vezes quiser, acompanhar os pedidos e chamar o garçom.
-4. **A cozinha** recebe o pedido em Pedidos (com aviso sonoro) e avança: em preparo → pronto → entregue. O cliente vê o status no celular.
-5. **A equipe encerra a mesa** depois que a conta é paga. Os celulares deixam de pedir e o próximo cliente recebe um código novo.
+1. **Cada mesa tem um QR Code fixo** (impresso uma vez e colado na mesa). Ler o QR abre o cardápio — mesmo com a mesa fechada, o cliente já pode olhar e montar o carrinho.
+2. **A equipe abre a mesa com 1 toque** (Mesas → Abrir). O sistema gera um **código de 6 dígitos**, que fica visível na mesa no painel.
+3. **O cliente digita o código** no celular uma vez e pede quantas vezes quiser, chama o garçom e pede a conta. Quem não quiser usar o celular faz o pedido com o garçom (Mesas → mesa → **Lançar pedido**).
+4. **Pratos vão para a Cozinha** (aviso sonoro, um toque em **Pronto**); **bebidas** e itens de pronta entrega vão direto para o **Salão**, sem etapa de preparo.
+5. **O garçom leva** o que aparece em Salão → Levar à mesa (marcar "Levei" é opcional).
+6. **O caixa fecha a conta** (Mesas → mesa → Fechar conta, escolhendo PIX/dinheiro/cartão). Tudo vira entregue, os celulares deixam de pedir e o próximo cliente recebe um código novo.
 
 Por que um código além do QR? O QR fica colado na mesa e pode ser fotografado; o código muda a cada atendimento e só quem está no restaurante o recebe, evitando pedidos falsos de fora.
 
@@ -39,8 +40,8 @@ npm run firebase:deploy -- --project SEU_PROJECT_ID
 ```
 (Na primeira vez pede login: `npx firebase-tools login`.) Sem as regras publicadas, o painel mostra erros de permissão. Alternativa manual: Firestore → Regras → colar `firestore/firestore.rules` → Publicar.
 
-### 4. Cadastrar o administrador
-O usuário do passo 1.2 precisa de um documento em `staffUsers` com o **mesmo UID**:
+### 4. Cadastrar o administrador (só o primeiro)
+O restante da equipe é cadastrado depois pelo próprio painel, em **Equipe**. O usuário do passo 1.2 precisa de um documento em `staffUsers` com o **mesmo UID**:
 ```bash
 npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restaurantId <ID_DO_RESTAURANTE>
 ```
@@ -48,22 +49,28 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 
 ### 5. No painel
 1. Entre em `/login` e abra **Diagnóstico**. Tudo deve ficar verde; se algo faltar, a página explica como corrigir. Use **Corrigir automaticamente** para criar o cadastro do restaurante e as configurações padrão.
-2. **Cardápio**: crie uma categoria e alguns produtos.
-3. **Mesas → Nova mesa** → **QR Code** → imprimir (ou "Testar" para abrir no navegador).
-4. **Abrir mesa** → leia o QR com o celular → digite o código → faça um pedido → veja chegar em **Pedidos**.
+2. **Cardápio → Categorias**: crie as seções (há sugestões como Pratos feitos e Bebidas). Depois **Novo item**: preço, foto, opções (acompanhamento, adicionais) e, se for prato do dia, os dias da semana.
+3. **Equipe**: cadastre garçons, caixa e cozinha (e-mail, senha e função).
+4. **Mesas → Nova mesa** → abrir a mesa → **QR Code** → imprimir (ou "Testar" para abrir no navegador).
+5. **Abrir** → leia o QR com o celular → digite o código → faça um pedido → veja chegar em **Cozinha** e **Salão**.
 
 ## Painel
 | Tela | Para quê | Quem acessa |
 |---|---|---|
-| Dashboard | Resumo do dia e chamados de garçom | todos |
-| Pedidos | Fila da cozinha em tempo real, com som | todos |
-| Mesas | Abrir/encerrar mesas, código, QR Code | todos (cadastrar/editar mesas: admin e gerente) |
-| Cardápio | Categorias e produtos | admin, gerente |
+| Início | Resumo do dia e chamados de garçom | todos (a cozinha vai direto para Cozinha) |
+| Salão | Chamados, o que levar às mesas e o que ainda está na cozinha (celular do garçom) | admin, gerente, atendente |
+| Cozinha | Fila de comandas com tempo de espera, "Pronto" e "Acabou algo?" | todos |
+| Mesas | Abrir mesa, código, conta, fechar conta, lançar pedido, QR Code, histórico | admin, gerente, atendente |
+| Pedidos | Todos os pedidos do dia, busca e cancelamento | todos |
+| Cardápio | Categorias, itens, opções, prato do dia, foto, esgotado | admin, gerente |
+| Equipe | Cadastrar pessoas, função, senha e tirar acesso | admin, gerente (só admin cria admin) |
 | Relatórios | Faturamento, produtos, mesas, cancelamentos | admin, gerente |
 | Configurações | Nome, pagamentos, taxa de serviço, tempo de atendimento | admin, gerente |
 | Diagnóstico | Verifica servidor, regras, dados e índices | admin, gerente |
 
-Cargos (`role` em `staffUsers`): `admin`, `manager` (gerente), `attendant` (atendente), `kitchen` (cozinha).
+Cargos (`role` em `staffUsers`): `admin`, `manager` (gerente), `attendant` (atendente/garçom/caixa), `kitchen` (cozinha).
+
+**Fotos dos pratos** são reduzidas no aparelho e guardadas no próprio Firestore (coleção `menuImages`, acessada só pelo servidor) — não é preciso ativar o Firebase Storage.
 
 ## Problemas comuns
 - **"QR Code inválido" ao ler o QR**: mesa criada por uma versão antiga. Diagnóstico → Corrigir automaticamente → imprima o QR de novo.
@@ -84,11 +91,12 @@ npm run build
 Os testes de `tests/integration` executam as rotas reais da API contra um Firestore em memória (`tests/fakes/firebase-admin.ts`), sem índices compostos publicados — garantindo que o fluxo do cliente funcione num projeto novo.
 
 ### Estrutura
+- `src/app/page.tsx` — página inicial.
 - `src/app/mesa/[token]` — página do cliente (QR).
 - `src/app/(dashboard)/dashboard/*` — painel.
 - `src/app/api/public/*` — APIs do cliente (cookie `HttpOnly` + token CSRF por celular).
 - `src/app/api/admin/*` — APIs da equipe (token do Firebase Auth + cargo).
-- `src/lib/server/*` — sessão da mesa, segurança e tratamento de erros.
+- `src/lib/server/*` — sessão da mesa, montagem do pedido (`place-order.ts`, usada pelo cliente e pelo garçom), segurança e tratamento de erros.
 - `firestore/` — regras e índices; `firebase.json` aponta para eles.
 
 ## Segurança (resumo)
@@ -96,7 +104,8 @@ Os testes de `tests/integration` executam as rotas reais da API contra um Firest
 - O código da mesa é verificado por hash; tentativas são limitadas por IP e mesa.
 - Criar e mover pedidos só é possível pelas APIs do servidor; as regras bloqueiam escrita direta.
 - O código atual de cada mesa fica legível apenas para a equipe do restaurante (regras do Firestore).
-- Pagamentos são **simulados** (projeto acadêmico): nenhum valor é cobrado de verdade.
+- O sistema não cobra ninguém: o caixa registra como a conta foi paga (PIX, dinheiro, cartão) ao fechar a mesa.
+- Dependências atualizadas (Next.js 15, React 19, Firebase 13): `npm audit --omit=dev` sem vulnerabilidades.
 
 ### Limites conhecidos
 - Quem tiver o QR e o código vigente consegue pedir até a mesa ser encerrada; a equipe pode gerar um novo código a qualquer momento.
