@@ -83,8 +83,8 @@ async function handler(request: NextRequest): Promise<NextResponse> {
         paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, changeFor: parsed.data.changeFor ?? null,
         contentHash, actor: { type: "customer", id: grantId || null }, nowMs
       });
-      tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString(), expireAt: new Date(nowMs + 48 * 3600_000) });
-      rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), expireAt: new Date((rule.window + 1) * rule.seconds * 1000 + 3600_000), updatedAt: now }, { merge: true }));
+      tx.set(idempotencyRef, { sessionId: session.id, grantId, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
+      rateRules.forEach((rule, index) => tx.set(rateRefs[index], { scope: rule.scope, count: (rateSnaps[index].data()?.count ?? 0) + 1, resetAt: new Date((rule.window + 1) * rule.seconds * 1000).toISOString(), updatedAt: now }, { merge: true }));
       return { ...summary, replay: false };
     });
     return NextResponse.json(result, { status: result.replay ? 200 : 201 });

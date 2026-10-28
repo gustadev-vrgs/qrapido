@@ -69,7 +69,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         paymentMethod, paymentMode: "waiter", changeFor: null,
         contentHash, actor: { type: "staff", id: staff.staffUser.id }, nowMs
       });
-      tx.set(idempotencyRef, { sessionId, staffId: staff.staffUser.id, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString(), expireAt: new Date(nowMs + 48 * 3600_000) });
+      tx.set(idempotencyRef, { sessionId, staffId: staff.staffUser.id, contentHash, ...summary, createdAt: now, expiresAt: new Date(nowMs + 24 * 3600_000).toISOString() });
       return { ...summary, replay: false };
     });
     return NextResponse.json({ ...result, requestId: staff.requestId }, { status: result.replay ? 200 : 201 });

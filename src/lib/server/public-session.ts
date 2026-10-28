@@ -122,8 +122,6 @@ export async function createSessionAccessGrant(session: Doc): Promise<{ cookieVa
     tokenHash: hashValue(secret),
     csrfHash: hashValue(csrfToken),
     expiresAt,
-    // Timestamp for the Firestore TTL policy: removed a week after it stops working.
-    expireAt: new Date(new Date(expiresAt).getTime() + 7 * 24 * 3600_000),
     revokedAt: null,
     blockedUntil: null,
     createdAt: nowIso(),

@@ -40,7 +40,9 @@ npm run firebase:deploy -- --project SEU_PROJECT_ID
 ```
 (Na primeira vez pede login: `npx firebase-tools login`.) Sem as regras publicadas, o painel mostra erros de permissão. Alternativa manual: Firestore → Regras → colar `firestore/firestore.rules` → Publicar.
 
-O mesmo comando publica as **políticas de TTL** (`fieldOverrides` em `firestore/firestore.indexes.json`): o Firestore apaga sozinho, pelo campo `expireAt`, os registros temporários de `publicRateLimits`, `sessionAccessGrants` e `orderIdempotency`. Rode de novo sempre que `firestore/` mudar.
+Rode de novo sempre que `firestore/` mudar.
+
+**Custo zero (plano Spark):** o projeto não usa nada que exija o plano pago. Por isso não há TTL automático: os registros temporários de segurança (`publicRateLimits`, `sessionAccessGrants`, `orderIdempotency`) são apagados em Diagnóstico → **Limpar dados vencidos** (uma vez por mês basta).
 
 ### 4. Cadastrar o administrador (só o primeiro)
 O restante da equipe é cadastrado depois pelo próprio painel, em **Equipe**. O usuário do passo 1.2 precisa de um documento em `staffUsers` com o **mesmo UID**:

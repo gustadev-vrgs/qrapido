@@ -60,3 +60,24 @@ test("chave incompleta e variáveis ausentes geram explicação", () => {
     assert.match(problems, /FIREBASE_PRIVATE_KEY ausente/);
   });
 });
+
+test("limpeza apaga só registros temporários vencidos", async () => {
+  const { POST: cleanup } = await import("@/app/api/admin/operations/cleanup/route");
+  const { fakeDb } = await import("../fakes/firebase-admin");
+  const { ADMIN_UID, KITCHEN_UID, seedRestaurant, staffRequest, json } = await import("./helpers");
+  seedRestaurant();
+  const old = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
+  const future = new Date(Date.now() + 3600_000).toISOString();
+  await fakeDb.collection("publicRateLimits").doc("velho").set({ resetAt: old, count: 3 });
+  await fakeDb.collection("publicRateLimits").doc("atual").set({ resetAt: future, count: 1 });
+  await fakeDb.collection("sessionAccessGrants").doc("g-velho").set({ expiresAt: old });
+  await fakeDb.collection("sessionAccessGrants").doc("g-atual").set({ expiresAt: future });
+  await fakeDb.collection("orderIdempotency").doc("i-velho").set({ expiresAt: old });
+
+  assert.equal((await cleanup(staffRequest("/api/admin/operations/cleanup", KITCHEN_UID, {}))).status, 403, "só administração limpa");
+  const body = await json(await cleanup(staffRequest("/api/admin/operations/cleanup", ADMIN_UID, {})));
+  assert.equal(body.total, 3);
+  assert.deepEqual(fakeDb.all("publicRateLimits").map((item) => item.id), ["atual"]);
+  assert.deepEqual(fakeDb.all("sessionAccessGrants").map((item) => item.id), ["g-atual"]);
+  assert.equal(fakeDb.all("orderIdempotency").length, 0);
+});
