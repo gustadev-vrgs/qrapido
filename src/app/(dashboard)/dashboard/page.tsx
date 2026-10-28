@@ -13,6 +13,7 @@ import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls"
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
 import { ConnectionBanner } from "@/components/shared/connection-banner";
+import { SecurityAlerts } from "@/components/security/review-alerts";
 
 export default function DashboardPage(): JSX.Element {
   const { user } = useAdminAuth();
@@ -67,6 +68,8 @@ export default function DashboardPage(): JSX.Element {
           <AppStatCard icon={Armchair} tone="info" label="Mesas ocupadas" value={`${occupied}/${tables.filter((table) => !table.archivedAt).length}`} trend={`${people} pessoa(s) no salão`} />
         </div>
       )}
+
+      {canSeeCalls ? <SecurityAlerts orders={orders} tables={tables} sessionByTable={sessionByTable} /> : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <AppSectionCard icon={ChefHat} tone="warning" title="Agora" description="Toque para abrir a tela de cada um.">

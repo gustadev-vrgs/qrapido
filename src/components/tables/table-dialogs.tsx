@@ -222,6 +222,7 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
     });
   };
   const [reason, setReason] = useState("");
+  const [receipt, setReceipt] = useState<{ id: string; number: number; url: string } | null>(null);
   const [kitchenPending, setKitchenPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -234,7 +235,7 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
     setBusy(true);
     try {
       const payments = !noCharge && splitLines ? splitLines.map((line) => ({ method: line.method, amount: parseAmount(line.amount) })) : null;
-      await api("/api/admin/table/close", {
+      const result = await api<{ receipt?: { id: string; number: number; url: string } | null }>("/api/admin/table/close", {
         tableId: table.id,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
         ...(kitchenPending ? { force: true } : {}),
@@ -243,7 +244,8 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
       const how = payments ? payments.map((item) => `${paymentMethodLabels[item.method]} ${formatCurrency(item.amount)}`).join(" + ") : paidWith ? paymentMethodLabels[paidWith] : "";
       appToast.success(`${table.label} livre`, !noCharge && total ? `Recebido ${formatCurrency(total)} (${how}).` : undefined);
       onClosed?.();
-      onClose();
+      if (result.receipt) setReceipt(result.receipt);
+      else onClose();
     } catch (failure) {
       if (failure instanceof AdminApiError && failure.code === "kitchen_pending") setKitchenPending(failure.message);
       else appToast.error("Não foi possível encerrar", errorText(failure));
@@ -251,6 +253,8 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
       setBusy(false);
     }
   };
+
+  if (receipt) return <ReceiptReady table={table} receipt={receipt} onClose={onClose} />;
 
   return (
     <AppModal title={hasSession ? `Fechar conta · ${table.label}` : `Liberar ${table.label}`} onClose={onClose}>
@@ -307,6 +311,28 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
       <div className="flex justify-end gap-2">
         <AppActionButton variant="secondary" onClick={onClose}>Voltar</AppActionButton>
         <AppActionButton variant={kitchenPending ? "destructive" : "success"} className="min-w-40" disabled={busy} onClick={() => void submit()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{kitchenPending ? "Encerrar mesmo assim" : hasSession && !noCharge ? "Recebido, encerrar" : "Encerrar mesa"}</AppActionButton>
+      </div>
+    </AppModal>
+  );
+}
+
+/* ---------- Recibo ---------- */
+
+/** After closing: print the non-fiscal receipt or show its QR for the customer to keep on the phone. */
+export function ReceiptReady({ table, receipt, onClose }: { table: Table; receipt: { number: number; url: string }; onClose: () => void }): JSX.Element {
+  const [qr, setQr] = useState<string | null>(null);
+  const absolute = typeof window === "undefined" ? receipt.url : `${window.location.origin}${receipt.url}`;
+  useEffect(() => { void createQrDataUrl(absolute).then(setQr).catch(() => setQr(null)); }, [absolute]);
+  return (
+    <AppModal title={`${table.label} fechada`} onClose={onClose}>
+      <div className="space-y-3 text-center">
+        <p className="text-sm text-[hsl(var(--foreground-muted))]">Comprovante nº <strong className="num text-[hsl(var(--foreground))]">{String(receipt.number).padStart(6, "0")}</strong> (não fiscal). O cliente pode escanear para guardar no celular, ou você imprime.</p>
+        <div className="mx-auto w-fit rounded-2xl bg-white p-3">{qr ? <Image src={qr} alt="QR Code do recibo" width={180} height={180} unoptimized /> : <div className="h-[180px] w-[180px] animate-pulse rounded-xl bg-neutral-100" />}</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <AppActionButton className="gap-2" onClick={() => window.open(`${receipt.url}&print=1`, "_blank", "noopener")}><Printer className="h-4 w-4" />Imprimir recibo</AppActionButton>
+          <AppActionButton variant="secondary" className="gap-2" onClick={() => { void navigator.clipboard?.writeText(absolute).then(() => appToast.success("Link copiado")).catch(() => appToast.info("Link do recibo", absolute)); }}><Copy className="h-4 w-4" />Copiar link</AppActionButton>
+        </div>
+        <AppActionButton variant="ghost" className="w-full" onClick={onClose}>Pronto</AppActionButton>
       </div>
     </AppModal>
   );

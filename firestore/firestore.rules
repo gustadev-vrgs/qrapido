@@ -32,7 +32,10 @@ service cloud.firestore {
       // find restaurant documents created by older versions with a random id.
       allow read: if isStaffForRestaurant(restaurantId)
         || (resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId));
-      allow create, update: if isAdminForRestaurant(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId);
+      // The receipt counter is owned by the server: numbering cannot be reset or skipped from the browser.
+      allow create: if isAdminForRestaurant(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId) && !('receiptSeq' in request.resource.data);
+      allow update: if isAdminForRestaurant(restaurantId) && isRestaurantDoc(request.resource.data, restaurantId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['receiptSeq']);
       allow delete: if false;
     }
 
@@ -111,6 +114,18 @@ service cloud.firestore {
     // Audit trail: written only by the server, so nobody can forge or erase history.
     match /orderEvents/{eventId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create, update, delete: if false;
+    }
+
+    // Non-fiscal receipts: issued by the server when a bill is closed; customers open them by a secret link served by the server.
+    match /receipts/{receiptId} {
+      allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
+      allow create, update, delete: if false;
+    }
+
+    // Sensitive team actions (people, access, data cleanup). Written only by the server, never deleted.
+    match /auditLog/{entryId} {
+      allow read: if resource.data.restaurantId is string && isAdminForRestaurant(resource.data.restaurantId);
       allow create, update, delete: if false;
     }
 
