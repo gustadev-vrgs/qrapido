@@ -183,10 +183,35 @@ export class FakeFirestore {
 export const fakeDb = new FakeFirestore();
 
 /** Test ID tokens look like `test-token:<uid>`; anything else is rejected like an invalid JWT. */
+interface FakeAuthUser { uid: string; email: string; password: string; displayName?: string; disabled: boolean; tokensRevokedAt?: number }
+
 export const fakeAuth = {
+  users: new Map<string, FakeAuthUser>(),
+  reset(): void { this.users.clear(); },
   async verifyIdToken(token: string): Promise<{ uid: string; email: string | null }> {
     if (!token.startsWith("test-token:")) throw Object.assign(new Error("Decoding Firebase ID token failed."), { code: "auth/argument-error" });
     return { uid: token.slice("test-token:".length), email: null };
+  },
+  async createUser(input: { email: string; password: string; displayName?: string }): Promise<{ uid: string }> {
+    if ([...this.users.values()].some((user) => user.email === input.email)) throw Object.assign(new Error("The email address is already in use by another account."), { code: "auth/email-already-exists" });
+    if (input.password.length < 6) throw Object.assign(new Error("weak"), { code: "auth/invalid-password" });
+    const uid = `uid-${this.users.size + 1}-${input.email.split("@")[0]}`;
+    this.users.set(uid, { uid, email: input.email, password: input.password, displayName: input.displayName, disabled: false });
+    return { uid };
+  },
+  async getUserByEmail(email: string): Promise<{ uid: string }> {
+    const user = [...this.users.values()].find((item) => item.email === email);
+    if (!user) throw Object.assign(new Error("no user"), { code: "auth/user-not-found" });
+    return { uid: user.uid };
+  },
+  async updateUser(uid: string, input: { password?: string; displayName?: string; disabled?: boolean }): Promise<void> {
+    const user = this.users.get(uid);
+    if (!user) throw Object.assign(new Error("no user"), { code: "auth/user-not-found" });
+    this.users.set(uid, { ...user, ...input });
+  },
+  async revokeRefreshTokens(uid: string): Promise<void> {
+    const user = this.users.get(uid);
+    if (user) user.tokensRevokedAt = Date.now();
   }
 };
 

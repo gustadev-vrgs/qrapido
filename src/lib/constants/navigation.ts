@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import type { LucideIcon } from "lucide-react";
-import { Armchair, BarChart3, BookOpenText, ChefHat, HandPlatter, House, ReceiptText, Settings, Stethoscope } from "lucide-react";
+import { Armchair, BarChart3, BookOpenText, ChefHat, HandPlatter, House, ReceiptText, Settings, Stethoscope, Users } from "lucide-react";
 
 import type { AppTone } from "@/components/ui/app-design-system";
 import type { UserRole } from "@/lib/types/domain";
@@ -33,6 +33,7 @@ export const dashboardNavItems: NavigationItem[] = [
   { href: "/dashboard/pedidos", label: "Pedidos", icon: ReceiptText, description: "Todos os pedidos do dia", group: "operacao", tone: "neutral" },
   { href: "/dashboard/cardapio", label: "Cardápio", icon: BookOpenText, description: "Categorias, pratos e bebidas", roles: ["admin", "manager"], group: "gestao", tone: "primary" },
   { href: "/dashboard/relatorios", label: "Relatórios", icon: BarChart3, description: "Vendas, produtos e mesas por período", roles: ["admin", "manager"], group: "gestao", tone: "primary" },
+  { href: "/dashboard/equipe", label: "Equipe", icon: Users, description: "Quem acessa o painel e o que cada um vê", roles: ["admin", "manager"], group: "gestao", tone: "primary" },
   { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings, description: "Restaurante, pagamentos e atendimento", roles: ["admin", "manager"], group: "sistema", tone: "neutral" },
   { href: "/dashboard/diagnostico", label: "Diagnóstico", icon: Stethoscope, description: "Verificar se está tudo configurado", roles: ["admin", "manager"], group: "sistema", tone: "neutral" }
 ];

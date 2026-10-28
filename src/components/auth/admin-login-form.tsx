@@ -85,7 +85,7 @@ export function AdminLoginForm(): JSX.Element {
 
       if (validation.error) {
         await auth.signOut();
-        setSubmitError(getStaffValidationMessage(validation.error));
+        setSubmitError(getStaffValidationMessage(validation.error, credential.user.uid));
         return;
       }
 

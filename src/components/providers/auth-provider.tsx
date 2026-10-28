@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           staffUser: null,
           isAuthenticated: false,
           isLoading: false,
-          authError: getStaffValidationMessage(validation.error)
+          authError: getStaffValidationMessage(validation.error, currentUser.uid)
         });
         return;
       }
