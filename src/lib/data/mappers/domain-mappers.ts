@@ -66,7 +66,7 @@ export function mapStaffUser(id: string, data: DocumentData): StaffUser {
 }
 
 export function mapRestaurant(id: string, data: DocumentData): Restaurant {
-  return { ...base(id, data), restaurantId: str(data.restaurantId, id), name: str(data.name, "Restaurante"), slug: str(data.slug, id), description: str(data.description), address: str(data.address), phone: str(data.phone), logoUrl: nullableStr(data.logoUrl), isActive: bool(data.isActive, true) };
+  return { ...base(id, data), restaurantId: str(data.restaurantId, id), name: str(data.name, "Restaurante"), slug: str(data.slug, id), description: str(data.description), address: str(data.address), phone: str(data.phone), logoUrl: nullableStr(data.logoUrl), isActive: bool(data.isActive, true), legalName: nullableStr(data.legalName), document: nullableStr(data.document) };
 }
 
 export function mapTable(id: string, data: DocumentData): Table {
@@ -113,6 +113,9 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     openedByStaffId: nullableStr(data.openedByStaffId),
     notes: nullableStr(data.notes),
     staffAccessCode: nullableStr(data.staffAccessCode),
+    accessFailedAttempts: Math.max(0, num(data.accessFailedAttempts, 0)),
+    receiptNumber: data.receiptNumber == null ? null : num(data.receiptNumber, 0),
+    receiptUrl: typeof data.receiptUrl === "string" && data.receiptUrl.startsWith("/recibo/") ? data.receiptUrl : null,
     accessCodeIssuedAt: nullableIso(data.accessCodeIssuedAt),
     billTotal: data.billTotal == null ? null : num(data.billTotal, 0),
     paidWith: (PAYMENT_METHODS as readonly string[]).includes(data.paidWith) ? data.paidWith : null,
@@ -177,6 +180,9 @@ export function mapOrder(id: string, data: DocumentData): Order {
     groupCode: nullableStr(data.groupCode) ?? undefined,
     readyAt: nullableIso(data.readyAt),
     autoDelivered: bool(data.autoDelivered, false),
+    riskFlags: Array.isArray(data.riskFlags) ? data.riskFlags.filter((flag: unknown): flag is "big_quantity" | "high_value" | "rapid_orders" => flag === "big_quantity" || flag === "high_value" || flag === "rapid_orders") : [],
+    riskReviewedAt: nullableIso(data.riskReviewedAt),
+    riskReviewedBy: nullableStr(data.riskReviewedBy),
     tableId: str(data.tableId),
     tableNumber: num(data.tableNumber, 0),
     sessionId: str(data.sessionId),
