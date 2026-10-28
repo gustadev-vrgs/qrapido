@@ -81,3 +81,11 @@ test("limpeza apaga só registros temporários vencidos", async () => {
   assert.deepEqual(fakeDb.all("sessionAccessGrants").map((item) => item.id), ["g-atual"]);
   assert.equal(fakeDb.all("orderIdempotency").length, 0);
 });
+
+test("editar mesa pelo painel não troca o QR Code nem reativa a mesa", async () => {
+  const { updateTablePayloadSchema, updateRestaurantSettingsPayloadSchema } = await import("@/lib/schemas");
+  assert.deepEqual(updateTablePayloadSchema.parse({ number: 4, label: "Mesa 4", capacity: 4 }), { number: 4, label: "Mesa 4", capacity: 4 });
+  assert.deepEqual(updateTablePayloadSchema.parse({ isActive: true, status: "free", currentSessionGroupId: null }), { isActive: true, status: "free", currentSessionGroupId: null });
+  assert.equal("publicToken" in updateTablePayloadSchema.parse({ publicToken: "x".repeat(43) }), false, "o QR só muda pelo servidor");
+  assert.deepEqual(updateRestaurantSettingsPayloadSchema.parse({ pixKey: "chave" }), { pixKey: "chave" }, "atualização parcial não traz valores padrão");
+});

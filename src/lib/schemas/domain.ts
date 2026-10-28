@@ -228,7 +228,13 @@ export const createStaffUserPayloadSchema = staffUserSchema.omit({ id: true, cre
 export const updateStaffUserPayloadSchema = createStaffUserPayloadSchema.omit({ uid: true, restaurantId: true }).partial();
 
 export const createTablePayloadSchema = tableSchema.omit({ id: true, createdAt: true, updatedAt: true });
-export const updateTablePayloadSchema = createTablePayloadSchema.omit({ restaurantId: true }).partial();
+// Zod 4 applies .default() even inside .partial(): a partial update must not carry
+// defaulted fields, or editing a table's name would also reset its QR token
+// ("legacy-token-placeholder") and re-enable it. The QR token is managed by the server.
+export const updateTablePayloadSchema = createTablePayloadSchema
+  .omit({ restaurantId: true, publicToken: true, isActive: true })
+  .partial()
+  .extend({ isActive: z.boolean().optional() });
 
 export const createTableSessionPayloadSchema = tableSessionSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export const updateTableSessionPayloadSchema = createTableSessionPayloadSchema
@@ -250,7 +256,10 @@ export const updateOrderPayloadSchema = createOrderPayloadSchema
 export const createOrderEventPayloadSchema = orderEventSchema.omit({ id: true, createdAt: true });
 
 export const createRestaurantSettingsPayloadSchema = restaurantSettingsSchema.omit({ id: true, createdAt: true, updatedAt: true });
-export const updateRestaurantSettingsPayloadSchema = createRestaurantSettingsPayloadSchema.omit({ restaurantId: true }).partial();
+export const updateRestaurantSettingsPayloadSchema = createRestaurantSettingsPayloadSchema
+  .omit({ restaurantId: true, allowCustomerNotes: true, serviceFeePercent: true })
+  .partial()
+  .extend({ allowCustomerNotes: z.boolean().optional(), serviceFeePercent: z.number().min(0).max(100).optional() });
 
 export const createDailyMetricPayloadSchema = dailyMetricSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export const updateDailyMetricPayloadSchema = createDailyMetricPayloadSchema.omit({ restaurantId: true, dateKey: true }).partial();

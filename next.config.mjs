@@ -16,7 +16,8 @@ const contentSecurityPolicy = [
   // Next.js injects inline bootstrap scripts; 'unsafe-eval' only in development (React refresh).
   `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // https: keeps dish photos saved as an external link (older data) working.
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   `connect-src 'self' ${firebaseHosts}`,
   "frame-src 'self' https://*.firebaseapp.com",
