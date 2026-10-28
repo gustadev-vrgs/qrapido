@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
-import { ADMIN_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
+import { OWNER_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
 import { withApiErrors } from "@/lib/server/api-errors";
 import { writeAudit } from "@/lib/server/audit";
 
@@ -19,6 +19,31 @@ const bodySchema = z.object({
   resetReceiptNumbers: z.boolean().optional()
 });
 
+/** Closed visits read per call: bounds the reads too (free plan: 50k/day). */
+const MAX_SESSIONS = 40;
+
+/**
+ * Closed visits of this restaurant up to the cutoff, oldest first, at most MAX_SESSIONS.
+ * With a cutoff it uses the (restaurantId, status, closedAt) index from firestore.indexes.json;
+ * if that index was not published yet it falls back to reading the closed visits and
+ * filtering here, which costs more reads but still works.
+ */
+async function closedSessions(db: Db, restaurantId: string, cutoff: number): Promise<Db[]> {
+  const closed = db.collection("tableSessions").where("restaurantId", "==", restaurantId).where("status", "==", "closed");
+  if (!Number.isFinite(cutoff)) return (await closed.limit(MAX_SESSIONS).get()).docs;
+  try {
+    return (await closed.where("closedAt", "<=", new Date(cutoff).toISOString()).orderBy("closedAt").limit(MAX_SESSIONS).get()).docs;
+  } catch (failure) {
+    const code = (failure as { code?: unknown }).code;
+    if (code !== 9 && code !== "failed-precondition" && !/FAILED_PRECONDITION|requires an index/i.test(String((failure as Error)?.message))) throw failure;
+    const all = await closed.get();
+    return all.docs
+      .filter((doc: Db) => { const at = Date.parse(String(doc.data().closedAt ?? "")); return Number.isFinite(at) && at <= cutoff; })
+      .sort((a: Db, b: Db) => String(a.data().closedAt).localeCompare(String(b.data().closedAt)))
+      .slice(0, MAX_SESSIONS);
+  }
+}
+
 /** Collections tied to one table visit (session) that go away with it. */
 const SESSION_CHILDREN = ["orders", "orderEvents", "waiterCalls", "adminAlerts", "receipts"] as const;
 
@@ -30,7 +55,7 @@ const SESSION_CHILDREN = ["orders", "orderEvents", "waiterCalls", "adminAlerts",
  * and the cleanup itself is written to the audit log.
  */
 async function purge(request: NextRequest): Promise<NextResponse> {
-  const staff = await requireStaffRequest(request, ADMIN_ROLES);
+  const staff = await requireStaffRequest(request, OWNER_ROLES);
   if (staff instanceof NextResponse) return staff;
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Dados inválidos.", code: "invalid_body" }, { status: 400 });
@@ -43,14 +68,7 @@ async function purge(request: NextRequest): Promise<NextResponse> {
   // End of the chosen day in Brasília time (UTC-3, no daylight saving since 2019).
   const cutoff = parsed.data.until ? Date.parse(`${parsed.data.until}T23:59:59.999-03:00`) : Number.POSITIVE_INFINITY;
 
-  const closed = await db.collection("tableSessions").where("restaurantId", "==", restaurantId).where("status", "==", "closed").get();
-  const sessions = closed.docs
-    .filter((doc: Db) => {
-      const closedAt = Date.parse(String(doc.data().closedAt ?? doc.data().updatedAt ?? ""));
-      return Number.isFinite(closedAt) ? closedAt <= cutoff : parsed.data.until === null;
-    })
-    .sort((a: Db, b: Db) => String(a.data().closedAt ?? "").localeCompare(String(b.data().closedAt ?? "")));
-
+  const sessions = await closedSessions(db, restaurantId, cutoff);
   const counts = { tables: 0, orders: 0, other: 0 };
   let deletes = 0;
   let more = false;
@@ -66,6 +84,8 @@ async function purge(request: NextRequest): Promise<NextResponse> {
     counts.orders += own[0].length;
     counts.other += size - 1 - own[0].length;
   }
+
+  if (!more && sessions.length === MAX_SESSIONS) more = true;
 
   let receiptsRestarted = false;
   if (parsed.data.resetReceiptNumbers && !more) {
