@@ -91,7 +91,7 @@ npm run build
 Os testes de `tests/integration` executam as rotas reais da API contra um Firestore em memória (`tests/fakes/firebase-admin.ts`), sem índices compostos publicados — garantindo que o fluxo do cliente funcione num projeto novo.
 
 ### Estrutura
-- `src/app/page.tsx` — página inicial.
+- `src/app/page.tsx` — redireciona a raiz para o login.
 - `src/app/mesa/[token]` — página do cliente (QR).
 - `src/app/(dashboard)/dashboard/*` — painel.
 - `src/app/api/public/*` — APIs do cliente (cookie `HttpOnly` + token CSRF por celular).
