@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getFirebaseAdminConfigStatus, getFirebaseAdminFirestore } from "@/lib/firebase/admin";
-import { classifyServerError } from "@/lib/server/api-errors";
+import { classifyServerError, describeErrorForDiagnostics } from "@/lib/server/api-errors";
 import { describePublicUrlProblem, getPublicAppBaseUrl } from "@/lib/utils/public-url";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const admin = getFirebaseAdminConfigStatus();
-  let firestore: { ok: boolean; code?: string; hint?: string } = { ok: false, code: "skipped", hint: "Credenciais do servidor ausentes." };
+  let firestore: { ok: boolean; code?: string; hint?: string; detail?: string } = { ok: false, code: "skipped", hint: "Credenciais do servidor ausentes." };
   if (admin.ok || admin.projectId) {
     try {
       const db = getFirebaseAdminFirestore() as { collection: (name: string) => { limit: (n: number) => { get: () => Promise<unknown> } } };
@@ -21,7 +21,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       firestore = { ok: true };
     } catch (error) {
       const failure = classifyServerError(error);
-      firestore = { ok: false, code: failure.code, hint: failure.hint };
+      // Unrecognized failures carry the original (credential-free) message so the cause is visible on the screen.
+      firestore = { ok: false, code: failure.code, hint: failure.hint, detail: failure.code === "internal_error" ? describeErrorForDiagnostics(error) : undefined };
     }
   }
   const clientProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() || null;
