@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 
@@ -124,7 +124,7 @@ export function AdminLoginForm(): JSX.Element {
 
   return (
     <form className="space-y-5" onSubmit={onSubmit} noValidate>
-      <AppFormField label="E-mail corporativo" error={errors.email?.message}>
+      <AppFormField label="E-mail" error={errors.email?.message}>
         <AppTextInput
           type="email"
           autoComplete="email"
@@ -138,7 +138,7 @@ export function AdminLoginForm(): JSX.Element {
         />
       </AppFormField>
 
-      <AppFormField label="Senha" hint="Use sua credencial administrativa." error={errors.password?.message}>
+      <AppFormField label="Senha" error={errors.password?.message}>
         <AppTextInput
           type="password"
           autoComplete="current-password"
@@ -167,11 +167,6 @@ export function AdminLoginForm(): JSX.Element {
           </>
         )}
       </AppActionButton>
-
-      <div className="flex items-center gap-2 text-xs text-[hsl(var(--foreground-muted))]">
-        <ShieldCheck className="h-4 w-4" />
-        Sessão protegida com Firebase Auth e validação de perfil de staff ativo.
-      </div>
     </form>
   );
 }
