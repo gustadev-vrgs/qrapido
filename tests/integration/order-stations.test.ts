@@ -123,3 +123,16 @@ test("excluir mesa arquiva, mantém histórico e pode ser restaurada", async () 
   assert.equal(fakeDb.all("tables")[0].archivedAt, null);
   assert.equal((await getTable(new Browser().request(`/api/public/table/${publicToken}`), { params: Promise.resolve({ token: publicToken }) })).status, 200);
 });
+
+test("cozinha cancela só o que ainda está na cozinha e não marca entrega", async () => {
+  const { phone } = await seatedPhone();
+  await order(phone, [{ menuItemId: "item-1", quantity: 1 }, { menuItemId: "drink-1", quantity: 1 }]);
+  const kitchenOrder = fakeDb.all("orders").find((item) => item.station === "kitchen")!;
+  const drinks = fakeDb.all("orders").find((item) => item.station === "ready")!;
+  const move = (uid: string, orderId: string, nextStatus: string, reason?: string) => transition(staffRequest("/api/admin/order/transition", uid, { orderId, nextStatus, ...(reason ? { reason } : {}) }));
+
+  assert.equal((await move(KITCHEN_UID, drinks.id, "delivered")).status, 403, "entrega é do salão");
+  assert.equal((await move(KITCHEN_UID, drinks.id, "cancelled", "acabou o suco")).status, 403, "pedido pronto: só o salão cancela");
+  assert.equal((await move(KITCHEN_UID, kitchenOrder.id, "cancelled", "acabou o frango")).status, 200, "a cozinha cancela o que não consegue fazer");
+  assert.equal((await move(ADMIN_UID, drinks.id, "delivered")).status, 200);
+});

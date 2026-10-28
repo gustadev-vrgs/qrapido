@@ -11,6 +11,7 @@ import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { PublicOrder } from "@/lib/types/domain";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { formatOptions } from "@/lib/utils/menu-options";
+import { usePageVisible } from "@/lib/hooks/use-page-visible";
 
 const KITCHEN_STEPS = [
   { key: "received", label: "Na cozinha", icon: ChefHat },
@@ -34,6 +35,7 @@ export default function PublicOrderPage(): JSX.Element {
   const token = useMemo(() => decodeURIComponent(params.token), [params.token]);
   const [order, setOrder] = useState<PublicOrder | null>(null);
   const [error, setError] = useState("");
+  const visible = usePageVisible();
 
   useEffect(() => {
     let alive = true;
@@ -48,14 +50,15 @@ export default function PublicOrderPage(): JSX.Element {
         if (!response.ok) { setError(payload.error ?? "Pedido indisponível."); return; }
         setOrder(payload as PublicOrder);
         setError("");
-        if (!["delivered", "cancelled"].includes((payload as PublicOrder).status)) timer = window.setTimeout(() => void load(), 5000);
+        if (!["delivered", "cancelled"].includes((payload as PublicOrder).status)) timer = window.setTimeout(() => void load(), 8000);
       } catch {
-        if (alive) timer = window.setTimeout(() => void load(), 8000);
+        if (alive) timer = window.setTimeout(() => void load(), 10000);
       }
     };
-    void load();
+    // Paused while the screen is off; the effect runs again (and reloads) when it comes back.
+    if (visible) void load();
     return () => { alive = false; window.clearTimeout(timer); };
-  }, [params.orderId]);
+  }, [params.orderId, visible]);
 
   const back = <Link href={`/mesa/${encodeURIComponent(token)}`} className="block"><AppActionButton variant="secondary" className="w-full gap-2"><ArrowLeft className="h-4 w-4" />Voltar ao cardápio</AppActionButton></Link>;
 

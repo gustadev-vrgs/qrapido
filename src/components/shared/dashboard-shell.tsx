@@ -133,7 +133,16 @@ export function DashboardShell({ children }: { children: ReactNode }): JSX.Eleme
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-[1400px] space-y-5 px-4 py-5 lg:px-8 lg:py-6">{children}</main>
+        <main className="mx-auto max-w-[1400px] space-y-5 px-4 py-5 lg:px-8 lg:py-6">
+          {current?.roles && user && !current.roles.includes(user.role) ? (
+            // The menu hides these areas; opening the address directly used to show permission errors.
+            <div className="app-surface mx-auto max-w-md space-y-2 p-6 text-center">
+              <p className="text-lg font-semibold">Você não tem acesso a esta área</p>
+              <p className="text-sm text-[hsl(var(--foreground-muted))]">A sua função ({ROLE_LABELS[user.role]}) não usa {current.label}. Se precisar, peça ao administrador do restaurante.</p>
+              <Link href="/dashboard" className="inline-block pt-2 text-sm font-semibold text-[hsl(var(--primary))] underline">Voltar ao início</Link>
+            </div>
+          ) : children}
+        </main>
       </div>
 
       {/* Phone: bottom tab bar for the waiter */}

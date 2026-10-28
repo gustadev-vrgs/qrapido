@@ -12,11 +12,12 @@ import { isSessionExpired, useLiveTables } from "@/lib/hooks/use-live-tables";
 import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
+import { ConnectionBanner } from "@/components/shared/connection-banner";
 
 export default function DashboardPage(): JSX.Element {
   const { user } = useAdminAuth();
   const router = useRouter();
-  const { orders, loading, error, dateKey } = useLiveOrders(user?.restaurantId);
+  const { orders, loading, error, dateKey, stale } = useLiveOrders(user?.restaurantId);
   const { tables, sessionByTable } = useLiveTables(user?.restaurantId);
   const canSeeCalls = Boolean(user && user.role !== "kitchen");
   const { calls, error: callsError, resolve } = useWaiterCalls(canSeeCalls);
@@ -53,6 +54,7 @@ export default function DashboardPage(): JSX.Element {
 
   return (
     <section className="space-y-4">
+      <ConnectionBanner stale={stale} />
       {error ? <AppSurface className="flex items-start gap-3 border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error} <Link className="underline" href="/dashboard/diagnostico">Abrir diagnóstico</Link></p></AppSurface> : null}
 
       {loading ? (

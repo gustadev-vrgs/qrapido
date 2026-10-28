@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/app-design-system";
 import { RestaurantsService } from "@/lib/data/services/restaurants-service";
 import { SettingsService } from "@/lib/data/services/settings-service";
-import { useAdminApi } from "@/lib/hooks/use-admin-api";
+import { refreshCustomerMenu, useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { describeFirebaseError } from "@/lib/data/errors";
 import type {
@@ -176,6 +176,7 @@ export default function ConfiguracoesPage(): JSX.Element {
         billRequestEnabled: settings.billRequestEnabled,
         businessHours: settings.businessHours,
       });
+      await refreshCustomerMenu(api);
       setRestaurantName(trimmedRestaurantName);
       window.dispatchEvent(
         new CustomEvent(RESTAURANT_NAME_UPDATED_EVENT, {

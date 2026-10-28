@@ -85,9 +85,9 @@ test("fluxo completo: abrir mesa, código, vários pedidos, cozinha, encerrar", 
   assert.equal((await enterCode(friend, publicToken, opened.attendanceCode)).status, 200);
   assert.equal((await order(friend)).status, 201);
 
-  // Kitchen moves orders; customer sees it.
+  // Kitchen moves orders, the floor delivers; customer sees it.
   for (const next of ["in_preparation", "ready", "delivered"]) {
-    const response = await transition(staffRequest("/api/admin/order/transition", KITCHEN_UID, { orderId: first.body.orderId, nextStatus: next }));
+    const response = await transition(staffRequest("/api/admin/order/transition", next === "delivered" ? ADMIN_UID : KITCHEN_UID, { orderId: first.body.orderId, nextStatus: next }));
     assert.equal(response.status, 200, next);
   }
   const tracked = await json(await getOrder(phone.request(`/api/public/order/${first.body.orderId}`), { params: Promise.resolve({ orderId: first.body.orderId }) }));
