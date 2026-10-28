@@ -6,7 +6,9 @@ export const restaurantIdSchema = z.string().min(1);
 
 export const adminLoginSchema = z.object({
   email: z.string().trim().min(1, "Informe seu e-mail.").email("Informe um e-mail válido."),
-  password: z.string().min(1, "Informe sua senha.").min(8, "A senha deve conter ao menos 8 caracteres.")
+  // No length rule at login: accounts created with 6-7 characters must still get in.
+  // The minimum (8) is enforced when a password is created or changed.
+  password: z.string().min(1, "Informe sua senha.")
 });
 
 export type AdminLoginInput = z.infer<typeof adminLoginSchema>;
