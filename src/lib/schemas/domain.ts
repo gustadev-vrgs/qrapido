@@ -37,7 +37,10 @@ export const restaurantSchema = baseEntitySchema.extend({
   address: z.string().max(180),
   phone: z.string().max(20),
   logoUrl: z.string().url().nullable(),
-  isActive: z.boolean()
+  isActive: z.boolean(),
+  legalName: z.string().trim().max(120).nullable().optional(),
+  // CNPJ (14 digits) or CPF (11), with or without punctuation.
+  document: z.string().trim().max(20).regex(/^[\d./-]*$/).nullable().optional()
 });
 
 export const staffUserSchema = baseEntitySchema.extend({
@@ -101,7 +104,7 @@ export const menuItemSchema = baseEntitySchema.extend({
   description: z.string().max(600),
   price: moneySchema,
   // Either an external link or a photo uploaded to the restaurant (served by /api/public/menu-image).
-  imageUrl: z.string().max(500).refine((value) => value.startsWith("/api/public/menu-image/") || /^https?:\/\//.test(value), "Link de imagem inválido").nullable(),
+  imageUrl: z.string().max(500).refine((value) => value.startsWith("/api/public/menu-image/") || /^\/cardapio-exemplo\/[a-z0-9-]+\.jpg$/.test(value) || /^https?:\/\//.test(value), "Link de imagem inválido").nullable(),
   preparationTimeMinutes: z.number().int().min(0).max(180),
   isActive: z.boolean(),
   isAvailable: z.boolean(),

@@ -14,7 +14,9 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     .filter((doc: any) => doc.data().restaurantId === session.restaurantId && doc.data().tableId === session.tableId)
     .map((doc: any) => toPublicOrder(doc.id, doc.data()))
     .sort((a: { receivedAt: string }, b: { receivedAt: string }) => String(b.receivedAt).localeCompare(String(a.receivedAt)));
-  return NextResponse.json({ orders, sessionStatus: session.status }, { headers: { "Cache-Control": "private, no-store" } });
+  // After the bill is closed, the phones of that table can open the receipt.
+  const receiptUrl = session.status === "closed" && typeof session.receiptUrl === "string" ? session.receiptUrl : null;
+  return NextResponse.json({ orders, sessionStatus: session.status, receiptUrl }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export const GET = withApiErrors("public/orders", handler, "Não foi possível listar os pedidos agora.");

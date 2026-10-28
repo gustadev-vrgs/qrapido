@@ -193,3 +193,9 @@ html[data-theme="dark"] {
     background: #fff !important;
   }
 }
+
+/* Receipt on 80 mm thermal paper or A4: only the receipt itself is printed. */
+@media print {
+  @page { margin: 4mm; }
+  .receipt { width: 72mm; margin: 0 auto; font-size: 11pt; }
+}
