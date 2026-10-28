@@ -83,16 +83,6 @@
       ]
     },
     {
-      "collectionGroup": "tables",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "publicToken",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "tableSessions",
       "queryScope": "COLLECTION",
       "fields": [
