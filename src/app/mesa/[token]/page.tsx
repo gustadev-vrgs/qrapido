@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ChefHat, ChevronRight, Clock3, HandPlatter, KeyRound, Loader2, MessageSquarePlus, Minus, Plus, ReceiptText, RefreshCw, Search, ShoppingBag, Sparkles, X } from "lucide-react";
 
 import { AppActionButton, AppSearchInput, AppSkeleton, AppStatusBadge, AppSurface, MobileStickyBar } from "@/components/ui/app-design-system";
@@ -12,6 +12,7 @@ import { customerStatusLabel } from "@/lib/utils/customer-order-status";
 import type { CartItem, PaymentMethod, PublicMenuItem, PublicOrder, PublicTableData } from "@/lib/types/domain";
 import { randomKey, readStored, storageKeys, writeStored } from "@/lib/utils/customer-storage";
 import { cn } from "@/lib/utils/cn";
+import { usePageVisible } from "@/lib/hooks/use-page-visible";
 import { describeOrderItem, groupRuleLabel, resolveChoices } from "@/lib/utils/menu-options";
 import { formatCurrency } from "@/lib/utils/formatters";
 
@@ -74,6 +75,7 @@ export default function PublicMesaPage(): JSX.Element {
   const [calling, setCalling] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const visible = usePageVisible();
   const data = load.kind === "ready" ? load.data : null;
   const access = data?.access;
 
@@ -111,20 +113,26 @@ export default function PublicMesaPage(): JSX.Element {
   useEffect(() => { writeStored(storageKeys.cart(token), cart.length ? cart : null); }, [cart, token]);
 
   // Keep the table state fresh: the team may open the table or renew the attendance while the customer waits.
+  // Paused while the screen is off; coming back refreshes right away.
   useEffect(() => {
-    if (load.kind !== "ready") return;
-    const id = window.setInterval(() => void fetchTable(true), access === "authorized" ? 60_000 : 15_000);
+    if (load.kind !== "ready" || !visible) return;
+    const id = window.setInterval(() => void fetchTable(true), access === "authorized" ? 60_000 : 20_000);
     return () => window.clearInterval(id);
-  }, [access, fetchTable, load.kind]);
+  }, [access, fetchTable, load.kind, visible]);
+  const wasHidden = useRef(false);
+  useEffect(() => {
+    if (!visible) { wasHidden.current = true; return; }
+    if (wasHidden.current) { wasHidden.current = false; void fetchTable(true); }
+  }, [visible, fetchTable]);
 
   const activeOrders = orders.filter((order) => OPEN.has(order.status));
   useEffect(() => {
-    if (access !== "authorized" && orders.length === 0) return;
+    if ((access !== "authorized" && orders.length === 0) || !visible) return;
     void fetchOrders();
     // Faster while something is on the way, so "Pronto, já vai" shows up quickly.
     const id = window.setInterval(() => void fetchOrders(), panel === "orders" || activeOrders.length ? 10_000 : 30_000);
     return () => window.clearInterval(id);
-  }, [access, fetchOrders, orders.length, panel, activeOrders.length]);
+  }, [access, fetchOrders, orders.length, panel, activeOrders.length, visible]);
 
   // Drop cart lines that left the menu and refresh prices.
   useEffect(() => {

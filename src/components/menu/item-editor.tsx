@@ -8,7 +8,7 @@ import { AppActionButton, AppFormField, AppSelect, AppTextInput, AppTextarea } f
 import { AppModal } from "@/components/ui/app-modal";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { MenuService } from "@/lib/data/services/menu-service";
-import { useAdminApi } from "@/lib/hooks/use-admin-api";
+import { refreshCustomerMenu, useAdminApi } from "@/lib/hooks/use-admin-api";
 import type { MenuCategory, MenuItem, MenuOptionGroup } from "@/lib/types/domain";
 import { categoryIcon } from "@/lib/utils/category-icon";
 import { cn } from "@/lib/utils/cn";
@@ -168,6 +168,7 @@ export function ItemEditor({ item, categories, defaultCategoryId, nextSortOrder,
           appToast.error("Item salvo, mas a foto não", failure instanceof Error ? failure.message : "Tente enviar a foto de novo.");
         }
       }
+      await refreshCustomerMenu(api);
       appToast.success(item ? "Item atualizado" : "Item criado", "Já aparece no cardápio dos clientes.");
       onSaved();
       onClose();

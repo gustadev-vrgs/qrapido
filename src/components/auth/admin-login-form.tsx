@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { LogIn } from "lucide-react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 
 import { useRouter } from "next/navigation";
@@ -53,10 +53,13 @@ export function AdminLoginForm(): JSX.Element {
     }
   }, [authError, isLoading]);
 
+  const [resetState, setResetState] = useState<"idle" | "sending" | "sent">("idle");
+
   const {
     register,
     handleSubmit,
     clearErrors,
+    getValues,
     formState: { errors, isSubmitting }
   } = useForm<AdminLoginInput>({
     resolver: zodResolver(adminLoginSchema),
@@ -113,6 +116,34 @@ export function AdminLoginForm(): JSX.Element {
     }
   });
 
+  /** Sends Firebase's reset e-mail. The answer is the same whether or not the e-mail exists. */
+  async function handlePasswordReset(): Promise<void> {
+    const email = getValues("email").trim().toLowerCase();
+    if (!email.includes("@")) {
+      setSubmitError("Digite o seu e-mail acima e toque de novo em \"Esqueci minha senha\".");
+      return;
+    }
+    setSubmitError(null);
+    setResetState("sending");
+    try {
+      await sendPasswordResetEmail(getFirebaseClientAuth(), email);
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? "";
+      if (code === "auth/invalid-email") {
+        setSubmitError("Informe um e-mail válido.");
+        setResetState("idle");
+        return;
+      }
+      if (code === "auth/network-request-failed" || code === "auth/too-many-requests") {
+        setSubmitError(firebaseErrorMap[code]);
+        setResetState("idle");
+        return;
+      }
+      // auth/user-not-found and others: same answer, so the screen does not reveal who has an account.
+    }
+    setResetState("sent");
+  }
+
   function handleFieldEdit(): void {
     if (submitError) {
       setSubmitError(null);
@@ -167,6 +198,16 @@ export function AdminLoginForm(): JSX.Element {
           </>
         )}
       </AppActionButton>
+
+      <div className="text-center text-sm">
+        {resetState === "sent" ? (
+          <p className="text-[hsl(var(--foreground-muted))]">Se este e-mail tiver acesso, chega em instantes uma mensagem para criar uma nova senha. Confira também o spam.</p>
+        ) : (
+          <button type="button" className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline disabled:opacity-60" disabled={resetState === "sending"} onClick={() => void handlePasswordReset()}>
+            {resetState === "sending" ? "Enviando..." : "Esqueci minha senha"}
+          </button>
+        )}
+      </div>
     </form>
   );
 }

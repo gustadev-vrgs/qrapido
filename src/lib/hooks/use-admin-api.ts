@@ -43,3 +43,15 @@ export function useAdminApi() {
     return (payload ?? {}) as T;
   }, [firebaseUser]);
 }
+
+/**
+ * After the menu or the settings are saved directly in Firestore, asks the server to
+ * drop its cached copy so customer phones see the change now. Never fails the save.
+ */
+export async function refreshCustomerMenu(api: ReturnType<typeof useAdminApi>): Promise<void> {
+  try {
+    await api("/api/admin/menu/revalidate", {});
+  } catch {
+    /* the cache expires on its own in a few minutes */
+  }
+}

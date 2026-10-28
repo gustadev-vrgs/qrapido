@@ -10,6 +10,8 @@ import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { playChime, useLiveOrders } from "@/lib/hooks/use-live-orders";
 import { useSoundSetting } from "@/lib/hooks/use-sound-setting";
+import { SoundUnlockNotice } from "@/components/shared/sound-unlock-notice";
+import { ConnectionBanner } from "@/components/shared/connection-banner";
 import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls";
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import type { Order } from "@/lib/types/domain";
@@ -39,7 +41,7 @@ export default function SalaoPage(): JSX.Element {
   const [soundOn, toggleSound] = useSoundSetting();
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
-  const { orders, loading, error } = useLiveOrders(user?.restaurantId);
+  const { orders, loading, error, stale } = useLiveOrders(user?.restaurantId);
   const { calls, error: callsError, resolve } = useWaiterCalls(Boolean(user), (call) => {
     if (soundRef.current) playChime("call");
     appToast.info(`Mesa ${call.tableNumber} chamou`, waiterReasonLabel(call.reason));
@@ -102,6 +104,8 @@ export default function SalaoPage(): JSX.Element {
 
   return (
     <section className="space-y-4">
+      <ConnectionBanner stale={stale} />
+      <SoundUnlockNotice enabled={soundOn} />
       {error ? <AppSurface className="flex items-start gap-3 border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error}</p></AppSurface> : null}
 
       <div className="flex items-center gap-3">

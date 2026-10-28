@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { ADMIN_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
 import { withApiErrors } from "@/lib/server/api-errors";
+import { invalidateRestaurantPublicData } from "@/lib/server/public-cache";
 import { createPublicTableToken } from "@/lib/server/public-session";
 import { defaultRestaurantSettings } from "@/lib/server/restaurant-defaults";
 import { buildPublicTableUrl, isValidPublicTableToken } from "@/lib/utils/public-url";
@@ -48,6 +49,7 @@ async function repair(request: NextRequest): Promise<NextResponse> {
   }
   if (fixedTokens) done.push(`${fixedTokens} mesa(s) receberam um QR Code novo. Imprima novamente.`);
 
+  if (done.length) invalidateRestaurantPublicData(restaurantId);
   return NextResponse.json({ ok: true, done: done.length ? done : ["Nada precisava ser corrigido."] }, { headers: { "Cache-Control": "no-store" } });
 }
 
