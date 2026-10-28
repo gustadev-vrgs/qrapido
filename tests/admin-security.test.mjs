@@ -26,3 +26,12 @@ test("regras impedem troca de restaurante, autoelevação e campos operacionais 
   assert.match(rules, /hasOnly\(\['status'.*'updatedAt'\]\)/);
   assert.match(rules, /hasOnly\(\['read', 'updatedAt'\]\)/);
 });
+
+test("atendimentos, auditoria e métricas só são gravados pelo servidor; mesa só edita campos simples", async () => {
+  const rules = await read("firestore/firestore.rules");
+  assert.match(rules, /match \/tableSessions\/\{sessionId\}[\s\S]*?allow create, update, delete: if false/);
+  assert.match(rules, /match \/orderEvents\/\{eventId\}[\s\S]*?allow create, update, delete: if false/);
+  assert.match(rules, /match \/dailyMetrics\/\{metricId\}[\s\S]*?allow create, update, delete: if false/);
+  assert.match(rules, /match \/tables\/\{tableId\}[\s\S]*?isTableEdit\(\)/);
+  assert.match(rules, /request\.resource\.data\.status == 'free'/);
+});

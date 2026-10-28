@@ -18,6 +18,14 @@ service cloud.firestore {
     function canOperateOrders(restaurantId) { return isStaffForRestaurant(restaurantId) && staffRole() in ['admin', 'manager', 'attendant', 'kitchen']; }
     function isRestaurantDoc(data, restaurantId) { return data.restaurantId is string && data.restaurantId == restaurantId; }
     function sameRestaurant() { return resource.data.restaurantId is string && request.resource.data.restaurantId == resource.data.restaurantId; }
+    function changedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    // The panel only edits a table's number, name and capacity, and reactivates a disabled
+    // table (status back to "free", no attendance). Opening, closing and codes go through the server.
+    function isTableEdit() {
+      return changedKeys().hasOnly(['number', 'label', 'capacity', 'isActive', 'status', 'currentSessionGroupId', 'updatedAt'])
+        && (!changedKeys().hasAny(['status']) || request.resource.data.status == 'free')
+        && (!changedKeys().hasAny(['currentSessionGroupId']) || request.resource.data.currentSessionGroupId == null);
+    }
 
     match /restaurants/{restaurantId} {
       // The document id is the restaurantId; the second clause also lets the panel
@@ -67,16 +75,18 @@ service cloud.firestore {
 
     match /tables/{tableId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
-      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
+      // A new table starts free and without attendance.
+      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId)
+        && request.resource.data.status == 'free' && request.resource.data.currentSessionGroupId == null;
+      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId) && isTableEdit();
       allow delete: if false;
     }
 
+    // Attendances are opened, renewed and closed only by the server APIs, which keep
+    // "one open attendance per table", the access code hash and the bill consistent.
     match /tableSessions/{sessionId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
-      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     // Credenciais públicas e contadores de tentativa são acessíveis somente pelo
@@ -98,22 +108,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Audit trail: written only by the server, so nobody can forge or erase history.
     match /orderEvents/{eventId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isStaffForRestaurant(request.resource.data.restaurantId);
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /dailyMetrics/{metricId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isAdminForRestaurant(request.resource.data.restaurantId);
-      allow update: if resource.data.restaurantId is string && sameRestaurant() && isAdminForRestaurant(resource.data.restaurantId);
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /adminAlerts/{alertId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
-      allow create: if request.resource.data.restaurantId is string && isStaffForRestaurant(request.resource.data.restaurantId);
+      allow create: if false;
       allow update: if resource.data.restaurantId is string && sameRestaurant()
         && isStaffForRestaurant(resource.data.restaurantId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'updatedAt']);

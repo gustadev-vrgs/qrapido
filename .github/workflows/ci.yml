@@ -1,0 +1,41 @@
+name: CI
+
+# Roda em cada PR e em cada push na main: um merge que quebra tipos, lint,
+# testes ou build fica vermelho antes de chegar à produção.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Valores fictícios: o build só precisa que existam. Nada aqui acessa o Firebase real.
+      NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-placeholder
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-placeholder.appspot.com
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "0"
+      NEXT_PUBLIC_FIREBASE_APP_ID: 1:0:web:0
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tipos
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Testes
+        run: npm test
+      - name: Build
+        run: npm run build

@@ -40,7 +40,10 @@ export function clientIpHint(request: NextRequest): string {
 
 export type RateLimitRule = { scope: string; key: string; limit: number; windowSeconds: number };
 
-/** Firestore-backed fixed windows work across all Vercel instances. */
+/**
+ * Firestore-backed fixed windows work across all Vercel instances.
+ * `expireAt` (a Timestamp) lets the Firestore TTL policy delete old windows.
+ */
 export async function consumeRateLimits(rules: RateLimitRule[]): Promise<{ ok: true } | { ok: false; retryAfter: number }> {
   const db = getAdminFirestore() as any;
   const now = Date.now();
@@ -56,7 +59,7 @@ export async function consumeRateLimits(rules: RateLimitRule[]): Promise<{ ok: t
       if ((snaps[index].data()?.count ?? 0) >= entry.rule.limit) retryAfter = Math.max(retryAfter, Math.ceil((entry.resetAt - now) / 1000));
     });
     if (retryAfter > 0) return { ok: false, retryAfter };
-    entries.forEach((entry, index) => tx.set(entry.ref, { scope: entry.rule.scope, count: (snaps[index].data()?.count ?? 0) + 1, resetAt: new Date(entry.resetAt).toISOString(), updatedAt: new Date(now).toISOString() }, { merge: true }));
+    entries.forEach((entry, index) => tx.set(entry.ref, { scope: entry.rule.scope, count: (snaps[index].data()?.count ?? 0) + 1, resetAt: new Date(entry.resetAt).toISOString(), expireAt: new Date(entry.resetAt + 3600_000), updatedAt: new Date(now).toISOString() }, { merge: true }));
     return { ok: true };
   });
 }
