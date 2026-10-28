@@ -12,7 +12,9 @@ const itemSchema = z.object({ menuItemId: z.string().trim().min(1).max(128), qua
 const payloadSchema = z.object({
   items: z.array(itemSchema).min(1).max(MAX_CART_LINES),
   customerName: z.string().trim().max(80).nullable().optional(), notes: z.string().trim().max(500).nullable().optional(),
-  paymentMethod: z.enum(["pix", "cash", "debit_card", "credit_card"]), paymentMode: z.enum(["system_simulated", "counter", "waiter"]),
+  paymentMethod: z.enum(["pix", "cash", "debit_card", "credit_card"]),
+  // "system_simulated" was the academic demo mode: diners can no longer send it.
+  paymentMode: z.enum(["counter", "waiter"]),
   changeFor: z.number().finite().positive().max(100000).transform((value) => Math.round(value * 100) / 100).nullable().optional()
 }).strict();
 

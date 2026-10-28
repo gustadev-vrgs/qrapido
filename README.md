@@ -40,6 +40,10 @@ npm run firebase:deploy -- --project SEU_PROJECT_ID
 ```
 (Na primeira vez pede login: `npx firebase-tools login`.) Sem as regras publicadas, o painel mostra erros de permissão. Alternativa manual: Firestore → Regras → colar `firestore/firestore.rules` → Publicar.
 
+Rode de novo sempre que `firestore/` mudar.
+
+**Custo zero (plano Spark):** o projeto não usa nada que exija o plano pago. Por isso não há TTL automático: os registros temporários de segurança (`publicRateLimits`, `sessionAccessGrants`, `orderIdempotency`) são apagados em Diagnóstico → **Limpar dados vencidos** (uma vez por mês basta).
+
 ### 4. Cadastrar o administrador (só o primeiro)
 O restante da equipe é cadastrado depois pelo próprio painel, em **Equipe**. O usuário do passo 1.2 precisa de um documento em `staffUsers` com o **mesmo UID**:
 ```bash
@@ -88,6 +92,8 @@ npm run typecheck
 npm test             # testes de regras + fluxo completo com Firebase simulado
 npm run build
 ```
+O GitHub Actions (`.github/workflows/ci.yml`) roda tipos, lint, testes e build em cada PR e em cada push na `main`. Não faça merge com o CI vermelho.
+
 Os testes de `tests/integration` executam as rotas reais da API contra um Firestore em memória (`tests/fakes/firebase-admin.ts`), sem índices compostos publicados — garantindo que o fluxo do cliente funcione num projeto novo.
 
 ### Estrutura
@@ -102,7 +108,10 @@ Os testes de `tests/integration` executam as rotas reais da API contra um Firest
 ## Segurança (resumo)
 - Preços e totais são recalculados no servidor; pedidos têm chave de idempotência (não duplicam se a internet cair) e limite de frequência.
 - O código da mesa é verificado por hash; tentativas são limitadas por IP e mesa.
-- Criar e mover pedidos só é possível pelas APIs do servidor; as regras bloqueiam escrita direta.
+- Criar e mover pedidos, abrir e fechar atendimentos e gravar o histórico (`orderEvents`) só é possível pelas APIs do servidor; as regras bloqueiam escrita direta. Do navegador, uma mesa só tem número, nome, capacidade e ativação editados.
+- A cozinha cancela só pedidos que ainda estão na cozinha; entregar e cancelar o que já está pronto fica com o salão e a gerência.
+- Cabeçalhos de segurança (CSP, `X-Frame-Options`, HSTS) em `next.config.mjs`. Se adicionar um serviço externo no navegador, inclua o domínio na CSP.
+- `.env` e arquivos de conta de serviço estão no `.gitignore`: nunca publique a chave do Firebase Admin.
 - O código atual de cada mesa fica legível apenas para a equipe do restaurante (regras do Firestore).
 - O sistema não cobra ninguém: o caixa registra como a conta foi paga (PIX, dinheiro, cartão) ao fechar a mesa.
 - Dependências atualizadas (Next.js 15, React 19, Firebase 13): `npm audit --omit=dev` sem vulnerabilidades.

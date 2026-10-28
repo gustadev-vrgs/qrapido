@@ -1,6 +1,12 @@
-.env.local
+# Credenciais: nunca vão para o GitHub (só o exemplo).
+.env
+.env.*
+!.env.example
+*-firebase-adminsdk-*.json
+serviceAccount*.json
 node_modules
 .next
 out
 tsconfig.tsbuildinfo
 .DS_Store
+.tmp

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
-import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, Eraser, Loader2, RefreshCw, Wrench, XCircle } from "lucide-react";
 
 import { AppActionButton, AppSectionCard, AppSurface } from "@/components/ui/app-design-system";
 import { describeFirebaseError } from "@/lib/data/errors";
@@ -91,6 +91,19 @@ export default function DiagnosticoPage(): JSX.Element {
 
   useEffect(() => { void run(); }, [run]);
 
+  const [cleaning, setCleaning] = useState(false);
+  const cleanup = async () => {
+    setCleaning(true);
+    try {
+      const result = await api<{ total: number; more: boolean }>("/api/admin/operations/cleanup", {});
+      appToast.success(result.total ? `${result.total} registro(s) vencido(s) apagado(s)` : "Nada para limpar", result.more ? "Ainda há mais: toque de novo para continuar." : undefined);
+    } catch (failure) {
+      appToast.error("Não foi possível limpar", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   const repair = async () => {
     setRepairing(true);
     try {
@@ -133,6 +146,10 @@ export default function DiagnosticoPage(): JSX.Element {
             </li>
           ))}
         </ul>
+      </AppSectionCard>
+
+      <AppSectionCard title="4. Limpeza" description="Apaga registros temporários de segurança que já venceram (limites de tentativas, acessos antigos de celulares). No plano gratuito o Firebase não apaga sozinho; use uma vez por mês." action={<AppActionButton variant="secondary" className="gap-2" disabled={cleaning} onClick={() => void cleanup()}>{cleaning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}Limpar dados vencidos</AppActionButton>}>
+        <p className="text-sm text-[hsl(var(--foreground-muted))]">Não mexe em pedidos, mesas, cardápio nem relatórios.</p>
       </AppSectionCard>
     </section>
   );

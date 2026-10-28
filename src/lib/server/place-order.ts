@@ -102,7 +102,7 @@ export interface CartSummary {
   total: number;
 }
 
-const paymentStatus = (mode: string): string => mode === "system_simulated" ? "simulação acadêmica — sem recebimento confirmado" : mode === "counter" ? "pagamento pendente no caixa" : "pagamento pendente com garçom";
+const paymentStatus = (mode: string): string => mode === "system_simulated" ? "simulado — sem recebimento confirmado" : mode === "counter" ? "pagamento pendente no caixa" : "pagamento pendente com garçom";
 
 /**
  * Writes one cart as orders. Dishes go to the kitchen; drinks and other ready
