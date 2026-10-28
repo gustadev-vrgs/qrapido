@@ -38,6 +38,9 @@ test("operações protegidas usam cookie, CSRF e vínculo servidor", () => {
 });
 
 test("links e endpoint antigos têm comportamento controlado", () => {
-  assert.match(read("src/app/m/[sessionToken]/page.tsx"), /redirect\("\/\?mesa=link-antigo"\)/);
+  const legacyPage = read("src/app/m/[sessionToken]/page.tsx");
+  // Shows a notice to the diner and never reads the old session secret from the URL.
+  assert.match(legacyPage, /QR Code está desatualizado/);
+  assert.doesNotMatch(legacyPage, /params/);
   assert.match(read("src/app/api/public/session/state/[sessionToken]/route.ts"), /status: 410/);
 });
