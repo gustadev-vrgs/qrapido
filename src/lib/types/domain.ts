@@ -113,6 +113,10 @@ export interface TableSession extends BaseEntity {
   /** Filled when the table is closed at the cashier. */
   billTotal?: number | null;
   paidWith?: PaymentMethod | null;
+  /** What was received per method when the bill was closed (one entry unless it was split). */
+  payments?: Array<{ method: PaymentMethod; amount: number }>;
+  closedDateKey?: string | null;
+  closedBy?: string | null;
   closeReason?: string | null;
 }
 
