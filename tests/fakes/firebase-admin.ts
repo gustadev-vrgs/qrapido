@@ -188,9 +188,11 @@ interface FakeAuthUser { uid: string; email: string; password: string; displayNa
 export const fakeAuth = {
   users: new Map<string, FakeAuthUser>(),
   reset(): void { this.users.clear(); },
-  async verifyIdToken(token: string): Promise<{ uid: string; email: string | null }> {
+  /** "test-token:<uid>" or "test-token:<uid>|<email>|verified" (platform tests need e-mail claims). */
+  async verifyIdToken(token: string): Promise<{ uid: string; email: string | null; email_verified?: boolean }> {
     if (!token.startsWith("test-token:")) throw Object.assign(new Error("Decoding Firebase ID token failed."), { code: "auth/argument-error" });
-    return { uid: token.slice("test-token:".length), email: null };
+    const [uid, email, verified] = token.slice("test-token:".length).split("|");
+    return { uid, email: email ?? null, email_verified: verified === "verified" };
   },
   async createUser(input: { email: string; password: string; displayName?: string }): Promise<{ uid: string }> {
     if ([...this.users.values()].some((user) => user.email === input.email)) throw Object.assign(new Error("The email address is already in use by another account."), { code: "auth/email-already-exists" });

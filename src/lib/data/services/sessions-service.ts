@@ -27,6 +27,19 @@ export class SessionsService {
     return readMany(getCollection(db, COLLECTIONS.tableSessions), byRestaurantAndTable(restaurantId, tableId), mapSession);
   }
 
+  /** Attendances whose bill was closed on a restaurant day (field written since the split-payment change). */
+  async listClosedOn(restaurantId: string, dateKey: string): Promise<TableSession[]> {
+    const { db } = resolveContext(this.context);
+    return readMany(getCollection(db, COLLECTIONS.tableSessions), [where("restaurantId", "==", restaurantId), where("closedDateKey", "==", dateKey)], mapSession);
+  }
+
+  /** Several attendances by id; missing or unreadable ones are skipped. */
+  async getMany(ids: string[]): Promise<TableSession[]> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    const results = await Promise.all(unique.map((id) => this.getById(id).catch(() => null)));
+    return results.filter((session): session is TableSession => session !== null);
+  }
+
   async getById(id: string): Promise<TableSession> {
     const { db } = resolveContext(this.context);
     return readOne(getDocumentRef(db, COLLECTIONS.tableSessions, id), mapSession, "tableSession");

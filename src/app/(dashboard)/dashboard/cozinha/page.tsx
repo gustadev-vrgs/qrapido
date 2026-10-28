@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Ban, Check, ChefHat, Loader2, Volume2, VolumeX } from "lucide-react";
+import { AlertTriangle, Ban, Check, ChefHat, Loader2, Printer, Volume2, VolumeX } from "lucide-react";
 
 import { AppActionButton, AppEmptyState, AppSkeleton, AppSurface, AppTextarea } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils/cn";
 import { describeOrderItem } from "@/lib/utils/menu-options";
 import { formatTime } from "@/lib/utils/formatters";
 import { minutesSince } from "@/lib/utils/table-view";
+import { printOrderTicket } from "@/lib/utils/print-ticket";
 import { appToast } from "@/lib/utils/toast";
 
 const IN_KITCHEN = new Set(["received", "confirmed", "in_preparation"]);
@@ -29,12 +30,22 @@ function waitTone(minutes: number): string {
   return "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground))]";
 }
 
+const AUTO_PRINT_KEY = "qrapido-auto-print";
+
 export default function CozinhaPage(): JSX.Element {
   const { user } = useAdminAuth();
   const api = useAdminApi();
   const [soundOn, toggleSound] = useSoundSetting();
+  // Per-device: only the tablet next to the printer should print new orders by itself.
+  const [autoPrint, setAutoPrint] = useState(false);
+  useEffect(() => { try { setAutoPrint(window.localStorage.getItem(AUTO_PRINT_KEY) === "on"); } catch { /* storage unavailable */ } }, []);
+  const toggleAutoPrint = () => setAutoPrint((current) => {
+    try { window.localStorage.setItem(AUTO_PRINT_KEY, current ? "off" : "on"); } catch { /* ignore */ }
+    return !current;
+  });
   const { orders, loading, error, stale } = useLiveOrders(user?.restaurantId, (order) => {
     if (order.status === "ready" || order.station === "ready") return;
+    if (autoPrint) void printOrderTicket(order);
     if (soundOn) playChime("order");
     appToast.info(`Novo pedido · Mesa ${order.tableNumber}`, order.items.map(describeOrderItem).join(", "));
   });
@@ -95,6 +106,7 @@ export default function CozinhaPage(): JSX.Element {
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-lg font-semibold"><span className="num text-2xl">{queue.length}</span> {queue.length === 1 ? "pedido na fila" : "pedidos na fila"}</p>
         <AppActionButton variant="secondary" className="ml-auto gap-2" onClick={() => setSoldOut(true)}><Ban className="h-4 w-4" />Acabou algo?</AppActionButton>
+        <AppActionButton variant="secondary" className="gap-2" onClick={toggleAutoPrint} aria-pressed={autoPrint} title="Imprime a comanda de cada pedido novo neste aparelho"><Printer className="h-4 w-4" /><span className="hidden sm:inline">{autoPrint ? "Impressão automática" : "Imprimir ao chegar"}</span></AppActionButton>
         <AppActionButton variant="secondary" className="gap-2" onClick={toggleSound} aria-pressed={soundOn} aria-label={soundOn ? "Som ligado" : "Som desligado"}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}<span className="hidden sm:inline">{soundOn ? "Som ligado" : "Som desligado"}</span></AppActionButton>
       </div>
 
@@ -121,7 +133,10 @@ export default function CozinhaPage(): JSX.Element {
                     <h2 className="text-3xl font-bold leading-none">Mesa {order.tableNumber}</h2>
                     <p className="mt-1 text-sm text-[hsl(var(--foreground-muted))]"><span className="num">{order.orderCode}</span> · {formatTime(order.receivedAt)}{order.customerName ? ` · ${order.customerName}` : ""}</p>
                   </div>
-                  <span className={cn("num shrink-0 rounded-full px-3 py-1 text-base font-bold", waitTone(minutes))}>{minutes} min</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className={cn("num rounded-full px-3 py-1 text-base font-bold", waitTone(minutes))}>{minutes} min</span>
+                    <button type="button" aria-label={`Imprimir comanda da Mesa ${order.tableNumber}`} className="rounded-lg p-2 text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]" onClick={() => void printOrderTicket(order)}><Printer className="h-5 w-5" /></button>
+                  </div>
                 </header>
                 <ul className="space-y-2">
                   {order.items.map((item, index) => (

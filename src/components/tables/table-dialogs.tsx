@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Banknote, CheckCircle2, Copy, CreditCard, Download, ExternalLink, Loader2, Printer, QrCode, Smartphone, TriangleAlert } from "lucide-react";
+import { Banknote, CheckCircle2, Copy, CreditCard, Download, ExternalLink, Loader2, Plus, Printer, QrCode, Smartphone, Split, TriangleAlert, X } from "lucide-react";
 
 import { AppActionButton, AppFormField, AppSelect, AppTextInput, AppTextarea } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
@@ -192,21 +192,56 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
   const initial = PAY_OPTIONS.some((option) => option.value === suggestedMethod) ? suggestedMethod : null;
   const [paidWith, setPaidWith] = useState<PaymentMethod | null>(initial);
   const [noCharge, setNoCharge] = useState(!hasSession || total === 0);
+  // Split bill: one line per method; amounts typed in reais ("20,50").
+  const [split, setSplit] = useState<Array<{ method: PaymentMethod; amount: string }> | null>(null);
+  const parseAmount = (value: string): number => {
+    const number = Number(value.replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, ""));
+    return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
+  };
+  const splitTotal = split ? Math.round(split.reduce((sum, line) => sum + parseAmount(line.amount), 0) * 100) / 100 : 0;
+  const splitGap = total !== null ? Math.round((total - splitTotal) * 100) / 100 : 0;
+  const toInput = (value: number): string => value.toFixed(2).replace(".", ",");
+  const startSplit = () => {
+    const first = paidWith ?? "pix";
+    setNoCharge(false);
+    setSplit([{ method: first, amount: total ? toInput(total) : "" }, { method: first === "pix" ? "credit_card" : "pix", amount: "" }]);
+  };
+  const updateLine = (index: number, patch: Partial<{ method: PaymentMethod; amount: string }>) => setSplit((current) => current?.map((line, position) => (position === index ? { ...line, ...patch } : line)) ?? null);
+  /** Typing in one line moves the rest of the bill to the last line, so the total always adds up. */
+  const typeAmount = (index: number, amount: string) => {
+    setSplit((current) => {
+      if (!current) return current;
+      const next = current.map((line, position) => (position === index ? { ...line, amount } : line));
+      const last = next.length - 1;
+      if (total !== null && index !== last) {
+        const others = next.slice(0, last).reduce((sum, line) => sum + parseAmount(line.amount), 0);
+        const rest = Math.round((total - others) * 100) / 100;
+        next[last] = { ...next[last], amount: rest > 0 ? toInput(rest) : "" };
+      }
+      return next;
+    });
+  };
   const [reason, setReason] = useState("");
   const [kitchenPending, setKitchenPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const splitLines = split ? split.filter((line) => parseAmount(line.amount) > 0) : null;
   const submit = async () => {
-    if (!noCharge && !paidWith) return appToast.error("Como foi pago?", "Escolha a forma de pagamento ou marque \"Sem cobrança\".");
+    if (!noCharge && splitLines) {
+      if (splitLines.length === 0) return appToast.error("Informe os valores", "Digite quanto foi pago em cada forma.");
+      if (Math.abs(splitGap) > 0.009) return appToast.error(splitGap > 0 ? "Ainda falta valor" : "Valor passou do total", splitGap > 0 ? `Faltam ${formatCurrency(splitGap)}.` : `Sobram ${formatCurrency(-splitGap)}: registre só o valor da conta, sem o troco.`);
+    } else if (!noCharge && !paidWith) return appToast.error("Como foi pago?", "Escolha a forma de pagamento ou marque \"Sem cobrança\".");
     setBusy(true);
     try {
+      const payments = !noCharge && splitLines ? splitLines.map((line) => ({ method: line.method, amount: parseAmount(line.amount) })) : null;
       await api("/api/admin/table/close", {
         tableId: table.id,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
         ...(kitchenPending ? { force: true } : {}),
-        ...(!noCharge && paidWith ? { paidWith } : {})
+        ...(payments ? { payments } : !noCharge && paidWith ? { paidWith } : {})
       });
-      appToast.success(`${table.label} livre`, !noCharge && total ? `Recebido ${formatCurrency(total)} (${paymentMethodLabels[paidWith!]}).` : undefined);
+      const how = payments ? payments.map((item) => `${paymentMethodLabels[item.method]} ${formatCurrency(item.amount)}`).join(" + ") : paidWith ? paymentMethodLabels[paidWith] : "";
+      appToast.success(`${table.label} livre`, !noCharge && total ? `Recebido ${formatCurrency(total)} (${how}).` : undefined);
       onClosed?.();
       onClose();
     } catch (failure) {
@@ -228,17 +263,39 @@ export function CloseTableDialog({ table, total, suggestedMethod, hasSession, on
       {hasSession ? (
         <div className="space-y-2">
           <p className="text-sm font-medium">Como foi pago?</p>
-          <div className="grid grid-cols-2 gap-2">
-            {PAY_OPTIONS.map((option) => {
-              const Icon = option.icon;
-              const active = !noCharge && paidWith === option.value;
-              return (
-                <button key={option.value} type="button" onClick={() => { setPaidWith(option.value); setNoCharge(false); }} className={cn("flex h-12 items-center justify-center gap-2 rounded-[var(--radius-md)] border text-sm font-semibold", active ? "border-[hsl(var(--success))] bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))]")}>
-                  <Icon className="h-4 w-4" />{paymentMethodLabels[option.value]}
-                </button>
-              );
-            })}
-          </div>
+          {split && !noCharge ? (
+            <div className="space-y-2">
+              {split.map((line, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <AppSelect className="h-11 flex-1" value={line.method} onChange={(event) => updateLine(index, { method: event.target.value as PaymentMethod })} aria-label={`Forma ${index + 1}`}>
+                    {PAY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{paymentMethodLabels[option.value]}</option>)}
+                  </AppSelect>
+                  <AppTextInput className="num h-11 w-32 text-right" inputMode="decimal" placeholder="0,00" value={line.amount} onChange={(event) => typeAmount(index, event.target.value)} aria-label={`Valor ${index + 1}`} />
+                  {split.length > 2 ? <button type="button" aria-label="Remover forma" className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))]" onClick={() => setSplit(split.filter((_, position) => position !== index))}><X className="h-4 w-4" /></button> : null}
+                </div>
+              ))}
+              <div className="flex items-center justify-between text-sm">
+                {split.length < 6 ? <button type="button" className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]" onClick={() => setSplit([...split, { method: "cash", amount: splitGap > 0 ? toInput(splitGap) : "" }])}><Plus className="h-4 w-4" />Outra forma</button> : <span />}
+                <span className={cn("num font-semibold", Math.abs(splitGap) <= 0.009 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--danger))]")}>{Math.abs(splitGap) <= 0.009 ? "Fecha o total" : splitGap > 0 ? `Faltam ${formatCurrency(splitGap)}` : `Passou ${formatCurrency(-splitGap)}`}</span>
+              </div>
+              <button type="button" className="text-sm text-[hsl(var(--foreground-muted))] underline" onClick={() => setSplit(null)}>Voltar para uma forma só</button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {PAY_OPTIONS.map((option) => {
+                  const Icon = option.icon;
+                  const active = !noCharge && paidWith === option.value;
+                  return (
+                    <button key={option.value} type="button" onClick={() => { setPaidWith(option.value); setNoCharge(false); }} className={cn("flex h-12 items-center justify-center gap-2 rounded-[var(--radius-md)] border text-sm font-semibold", active ? "border-[hsl(var(--success))] bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]" : "border-[hsl(var(--border-strong))] bg-[hsl(var(--surface))]")}>
+                      <Icon className="h-4 w-4" />{paymentMethodLabels[option.value]}
+                    </button>
+                  );
+                })}
+              </div>
+              {total ? <button type="button" className="inline-flex items-center gap-1 text-sm font-semibold text-[hsl(var(--primary))]" onClick={startSplit}><Split className="h-4 w-4" />Dividir em mais de uma forma</button> : null}
+            </>
+          )}
           <label className="flex items-center gap-2 text-sm text-[hsl(var(--foreground-muted))]"><input type="checkbox" checked={noCharge} onChange={(event) => setNoCharge(event.target.checked)} />Sem cobrança (cortesia, mesa aberta por engano...)</label>
         </div>
       ) : (

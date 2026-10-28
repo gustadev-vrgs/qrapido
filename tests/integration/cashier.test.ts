@@ -79,3 +79,27 @@ test("garçom resolve um chamado com um toque (direto de pendente para concluíd
   assert.equal((await json(await listCalls(staffRequest("/api/admin/waiter-calls", ADMIN_UID, undefined, "GET")))).calls.length, 0);
   assert.equal(fakeDb.all("waiterCallLocks").length, 0, "a trava do chamado é liberada para a mesa poder chamar de novo");
 });
+
+test("conta dividida: PIX + cartão precisa bater com o total", async () => {
+  const phone = await seatedPhone();
+  await order(phone, [{ menuItemId: "item-1", quantity: 1 }, { menuItemId: "drink-1", quantity: 1 }]);
+  const kitchen = fakeDb.all("orders").find((item) => item.station === "kitchen")!;
+  assert.equal((await transition(staffRequest("/api/admin/order/transition", ADMIN_UID, { orderId: kitchen.id, nextStatus: "ready" }))).status, 200);
+  const total = Math.round(fakeDb.all("orders").reduce((sum, item) => sum + Number(item.total), 0) * 100) / 100;
+  const pix = 20;
+  const card = Math.round((total - pix) * 100) / 100;
+
+  const short = await closeTable(staffRequest("/api/admin/table/close", ADMIN_UID, { tableId: "table-1", payments: [{ method: "pix", amount: pix }] }));
+  assert.equal(short.status, 409, "faltando dinheiro não fecha");
+  assert.match((await json(short)).error, /Faltam/);
+  assert.equal(fakeDb.all("tableSessions")[0].status, "active", "nada mudou");
+
+  const closed = await closeTable(staffRequest("/api/admin/table/close", ADMIN_UID, { tableId: "table-1", payments: [{ method: "pix", amount: pix }, { method: "credit_card", amount: card }] }));
+  assert.equal(closed.status, 200);
+  const session = fakeDb.all("tableSessions")[0];
+  assert.equal(session.status, "closed");
+  assert.deepEqual(session.payments, [{ method: "pix", amount: pix }, { method: "credit_card", amount: card }]);
+  assert.equal(session.paidWith, card > pix ? "credit_card" : "pix", "a forma que recebeu mais fica como principal");
+  assert.equal(typeof session.closedDateKey, "string");
+  for (const item of fakeDb.all("orders")) assert.match(String(item.paymentStatus), /PIX R\$ 20,00 \+ cartão de crédito/);
+});

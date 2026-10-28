@@ -51,6 +51,8 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 ```
 `<ID_DO_RESTAURANTE>` é um identificador seu, sem espaços (ex.: `cantina-da-praca`). Ou crie à mão no console: coleção `staffUsers`, ID do documento = UID, campos `uid`, `email`, `name`, `role: "admin"`, `restaurantId`, `isActive: true`.
 
+**Novos restaurantes, sem terminal:** defina `PLATFORM_ADMIN_EMAILS` na Vercel com o seu e-mail e faça Redeploy. Em `/plataforma`, entre com esse e-mail (a página pede para confirmá-lo na primeira vez) e cadastre o restaurante com o nome, um identificador (ex.: `cantina-da-ana`) e o e-mail e a senha inicial do administrador. O sistema cria o cadastro do restaurante, as configurações padrão e o login do administrador.
+
 ### 5. No painel
 1. Entre em `/login` e abra **Diagnóstico**. Tudo deve ficar verde; se algo faltar, a página explica como corrigir. Use **Corrigir automaticamente** para criar o cadastro do restaurante e as configurações padrão.
 2. **Cardápio → Categorias**: crie as seções (há sugestões como Pratos feitos e Bebidas). Depois **Novo item**: preço, foto, opções (acompanhamento, adicionais) e, se for prato do dia, os dias da semana.
@@ -63,8 +65,9 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 |---|---|---|
 | Início | Resumo do dia e chamados de garçom | todos (a cozinha vai direto para Cozinha) |
 | Salão | Chamados, o que levar às mesas e o que ainda está na cozinha (celular do garçom) | admin, gerente, atendente |
-| Cozinha | Fila de comandas com tempo de espera, "Pronto" e "Acabou algo?" | todos |
-| Mesas | Abrir mesa, código, conta, fechar conta, lançar pedido, QR Code, histórico | admin, gerente, atendente |
+| Cozinha | Fila de comandas com tempo de espera, "Pronto", "Acabou algo?" e impressão da comanda (botão ou automática no aparelho da impressora) | todos |
+| Mesas | Abrir mesa, código, conta, fechar conta (inclusive dividida em mais de uma forma), lançar pedido, QR Code, histórico | admin, gerente, atendente |
+| Caixa | Fechamento do dia: recebido por forma de pagamento, mesas em aberto, cortesias e cancelamentos; imprimível | admin, gerente, atendente |
 | Pedidos | Todos os pedidos do dia, busca e cancelamento | todos |
 | Cardápio | Categorias, itens, opções, prato do dia, foto, esgotado | admin, gerente |
 | Equipe | Cadastrar pessoas, função, senha e tirar acesso | admin, gerente (só admin cria admin) |
@@ -73,6 +76,8 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 | Diagnóstico | Verifica servidor, regras, dados e índices | admin, gerente |
 
 Cargos (`role` em `staffUsers`): `admin`, `manager` (gerente), `attendant` (atendente/garçom/caixa), `kitchen` (cozinha).
+
+**Impressão automática da comanda:** no tablet ligado à impressora térmica, abra Cozinha e ative "Imprimir ao chegar". O navegador mostra a janela de impressão a cada pedido; para imprimir direto, abra o Chrome com `--kiosk-printing` e defina a impressora térmica como padrão.
 
 **Fotos dos pratos** são reduzidas no aparelho e guardadas no próprio Firestore (coleção `menuImages`, acessada só pelo servidor) — não é preciso ativar o Firebase Storage.
 
@@ -100,6 +105,7 @@ Os testes de `tests/integration` executam as rotas reais da API contra um Firest
 - `src/app/page.tsx` — redireciona a raiz para o login.
 - `src/app/mesa/[token]` — página do cliente (QR).
 - `src/app/(dashboard)/dashboard/*` — painel.
+- `src/app/plataforma` — área do dono da plataforma (cadastro de restaurantes); APIs em `src/app/api/platform`.
 - `src/app/api/public/*` — APIs do cliente (cookie `HttpOnly` + token CSRF por celular).
 - `src/app/api/admin/*` — APIs da equipe (token do Firebase Auth + cargo).
 - `src/lib/server/*` — sessão da mesa, montagem do pedido (`place-order.ts`, usada pelo cliente e pelo garçom), segurança e tratamento de erros.

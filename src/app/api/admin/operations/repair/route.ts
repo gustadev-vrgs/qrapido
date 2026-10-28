@@ -5,7 +5,7 @@ import { ADMIN_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
 import { withApiErrors } from "@/lib/server/api-errors";
 import { invalidateRestaurantPublicData } from "@/lib/server/public-cache";
 import { createPublicTableToken } from "@/lib/server/public-session";
-import { DEFAULT_BUSINESS_HOURS } from "@/lib/constants/restaurant-settings";
+import { defaultRestaurantSettings } from "@/lib/server/restaurant-defaults";
 import { buildPublicTableUrl, isValidPublicTableToken } from "@/lib/utils/public-url";
 
 type Db = any;
@@ -35,7 +35,7 @@ async function repair(request: NextRequest): Promise<NextResponse> {
 
   const settings = await db.collection("restaurantSettings").where("restaurantId", "==", restaurantId).limit(1).get();
   if (settings.empty) {
-    await db.collection("restaurantSettings").add({ restaurantId, acceptedPaymentMethods: ["pix", "cash", "debit_card", "credit_card"], pixKey: null, pixReceiverName: null, pixReceiverCity: null, pixInstructions: null, businessHours: DEFAULT_BUSINESS_HOURS, antiSpamWindowSeconds: 60, maxOrdersPerWindow: 5, defaultSessionDurationMinutes: 240, allowSessionPin: false, requireCustomerName: false, allowCustomerNotes: true, serviceFeePercent: 10, waiterCallEnabled: true, billRequestEnabled: true, createdAt: now, updatedAt: now });
+    await db.collection("restaurantSettings").add(defaultRestaurantSettings(restaurantId, now));
     done.push("Configurações padrão criadas.");
   }
 

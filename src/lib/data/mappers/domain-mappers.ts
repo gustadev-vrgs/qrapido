@@ -116,6 +116,9 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     accessCodeIssuedAt: nullableIso(data.accessCodeIssuedAt),
     billTotal: data.billTotal == null ? null : num(data.billTotal, 0),
     paidWith: (PAYMENT_METHODS as readonly string[]).includes(data.paidWith) ? data.paidWith : null,
+    payments: Array.isArray(data.payments) ? data.payments.filter((item: { method?: unknown; amount?: unknown }) => (PAYMENT_METHODS as readonly string[]).includes(String(item?.method)) && Number.isFinite(Number(item?.amount))).map((item: { method: PaymentMethod; amount: unknown }) => ({ method: item.method, amount: Number(item.amount) })) : [],
+    closedDateKey: typeof data.closedDateKey === "string" ? data.closedDateKey : null,
+    closedBy: typeof data.closedBy === "string" ? data.closedBy : null,
     closeReason: nullableStr(data.closeReason)
   };
 }
