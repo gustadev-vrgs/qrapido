@@ -193,10 +193,9 @@ export async function verifyAttendanceCode(session: Doc, code: string): Promise<
     if (computeSessionStatus(fresh) !== "active") return { ok: false, limited: false };
     const valid = Boolean(fresh.accessCodeHash && fresh.accessCodeSalt) &&
       crypto.timingSafeEqual(Buffer.from(hashAttendanceCode(code, fresh.accessCodeSalt), "hex"), Buffer.from(fresh.accessCodeHash, "hex"));
-    if (valid) {
-      tx.update(ref, { accessFailedAttempts: 0, accessLockedUntil: null, updatedAt: nowIso() });
-      return { ok: true };
-    }
+    // Failures are not reset by a correct code: someone guessing while the table logs in
+    // must still show up for the team. Only a new code (table/code) resets the count.
+    if (valid) return { ok: true };
     // The per-IP/table limiter protects against guessing. The whole table is never
     // locked because diners commonly share the restaurant Wi-Fi.
     tx.update(ref, { accessFailedAttempts: (fresh.accessFailedAttempts ?? 0) + 1, accessLockedUntil: null, updatedAt: nowIso() });
