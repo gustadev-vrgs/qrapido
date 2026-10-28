@@ -10,7 +10,7 @@ import { USER_ROLES, type UserRole } from "@/lib/types/domain";
 export const dynamic = "force-dynamic";
 
 const role = z.enum(USER_ROLES);
-const password = z.string().min(6, "A senha precisa de pelo menos 6 caracteres.").max(64);
+const password = z.string().min(8, "A senha precisa de pelo menos 8 caracteres.").max(64);
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create"), name: z.string().trim().min(2).max(80), email: z.string().trim().toLowerCase().email().max(120), password, role }).strict(),
   z.object({ action: z.literal("update"), uid: z.string().min(1).max(128), name: z.string().trim().min(2).max(80).optional(), role: role.optional(), isActive: z.boolean().optional() }).strict(),
@@ -49,7 +49,7 @@ async function change(request: NextRequest): Promise<NextResponse> {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message;
-    return NextResponse.json({ error: message && !message.startsWith("Invalid") && !message.startsWith("Too") ? message : "Confira nome, e-mail, senha (mínimo 6) e função." }, { status: 400 });
+    return NextResponse.json({ error: message && !message.startsWith("Invalid") && !message.startsWith("Too") ? message : "Confira nome, e-mail, senha (mínimo 8) e função." }, { status: 400 });
   }
   const db = getAdminFirestore() as Db;
   const auth = getFirebaseAdminAuth() as AdminAuth;
@@ -74,9 +74,12 @@ async function change(request: NextRequest): Promise<NextResponse> {
       const existing = await ref.get();
       if (existing.exists && existing.data().restaurantId && existing.data().restaurantId !== restaurantId) throw fail("Este e-mail já é da equipe de outro restaurante.", 409, "other_restaurant");
       if (existing.exists && existing.data().restaurantId === restaurantId && existing.data().isActive === true) throw fail("Esta pessoa já está na equipe.", 409, "already_member");
-      if (reused) await auth.updateUser(uid, { password: body.password, displayName: body.name, disabled: false });
+      // Only a former member of this restaurant gets the new password. Any other existing
+      // login keeps its own password: resetting it would let whoever knows the e-mail take the account.
+      const formerMember = reused && existing.exists && existing.data().restaurantId === restaurantId;
+      if (formerMember) await auth.updateUser(uid, { password: body.password, displayName: body.name, disabled: false });
       await ref.set({ uid, name: body.name, email: body.email, role: body.role, restaurantId, isActive: true, createdBy: staff.uid, ...(existing.exists ? {} : { createdAt: now }), updatedAt: now }, { merge: true });
-      return NextResponse.json({ ok: true, uid, reused }, { status: 201 });
+      return NextResponse.json({ ok: true, uid, reused, passwordKept: reused && !formerMember }, { status: 201 });
     }
 
     const ref = db.collection("staffUsers").doc(body.uid);
@@ -110,7 +113,7 @@ async function change(request: NextRequest): Promise<NextResponse> {
     const failure = error as { status?: number; code?: string };
     if (failure.status) return NextResponse.json({ error: (error as Error).message, code: failure.code }, { status: failure.status });
     const code = failure.code ?? "";
-    if (code === "auth/invalid-password" || code === "auth/weak-password") return NextResponse.json({ error: "Senha fraca: use pelo menos 6 caracteres." }, { status: 400 });
+    if (code === "auth/invalid-password" || code === "auth/weak-password") return NextResponse.json({ error: "Senha fraca: use pelo menos 8 caracteres." }, { status: 400 });
     if (code === "auth/invalid-email") return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
     if (code === "auth/operation-not-allowed" || code === "auth/configuration-not-found") return NextResponse.json({ error: "O login por e-mail e senha está desligado no Firebase. Ative em Authentication → Sign-in method → E-mail/senha." }, { status: 503, headers: {} });
     logAdminFailure(staff.requestId, "staff_change", error);

@@ -10,6 +10,8 @@ import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import { playChime, useLiveOrders } from "@/lib/hooks/use-live-orders";
 import { useSoundSetting } from "@/lib/hooks/use-sound-setting";
+import { SoundUnlockNotice } from "@/components/shared/sound-unlock-notice";
+import { ConnectionBanner } from "@/components/shared/connection-banner";
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import type { Order } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
@@ -31,7 +33,7 @@ export default function CozinhaPage(): JSX.Element {
   const { user } = useAdminAuth();
   const api = useAdminApi();
   const [soundOn, toggleSound] = useSoundSetting();
-  const { orders, loading, error } = useLiveOrders(user?.restaurantId, (order) => {
+  const { orders, loading, error, stale } = useLiveOrders(user?.restaurantId, (order) => {
     if (order.status === "ready" || order.station === "ready") return;
     if (soundOn) playChime("order");
     appToast.info(`Novo pedido · Mesa ${order.tableNumber}`, order.items.map(describeOrderItem).join(", "));
@@ -86,6 +88,9 @@ export default function CozinhaPage(): JSX.Element {
   return (
     <section className="space-y-4">
       {error ? <AppSurface className="flex items-start gap-3 border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error}</p></AppSurface> : null}
+
+      <ConnectionBanner stale={stale} />
+      <SoundUnlockNotice enabled={soundOn} />
 
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-lg font-semibold"><span className="num text-2xl">{queue.length}</span> {queue.length === 1 ? "pedido na fila" : "pedidos na fila"}</p>

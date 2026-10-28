@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils/cn";
 import { describeOrderItem, formatOptions } from "@/lib/utils/menu-options";
 import { formatCurrency, formatTime } from "@/lib/utils/formatters";
 import { appToast } from "@/lib/utils/toast";
+import { ConnectionBanner } from "@/components/shared/connection-banner";
 
 type View = "today" | "kitchen" | "ready" | "delivered" | "cancelled";
 
@@ -41,7 +42,7 @@ const STATUS: Record<Order["status"], { label: string; className: string }> = {
 export default function PedidosPage(): JSX.Element {
   const { user } = useAdminAuth();
   const api = useAdminApi();
-  const { orders, loading, error, dateKey } = useLiveOrders(user?.restaurantId);
+  const { orders, loading, error, dateKey, stale } = useLiveOrders(user?.restaurantId);
   const [view, setView] = useState<View>("today");
   const [search, setSearch] = useState("");
   const [details, setDetails] = useState<Order | null>(null);
@@ -74,6 +75,7 @@ export default function PedidosPage(): JSX.Element {
 
   return (
     <section className="space-y-4">
+      <ConnectionBanner stale={stale} />
       {error ? <AppSurface className="flex items-start gap-3 border-[hsl(var(--danger)/0.5)] p-4 text-sm"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--danger))]" /><p>{error}</p></AppSurface> : null}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">

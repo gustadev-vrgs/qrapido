@@ -15,6 +15,18 @@ const transitions: Record<string, readonly string[]> = {
   cancelled: []
 };
 
+const KITCHEN_STATUSES = new Set(["received", "confirmed", "in_preparation"]);
+
+/**
+ * The kitchen moves its own queue and may cancel a dish it cannot make ("acabou o frango"),
+ * but only while the dish is still in the kitchen. Delivering and cancelling what is
+ * already ready belong to the floor (attendant, manager, admin).
+ */
+function kitchenMayDo(currentStatus: string, nextStatus: string): boolean {
+  if (nextStatus === "cancelled") return KITCHEN_STATUSES.has(currentStatus);
+  return nextStatus === "confirmed" || nextStatus === "in_preparation" || nextStatus === "ready";
+}
+
 const payloadSchema = z.object({
   orderId: z.string().min(1).max(128),
   nextStatus: z.enum(["confirmed", "in_preparation", "ready", "delivered", "cancelled"]),
@@ -39,6 +51,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (order.restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("Pedido não encontrado."), { status: 404 });
       if (order.status === parsed.data.nextStatus) return { replay: true, status: order.status };
       if (!transitions[order.status]?.includes(parsed.data.nextStatus)) throw Object.assign(new Error("Transição de pedido não permitida."), { status: 409 });
+      if (staff.staffUser.role === "kitchen" && !kitchenMayDo(order.status, parsed.data.nextStatus)) {
+        throw Object.assign(new Error(parsed.data.nextStatus === "cancelled" ? "O pedido já saiu da cozinha: peça ao salão ou ao gerente para cancelar." : "A cozinha só marca pedidos como prontos."), { status: 403 });
+      }
 
       const now = new Date().toISOString();
       const cancelling = parsed.data.nextStatus === "cancelled";

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { requireStaffRequest, STAFF_ROLES } from "@/lib/server/admin-auth";
 import { withApiErrors } from "@/lib/server/api-errors";
+import { invalidateRestaurantPublicData } from "@/lib/server/public-cache";
 
 const schema = z.object({ itemId: z.string().trim().min(1).max(128), isAvailable: z.boolean() }).strict();
 
@@ -19,6 +20,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
   if (!snap.exists || snap.data().restaurantId !== staff.staffUser.restaurantId) return NextResponse.json({ error: "Item não encontrado." }, { status: 404 });
   const now = new Date().toISOString();
   await ref.update({ isAvailable: parsed.data.isAvailable, updatedAt: now, availabilityChangedBy: staff.staffUser.id, availabilityChangedAt: now });
+  invalidateRestaurantPublicData(staff.staffUser.restaurantId);
   return NextResponse.json({ ok: true, isAvailable: parsed.data.isAvailable, requestId: staff.requestId });
 }
 

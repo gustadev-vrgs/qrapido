@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { collection, onSnapshot, query, where, type DocumentData, type Query, type Unsubscribe } from "firebase/firestore";
 
+import { playChime } from "@/lib/audio/chime";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { mapOrder } from "@/lib/data/mappers/domain-mappers";
 import { ACTIVE_ORDER_STATUSES } from "@/lib/data/services/orders-service";
@@ -15,6 +16,21 @@ interface LiveOrdersState {
   loading: boolean;
   error: string | null;
   dateKey: string;
+  /** True while some listener only has data from the local cache (connection lost or not confirmed yet). */
+  stale: boolean;
+}
+
+/** The restaurant's calendar day, rechecked every minute so a panel left on overnight moves to the new day. */
+function useRestaurantDateKey(): string {
+  const [dateKey, setDateKey] = useState(() => toRestaurantDateKey());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const current = toRestaurantDateKey();
+      setDateKey((previous) => (previous === current ? previous : current));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return dateKey;
 }
 
 /**
@@ -24,17 +40,18 @@ interface LiveOrdersState {
  * the snapshot itself (no re-reading the whole collection).
  */
 export function useLiveOrders(restaurantId: string | undefined, onNewOrder?: (order: Order) => void): LiveOrdersState {
-  const [state, setState] = useState<LiveOrdersState>({ orders: [], loading: true, error: null, dateKey: toRestaurantDateKey() });
+  const dateKey = useRestaurantDateKey();
+  const [state, setState] = useState<LiveOrdersState>({ orders: [], loading: true, error: null, dateKey, stale: false });
   const onNewOrderRef = useRef(onNewOrder);
   onNewOrderRef.current = onNewOrder;
 
   useEffect(() => {
     if (!restaurantId) return;
-    const dateKey = toRestaurantDateKey();
     const db = getClientFirestore();
     const ordersRef = collection(db, "orders");
     const groups = new Map<string, Map<string, Order>>();
     const ready = new Set<string>();
+    const fromCache = new Set<string>();
     const known = new Set<string>();
     let initialized = false;
     const unsubscribes: Unsubscribe[] = [];
@@ -53,12 +70,13 @@ export function useLiveOrders(restaurantId: string | undefined, onNewOrder?: (or
       }
       orders.forEach((order) => known.add(order.id));
       if (ready.size === listeners.length) initialized = true;
-      setState({ orders, loading: ready.size < listeners.length, error: null, dateKey });
+      setState({ orders, loading: ready.size < listeners.length, error: null, dateKey, stale: fromCache.size > 0 });
     };
 
     for (const [key, listenerQuery] of listeners) {
-      unsubscribes.push(onSnapshot(listenerQuery, (snapshot) => {
+      unsubscribes.push(onSnapshot(listenerQuery, { includeMetadataChanges: true }, (snapshot) => {
         groups.set(key, new Map(snapshot.docs.map((doc) => [doc.id, mapOrder(doc.id, doc.data())])));
+        if (snapshot.metadata.fromCache) fromCache.add(key); else fromCache.delete(key);
         ready.add(key);
         publish();
       }, (error) => {
@@ -67,44 +85,13 @@ export function useLiveOrders(restaurantId: string | undefined, onNewOrder?: (or
     }
 
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [restaurantId]);
+  }, [restaurantId, dateKey]);
 
   return state;
 }
 
-const CHIMES = {
-  /** New order for the kitchen: two rising notes. */
-  order: [880, 1320],
-  /** Something ready to take to a table: three quick notes. */
-  ready: [988, 1319, 1568],
-  /** Customer called the waiter: low-high-low, distinct from orders. */
-  call: [660, 990, 660]
-} as const;
-
-/** Short chime generated with Web Audio (no asset needed). Browsers only play it after the first tap on the page. */
-export function playChime(kind: keyof typeof CHIMES = "order"): void {
-  try {
-    const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = new AudioContextClass();
-    CHIMES[kind].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      const start = context.currentTime + index * 0.18;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
-      oscillator.start(start);
-      oscillator.stop(start + 0.17);
-    });
-    window.setTimeout(() => void context.close(), 1000);
-  } catch {
-    /* sound is a convenience only */
-  }
-}
+// Chimes live in lib/audio/chime (one shared, unlockable AudioContext); re-exported for existing imports.
+export { playChime };
 
 export function playNewOrderChime(): void {
   playChime("order");

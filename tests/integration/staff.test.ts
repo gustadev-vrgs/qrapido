@@ -26,15 +26,28 @@ test("admin cadastra garçom pelo painel: cria o login e o cadastro na equipe", 
   assert.equal(listed.team.find((member: { uid: string }) => member.uid === ADMIN_UID).isMe, true);
 });
 
-test("e-mail que já tem login no Firebase é vinculado à equipe", async () => {
+test("e-mail que já tem login no Firebase é vinculado à equipe sem trocar a senha", async () => {
   seedRestaurant();
   const existing = await fakeAuth.createUser({ email: "antigo@restaurante.com", password: "qualquer1" });
   const response = await create(ADMIN_UID, { name: "Antigo", email: "antigo@restaurante.com", password: "novasenha", role: "kitchen" });
   assert.equal(response.status, 201);
-  assert.equal((await json(response)).reused, true);
-  assert.equal(fakeAuth.users.get(existing.uid)!.password, "novasenha");
+  const body = await json(response);
+  assert.equal(body.reused, true);
+  assert.equal(body.passwordKept, true);
+  assert.equal(fakeAuth.users.get(existing.uid)!.password, "qualquer1", "quem só sabe o e-mail não assume a conta");
   assert.equal(fakeDb.all("staffUsers").find((item) => item.id === existing.uid)!.role, "kitchen");
   assert.equal((await create(ADMIN_UID, { name: "Antigo", email: "antigo@restaurante.com", password: "novasenha", role: "kitchen" })).status, 409, "não duplica quem já está ativo");
+});
+
+test("ex-membro do mesmo restaurante volta com a senha nova", async () => {
+  seedRestaurant();
+  const { uid } = await json(await create(ADMIN_UID, { name: "Bia", email: "bia@r.com", password: "primeira1", role: "attendant" }));
+  assert.equal((await changeTeam(staffRequest("/api/admin/staff", ADMIN_UID, { action: "update", uid, isActive: false }))).status, 200);
+  const again = await create(ADMIN_UID, { name: "Bia", email: "bia@r.com", password: "segunda22", role: "attendant" });
+  assert.equal(again.status, 201);
+  assert.equal((await json(again)).passwordKept, false);
+  assert.equal(fakeAuth.users.get(uid)!.password, "segunda22");
+  assert.equal(fakeAuth.users.get(uid)!.disabled, false);
 });
 
 test("desativar, trocar função e senha; proteções contra ficar sem administrador", async () => {

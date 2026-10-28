@@ -7,6 +7,7 @@ import { AppActionButton, AppTextInput } from "@/components/ui/app-design-system
 import { AppModal } from "@/components/ui/app-modal";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { MenuService } from "@/lib/data/services/menu-service";
+import { refreshCustomerMenu, useAdminApi } from "@/lib/hooks/use-admin-api";
 import type { MenuCategory } from "@/lib/types/domain";
 import { categoryIcon } from "@/lib/utils/category-icon";
 import { cn } from "@/lib/utils/cn";
@@ -23,6 +24,7 @@ const SUGGESTIONS = ["Pratos feitos", "Marmitas", "Porções", "Bebidas", "Sobre
 export function CategoryManager({ categories, itemCount, restaurantId, onClose, onChanged }: { categories: MenuCategory[]; itemCount: Record<string, number>; restaurantId: string; onClose: () => void; onChanged: () => Promise<void> | void }): JSX.Element {
   const service = useMemo(() => new MenuService({ scope: "admin" }), []);
   const ordered = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "pt-BR"));
+  const api = useAdminApi();
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export function CategoryManager({ categories, itemCount, restaurantId, onClose, 
     setBusy(key);
     try {
       await action();
+      await refreshCustomerMenu(api);
       await onChanged();
       if (success) appToast.success(success);
     } catch (failure) {

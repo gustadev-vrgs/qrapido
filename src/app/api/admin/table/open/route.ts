@@ -46,10 +46,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (table.restaurantId !== staff.staffUser.restaurantId) throw Object.assign(new Error("restaurant_mismatch"), { status: 403 });
       if (table.isActive === false) throw Object.assign(new Error("Esta mesa está desativada. Ative-a em Mesas antes de abrir."), { status: 409 });
 
-      // Equality-only query: no composite index needed.
-      const sessionsSnap = await tx.get(db.collection("tableSessions").where("tableId", "==", table.id));
+      // Only attendances that may still be open: reading every attendance the table
+      // ever had grew with the history and made opening a table slower each month.
+      // Equality-only queries: no composite index needed.
+      const openSnaps = await Promise.all(["active", "idle"].map((status) => tx.get(db.collection("tableSessions").where("tableId", "==", table.id).where("status", "==", status))));
       const nowMs = Date.now();
-      const sessions = sessionsSnap.docs.map((doc: Db) => ({ ref: doc.ref, id: doc.id, ...doc.data() }));
+      const sessions = openSnaps.flatMap((snap: Db) => snap.docs).map((doc: Db) => ({ ref: doc.ref, id: doc.id, ...doc.data() }));
       const live = sessions.find((session: Db) => session.status === "active" && new Date(session.expiresAt).getTime() > nowMs);
       if (live) throw Object.assign(new Error("Esta mesa já tem um atendimento aberto. Use \"Novo código\" para gerar outro código ou encerre a mesa."), { status: 409 });
 

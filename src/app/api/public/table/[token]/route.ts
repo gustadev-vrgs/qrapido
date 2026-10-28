@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { withApiErrors } from "@/lib/server/api-errors";
-import { computeSessionStatus, findLiveSessionForTable, loadPublicMenu, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveSettings, resolveTableByPublicToken, validateAccessGrant } from "@/lib/server/public-session";
+import { loadRestaurantPublicData } from "@/lib/server/public-cache";
+import { computeSessionStatus, findLiveSessionForTable, markSessionExpired, PUBLIC_ACCESS_COOKIE, resolveTableByPublicToken, validateAccessGrant } from "@/lib/server/public-session";
 import type { PublicTableAccess } from "@/lib/types/domain";
 import { isValidPublicTableToken } from "@/lib/utils/public-url";
 
@@ -15,13 +15,9 @@ async function handler(request: NextRequest, context: { params: Promise<{ token:
   if (!table) return NextResponse.json({ error: "QR Code inválido ou mesa não encontrada. Peça à equipe o QR Code atualizado desta mesa.", code: "invalid_qr" }, { status: 404 });
   if (table.isActive === false) return NextResponse.json({ error: "Esta mesa está temporariamente indisponível. Chame um atendente.", code: "table_disabled" }, { status: 423 });
 
-  const db = getAdminFirestore() as any;
-  const [session, menu, settings, restaurant] = await Promise.all([
-    findLiveSessionForTable(table),
-    loadPublicMenu(table.restaurantId),
-    resolveSettings(table.restaurantId),
-    db.collection("restaurants").doc(table.restaurantId).get()
-  ]);
+  // Menu, settings and name come from a short-lived cache: phones poll this route.
+  const [session, publicData] = await Promise.all([findLiveSessionForTable(table), loadRestaurantPublicData(table.restaurantId)]);
+  const settings = publicData.settings;
 
   let access: PublicTableAccess = "no_session";
   if (session) {
@@ -36,7 +32,7 @@ async function handler(request: NextRequest, context: { params: Promise<{ token:
 
   const authorized = access === "authorized" && session;
   const response = NextResponse.json({
-    restaurantName: restaurant.exists ? restaurant.data()?.name ?? null : null,
+    restaurantName: publicData.restaurantName,
     table: { number: table.number, label: table.label ?? `Mesa ${table.number}` },
     access,
     session: authorized ? {
@@ -49,8 +45,8 @@ async function handler(request: NextRequest, context: { params: Promise<{ token:
       startedAt: session.startedAt,
       expiresAt: session.expiresAt
     } : null,
-    categories: menu.categories,
-    items: menu.items,
+    categories: publicData.categories,
+    items: publicData.items,
     settings: {
       acceptedPaymentMethods: Array.isArray(settings?.acceptedPaymentMethods) && settings.acceptedPaymentMethods.length ? settings.acceptedPaymentMethods : ["pix", "cash", "debit_card", "credit_card"],
       allowCustomerNotes: settings?.allowCustomerNotes ?? true,

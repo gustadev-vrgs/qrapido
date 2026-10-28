@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { ADMIN_ROLES, requireStaffRequest } from "@/lib/server/admin-auth";
 import { withApiErrors } from "@/lib/server/api-errors";
+import { invalidateRestaurantPublicData } from "@/lib/server/public-cache";
 
 /** Photos are resized on the phone/computer before upload; this is a safety cap. */
 const MAX_IMAGE_BYTES = 350 * 1024;
@@ -30,6 +31,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
   if (parsed.data.dataUrl === null) {
     await imageRef.delete();
     await itemRef.update({ imageUrl: null, updatedAt: now });
+    invalidateRestaurantPublicData(staff.staffUser.restaurantId);
     return NextResponse.json({ ok: true, imageUrl: null });
   }
 
@@ -40,6 +42,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
   await imageRef.set({ restaurantId: staff.staffUser.restaurantId, contentType: match[1], data: match[2], bytes, updatedAt: now, updatedBy: staff.staffUser.id });
   const imageUrl = `/api/public/menu-image/${encodeURIComponent(parsed.data.itemId)}?v=${Date.now().toString(36)}`;
   await itemRef.update({ imageUrl, updatedAt: now });
+  invalidateRestaurantPublicData(staff.staffUser.restaurantId);
   return NextResponse.json({ ok: true, imageUrl, bytes });
 }
 
