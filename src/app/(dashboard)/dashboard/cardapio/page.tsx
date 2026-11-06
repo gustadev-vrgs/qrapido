@@ -52,6 +52,11 @@ export default function CardapioPage(): JSX.Element {
   useEffect(() => { void load(); }, [load]);
 
   const [addingSample, setAddingSample] = useState(false);
+  // The starter dishes use the bundled pictures; none of them on the menu = offer it (once per device if dismissed).
+  const hasSample = items.some((item) => item.imageUrl?.startsWith("/cardapio-exemplo/"));
+  const [sampleDismissed, setSampleDismissed] = useState(false);
+  useEffect(() => { try { setSampleDismissed(window.localStorage.getItem("qrapido-sample-dismissed") === "1"); } catch { /* private mode */ } }, []);
+  const dismissSample = () => { setSampleDismissed(true); try { window.localStorage.setItem("qrapido-sample-dismissed", "1"); } catch { /* private mode */ } };
   const addSample = async () => {
     setAddingSample(true);
     try {
@@ -117,10 +122,11 @@ export default function CardapioPage(): JSX.Element {
         </div>
       </div>
 
-      {!loading && categories.length > 0 && items.length === 0 ? (
+      {!loading && categories.length > 0 && !hasSample && !sampleDismissed ? (
         <AppSurface className="flex flex-wrap items-center gap-3 border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary-soft))] p-4">
           <Sparkles className="h-5 w-5 text-[hsl(var(--primary))]" />
-          <p className="min-w-0 flex-1 text-sm">Ainda sem itens. Quer começar com 5 pratos feitos e bebidas, já com fotos? Depois é só ajustar.</p>
+          <p className="min-w-0 flex-1 text-sm">{items.length === 0 ? "Ainda sem itens. Quer começar com 5 pratos feitos e bebidas, já com fotos? Depois é só ajustar." : "Quer ver o cardápio de exemplo? Entram 5 pratos feitos e 3 bebidas com fotos. Os seus itens continuam como estão."}</p>
+          {items.length ? <AppActionButton variant="ghost" onClick={dismissSample}>Agora não</AppActionButton> : null}
           <AppActionButton className="gap-2" disabled={addingSample} onClick={() => void addSample()}>{addingSample ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Usar cardápio de exemplo</AppActionButton>
         </AppSurface>
       ) : null}

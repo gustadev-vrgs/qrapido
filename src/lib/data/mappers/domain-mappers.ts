@@ -111,6 +111,7 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     orderLimitEnabled: bool(data.orderLimitEnabled, false),
     completedOrdersCount: Math.max(0, num(data.completedOrdersCount, 0)),
     openedByStaffId: nullableStr(data.openedByStaffId),
+    openedByName: nullableStr(data.openedByName),
     notes: nullableStr(data.notes),
     staffAccessCode: nullableStr(data.staffAccessCode),
     accessFailedAttempts: Math.max(0, num(data.accessFailedAttempts, 0)),
@@ -122,6 +123,7 @@ export function mapSession(id: string, data: DocumentData): TableSession {
     payments: Array.isArray(data.payments) ? data.payments.filter((item: { method?: unknown; amount?: unknown }) => (PAYMENT_METHODS as readonly string[]).includes(String(item?.method)) && Number.isFinite(Number(item?.amount))).map((item: { method: PaymentMethod; amount: unknown }) => ({ method: item.method, amount: Number(item.amount) })) : [],
     closedDateKey: typeof data.closedDateKey === "string" ? data.closedDateKey : null,
     closedBy: typeof data.closedBy === "string" ? data.closedBy : null,
+    closedByName: nullableStr(data.closedByName),
     closeReason: nullableStr(data.closeReason)
   };
 }

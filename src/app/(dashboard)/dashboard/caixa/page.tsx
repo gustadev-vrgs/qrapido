@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Ban, Gift, Loader2, Printer, RefreshCw, Wallet } from "lucide-react";
+import { Ban, Gift, Loader2, Printer, ReceiptText, RefreshCw, Wallet } from "lucide-react";
 
 import { AppActionButton, AppSectionCard, AppSurface, AppTextInput } from "@/components/ui/app-design-system";
 import { paymentMethodLabels } from "@/lib/constants/status-labels";
@@ -10,9 +10,10 @@ import { OrdersService } from "@/lib/data/services/orders-service";
 import { SessionsService } from "@/lib/data/services/sessions-service";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
 import type { TableSession } from "@/lib/types/domain";
-import { buildCashClosing, type CashClosing } from "@/lib/utils/cash-closing";
+import { buildCashClosing, sessionPayments, type CashClosing } from "@/lib/utils/cash-closing";
 import { toRestaurantDateKey } from "@/lib/utils/date-key";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { printReceipt } from "@/lib/utils/print-receipt";
 
 function formatDay(dateKey: string): string {
   const [year, month, day] = dateKey.split("-").map(Number);
@@ -24,6 +25,7 @@ export default function CaixaPage(): JSX.Element {
   const { user } = useAdminAuth();
   const [dateKey, setDateKey] = useState(() => toRestaurantDateKey());
   const [closing, setClosing] = useState<CashClosing | null>(null);
+  const [bills, setBills] = useState<TableSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,6 +44,7 @@ export default function CaixaPage(): JSX.Element {
       const sessions: TableSession[] = [...closedToday, ...others];
       const closedOn = (session: TableSession) => (session.closedDateKey ? session.closedDateKey === dateKey : Boolean(session.closedAt) && toRestaurantDateKey(new Date(session.closedAt!)) === dateKey);
       setClosing(buildCashClosing(dateKey, orders, sessions, closedOn));
+      setBills(sessions.filter((session) => session.status === "closed" && closedOn(session)).sort((a, b) => String(b.closedAt ?? "").localeCompare(String(a.closedAt ?? ""))));
       setError(null);
     } catch (failure) {
       setError(describeFirebaseError(failure));
@@ -63,7 +66,7 @@ export default function CaixaPage(): JSX.Element {
           <AppTextInput type="date" value={dateKey} max={today} onChange={(event) => event.target.value && setDateKey(event.target.value)} />
         </label>
         <AppActionButton variant="secondary" className="gap-2" disabled={loading} onClick={() => void load()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}Atualizar</AppActionButton>
-        <AppActionButton className="ml-auto gap-2" disabled={!closing} onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir</AppActionButton>
+        <AppActionButton variant="secondary" className="ml-auto gap-2" disabled={!closing} onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir fechamento do dia</AppActionButton>
       </AppSurface>
 
       {error ? <AppSurface className="p-4 text-sm text-[hsl(var(--danger))]">{error}</AppSurface> : null}
@@ -88,6 +91,31 @@ export default function CaixaPage(): JSX.Element {
               </table>
             ) : <p className="text-sm text-[hsl(var(--foreground-muted))]">Nenhuma conta fechada com pagamento neste dia.</p>}
             {closing.received.some((item) => item.method === "cash") ? <p className="mt-2 text-xs text-[hsl(var(--foreground-muted))]">Dinheiro: o valor é o da conta, sem o troco. É o que deve estar na gaveta, além do fundo de troco.</p> : null}
+          </AppSectionCard>
+
+
+          <AppSectionCard className="print:hidden" title="Contas fechadas" description={bills.length ? "Imprima o recibo de cada mesa: sai só o recibo, com a mesa, o número, quem atendeu e quem fechou." : "Nenhuma conta fechada neste dia."} icon={ReceiptText} tone="primary">
+            {bills.length ? (
+              <ul className="divide-y divide-[hsl(var(--border))]">
+                {bills.map((bill) => {
+                  const paid = sessionPayments(bill);
+                  const time = bill.closedAt ? new Date(bill.closedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+                  const people = [bill.openedByName ? `Atendimento: ${bill.openedByName}` : null, bill.closedByName ? `Caixa: ${bill.closedByName}` : null].filter(Boolean).join(" · ");
+                  return (
+                    <li key={bill.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">Mesa {bill.tableNumber}{bill.receiptNumber ? <span className="num ml-2 text-sm font-normal text-[hsl(var(--foreground-muted))]">Recibo nº {String(bill.receiptNumber).padStart(6, "0")}</span> : null}</p>
+                        <p className="text-sm text-[hsl(var(--foreground-muted))]">{time}{paid.length ? ` · ${paid.map((item) => paymentMethodLabels[item.method]).join(" + ")}` : " · cortesia"}{people ? ` · ${people}` : ""}</p>
+                      </div>
+                      <span className="num font-semibold">{formatCurrency(bill.billTotal ?? paid.reduce((sum, item) => sum + item.amount, 0))}</span>
+                      {bill.receiptUrl ? (
+                        <AppActionButton variant="secondary" className="gap-2" onClick={() => printReceipt(bill.receiptUrl!)} aria-label={`Imprimir recibo da mesa ${bill.tableNumber}`}><Printer className="h-4 w-4" />Imprimir</AppActionButton>
+                      ) : <span className="text-xs text-[hsl(var(--foreground-muted))]">Sem recibo</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
           </AppSectionCard>
 
           {closing.openBills.length ? (

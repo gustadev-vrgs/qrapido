@@ -10,6 +10,7 @@ import { OrdersService } from "@/lib/data/services/orders-service";
 import { SessionsService } from "@/lib/data/services/sessions-service";
 import type { Order, Table, TableSession } from "@/lib/types/domain";
 import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils/formatters";
+import { printReceipt } from "@/lib/utils/print-receipt";
 import { describeOrderItem } from "@/lib/utils/menu-options";
 
 const TONE: Record<Order["status"], "info" | "warning" | "success" | "neutral" | "danger"> = { received: "info", confirmed: "info", in_preparation: "warning", ready: "success", delivered: "neutral", cancelled: "danger" };
@@ -65,7 +66,7 @@ export function TableHistory({ table, restaurantId }: { table: Table; restaurant
               <strong className="text-sm">{formatCurrency(entry.total)}</strong>
             </div>
           </div>
-          {entry.session ? <p className="flex flex-wrap items-center gap-x-3 text-xs text-[hsl(var(--foreground-muted))]"><span>{entry.session.peopleCount} pessoa(s){entry.session.notes ? ` · ${entry.session.notes}` : ""}</span>{entry.session.receiptUrl ? <a className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline" href={entry.session.receiptUrl} target="_blank" rel="noopener">Recibo nº {String(entry.session.receiptNumber ?? "").padStart(6, "0")}</a> : null}</p> : null}
+          {entry.session ? <p className="flex flex-wrap items-center gap-x-3 text-xs text-[hsl(var(--foreground-muted))]"><span>{entry.session.peopleCount} pessoa(s){entry.session.notes ? ` · ${entry.session.notes}` : ""}</span>{entry.session.receiptUrl ? <><a className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline" href={entry.session.receiptUrl} target="_blank" rel="noopener">Recibo nº {String(entry.session.receiptNumber ?? "").padStart(6, "0")}</a><button type="button" className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline" onClick={() => printReceipt(entry.session!.receiptUrl!)}>Imprimir</button></> : null}</p> : null}
           {entry.orders.length === 0 ? <p className="text-xs text-[hsl(var(--foreground-muted))]">Sem pedidos.</p> : (
             <ul className="space-y-1">
               {entry.orders.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt)).map((order) => (

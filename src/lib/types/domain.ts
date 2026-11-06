@@ -109,6 +109,7 @@ export interface TableSession extends BaseEntity {
   orderLimitEnabled: boolean;
   completedOrdersCount: number;
   openedByStaffId: string | null;
+  openedByName?: string | null;
   notes: string | null;
   /** Current 6-digit code, readable by the restaurant staff only. */
   staffAccessCode?: string | null;
@@ -125,6 +126,7 @@ export interface TableSession extends BaseEntity {
   payments?: Array<{ method: PaymentMethod; amount: number }>;
   closedDateKey?: string | null;
   closedBy?: string | null;
+  closedByName?: string | null;
   closeReason?: string | null;
 }
 
