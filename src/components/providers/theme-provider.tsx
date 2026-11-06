@@ -34,23 +34,35 @@ function applyResolvedTheme(resolvedTheme: ResolvedTheme) {
   document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
 }
 
+function readSavedTheme(storageKey: string, fallback: Theme): Theme {
+  try {
+    const saved = window.localStorage.getItem(storageKey);
+    return saved === "dark" || saved === "light" || saved === "system" ? saved : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function ThemeProvider({ children, defaultTheme = "light", storageKey = "qrapido-theme" }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(resolveTheme(defaultTheme));
+  // Until the saved choice is read, never write or apply the default: that is what
+  // made every page load flash light before going dark.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem(storageKey) as Theme | null;
-    if (savedTheme) {
-      setThemeState(savedTheme);
-      setResolvedTheme(resolveTheme(savedTheme));
-    }
-  }, [storageKey]);
+    const savedTheme = readSavedTheme(storageKey, defaultTheme);
+    setThemeState(savedTheme);
+    setResolvedTheme(resolveTheme(savedTheme));
+    setReady(true);
+  }, [storageKey, defaultTheme]);
 
   useEffect(() => {
+    if (!ready) return;
     const nextResolvedTheme = resolveTheme(theme);
     setResolvedTheme(nextResolvedTheme);
     applyResolvedTheme(nextResolvedTheme);
-    window.localStorage.setItem(storageKey, theme);
+    try { window.localStorage.setItem(storageKey, theme); } catch { /* private mode */ }
 
     if (theme !== "system") return;
 
@@ -63,7 +75,7 @@ export function ThemeProvider({ children, defaultTheme = "light", storageKey = "
     media.addEventListener("change", listener);
 
     return () => media.removeEventListener("change", listener);
-  }, [theme, storageKey]);
+  }, [theme, storageKey, ready]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({

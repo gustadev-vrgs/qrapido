@@ -20,7 +20,9 @@ export function AdminRouteGuard({ children }: AdminRouteGuardProps): JSX.Element
   }, [isAuthenticated, isLoading, router]);
 
   if (isLoading) {
-    return <div className="app-surface mx-auto mt-10 max-w-md p-5 text-sm text-[hsl(var(--foreground-muted))]">Validando sessão...</div>;
+    // Usually takes a fraction of a second: the message only shows up if it takes longer,
+    // so a normal page load does not flash a box before the panel appears.
+    return <div className="min-h-screen bg-[hsl(var(--background))]"><div className="app-delayed-appear app-surface mx-auto mt-10 max-w-md p-5 text-sm text-[hsl(var(--foreground-muted))]" role="status">Validando sessão...</div></div>;
   }
 
   if (!isAuthenticated) {
