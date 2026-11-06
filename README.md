@@ -40,7 +40,7 @@ npm run firebase:deploy -- --project SEU_PROJECT_ID
 ```
 (Na primeira vez pede login: `npx firebase-tools login`.) Sem as regras publicadas, o painel mostra erros de permissão. Alternativa manual: Firestore → Regras → colar `firestore/firestore.rules` → Publicar.
 
-Rode de novo sempre que `firestore/` mudar.
+Rode de novo sempre que `firestore/` mudar (as regras e os índices fazem parte do projeto e são grátis no plano Spark).
 
 **Custo zero (plano Spark):** o projeto não usa nada que exija o plano pago. Por isso não há TTL automático: os registros temporários de segurança (`publicRateLimits`, `sessionAccessGrants`, `orderIdempotency`) são apagados em Diagnóstico → **Limpar dados vencidos** (uma vez por mês basta).
 
@@ -71,13 +71,21 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 | Pedidos | Todos os pedidos do dia, busca e cancelamento | todos |
 | Cardápio | Categorias, itens, opções, prato do dia, foto, esgotado | admin, gerente |
 | Equipe | Cadastrar pessoas, função, senha e tirar acesso | admin, gerente (só admin cria admin) |
-| Relatórios | Faturamento, produtos, mesas, cancelamentos | admin, gerente |
-| Configurações | Nome, pagamentos, taxa de serviço, tempo de atendimento | admin, gerente |
+| Relatórios | Faturamento, mais vendidos, pedidos, mesas e atendimentos; planilhas CSV | admin, gerente |
+| Configurações | Restaurante, dados do recibo, pagamentos, horários, atendimento na mesa; **Dados de teste** (só admin) | admin, gerente |
 | Diagnóstico | Verifica servidor, regras, dados e índices | admin, gerente |
 
 Cargos (`role` em `staffUsers`): `admin`, `manager` (gerente), `attendant` (atendente/garçom/caixa), `kitchen` (cozinha).
 
 **Impressão automática da comanda:** no tablet ligado à impressora térmica, abra Cozinha e ative "Imprimir ao chegar". O navegador mostra a janela de impressão a cada pedido; para imprimir direto, abra o Chrome com `--kiosk-printing` e defina a impressora térmica como padrão.
+
+**Recibo (comprovante de consumo):** ao fechar a conta de uma mesa com consumo, o sistema emite um comprovante numerado (nº 000001, 000002…) com itens, taxa e pagamentos, que pode ser impresso ou aberto pelo QR/link. O cliente também vê o link no celular. **Não é nota fiscal**: para isso o restaurante continua usando o emissor fiscal dele. Razão social e CNPJ/CPF impressos no recibo ficam em Configurações → Recibo.
+
+**Cardápio de exemplo:** com o cardápio vazio, Cardápio → "Usar cardápio de exemplo" cria 5 pratos feitos e 3 bebidas com fotos. Tudo pode ser editado ou apagado.
+
+**Antes do uso real:** Configurações → Dados de teste apaga as mesas já fechadas com pedidos e recibos (tudo, até ontem ou até uma data) e pode recomeçar a numeração dos recibos. Só o administrador vê, é preciso digitar APAGAR e a limpeza fica registrada no histórico de auditoria.
+
+**Segurança contra pedidos falsos:** cada mesa só pede com o código de 6 números que a equipe passa; tentativas erradas são limitadas e, depois de muitas, aparece o aviso "alguém está tentando adivinhar o código" com o botão para trocar o código. Pedidos fora do normal (quantidade ou valor muito altos, vários pedidos seguidos) aparecem na Cozinha e no Salão como "Conferir com a mesa" antes de preparar.
 
 **Fotos dos pratos** são reduzidas no aparelho e guardadas no próprio Firestore (coleção `menuImages`, acessada só pelo servidor) — não é preciso ativar o Firebase Storage.
 

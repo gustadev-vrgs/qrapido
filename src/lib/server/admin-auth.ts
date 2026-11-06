@@ -8,6 +8,8 @@ import { classifyServerError } from "@/lib/server/api-errors";
 import { USER_ROLES, type StaffUser, type UserRole } from "@/lib/types/domain";
 
 export const ADMIN_ROLES: UserRole[] = ["admin", "manager"];
+/** Irreversible actions on the restaurant's data: the owner/administrator only. */
+export const OWNER_ROLES: UserRole[] = ["admin"];
 /** Who runs the floor: opens and closes tables, gives codes, answers calls. */
 export const FLOOR_ROLES: UserRole[] = ["admin", "manager", "attendant"];
 export const STAFF_ROLES: UserRole[] = [...USER_ROLES];

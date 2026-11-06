@@ -50,6 +50,10 @@
   },
   "packageManager": "npm@10.8.2",
   "overrides": {
-    "jwks-rsa": "3.2.2"
+    "jwks-rsa": "3.2.2",
+    "@grpc/grpc-js": "^1.14.6",
+    "next": {
+      "postcss": "^8.5.32"
+    }
   }
 }
