@@ -20,6 +20,7 @@ import { formatTime } from "@/lib/utils/formatters";
 import { minutesSince } from "@/lib/utils/table-view";
 import { printOrderTicket } from "@/lib/utils/print-ticket";
 import { appToast } from "@/lib/utils/toast";
+import { RiskBanner } from "@/components/security/review-alerts";
 
 const IN_KITCHEN = new Set(["received", "confirmed", "in_preparation"]);
 
@@ -138,6 +139,7 @@ export default function CozinhaPage(): JSX.Element {
                     <button type="button" aria-label={`Imprimir comanda da Mesa ${order.tableNumber}`} className="rounded-lg p-2 text-[hsl(var(--foreground-muted))] hover:bg-[hsl(var(--surface-muted))]" onClick={() => void printOrderTicket(order)}><Printer className="h-5 w-5" /></button>
                   </div>
                 </header>
+                <RiskBanner order={order} />
                 <ul className="space-y-2">
                   {order.items.map((item, index) => (
                     <li key={`${item.menuItemId}-${index}`} className="text-lg leading-snug">

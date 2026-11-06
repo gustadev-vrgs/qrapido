@@ -77,7 +77,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
 
       const summary = writeCartOrders(tx, db, {
         restaurantId: session.restaurantId,
-        session: { id: session.id, tableId: session.tableId, tableNumber: fresh.tableNumber ?? session.tableNumber, sessionToken: session.sessionToken, customerName: session.customerName ?? null, completedOrdersCount: fresh.completedOrdersCount ?? 0 },
+        session: { id: session.id, tableId: session.tableId, tableNumber: fresh.tableNumber ?? session.tableNumber, sessionToken: session.sessionToken, customerName: session.customerName ?? null, completedOrdersCount: fresh.completedOrdersCount ?? 0, peopleCount: Number(fresh.peopleCount ?? 1), recentCartAt: Array.isArray(fresh.recentCartAt) ? fresh.recentCartAt : [] },
         items, serviceFeePercent,
         customerName: parsed.data.customerName || null, notes: parsed.data.notes || null,
         paymentMethod: parsed.data.paymentMethod, paymentMode: parsed.data.paymentMode, changeFor: parsed.data.changeFor ?? null,

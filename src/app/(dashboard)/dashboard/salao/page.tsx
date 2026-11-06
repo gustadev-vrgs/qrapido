@@ -12,6 +12,8 @@ import { playChime, useLiveOrders } from "@/lib/hooks/use-live-orders";
 import { useSoundSetting } from "@/lib/hooks/use-sound-setting";
 import { SoundUnlockNotice } from "@/components/shared/sound-unlock-notice";
 import { ConnectionBanner } from "@/components/shared/connection-banner";
+import { SecurityAlerts } from "@/components/security/review-alerts";
+import { useLiveTables } from "@/lib/hooks/use-live-tables";
 import { useWaiterCalls, waiterReasonLabel } from "@/lib/hooks/use-waiter-calls";
 import { useWakeLock } from "@/lib/hooks/use-wake-lock";
 import type { Order } from "@/lib/types/domain";
@@ -42,6 +44,7 @@ export default function SalaoPage(): JSX.Element {
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
   const { orders, loading, error, stale } = useLiveOrders(user?.restaurantId);
+  const { tables, sessionByTable } = useLiveTables(user?.restaurantId);
   const { calls, error: callsError, resolve } = useWaiterCalls(Boolean(user), (call) => {
     if (soundRef.current) playChime("call");
     appToast.info(`Mesa ${call.tableNumber} chamou`, waiterReasonLabel(call.reason));
@@ -112,6 +115,8 @@ export default function SalaoPage(): JSX.Element {
         <p className="text-sm text-[hsl(var(--foreground-muted))]">Deixe aberta: avisa com som quando algo fica pronto ou um cliente chama.</p>
         <AppActionButton variant="secondary" className="ml-auto gap-2" onClick={toggleSound} aria-pressed={soundOn}>{soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}<span className="hidden sm:inline">{soundOn ? "Som ligado" : "Som desligado"}</span></AppActionButton>
       </div>
+
+      <SecurityAlerts orders={orders} tables={tables} sessionByTable={sessionByTable} />
 
       {calls.length ? (
         <div className="space-y-2">

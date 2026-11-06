@@ -109,6 +109,8 @@ export interface TableSession extends BaseEntity {
   notes: string | null;
   /** Current 6-digit code, readable by the restaurant staff only. */
   staffAccessCode?: string | null;
+  /** Wrong codes typed since the current code was issued (someone guessing). */
+  accessFailedAttempts?: number;
   accessCodeIssuedAt?: string | null;
   /** Filled when the table is closed at the cashier. */
   billTotal?: number | null;
@@ -274,6 +276,10 @@ export interface Order extends BaseEntity {
   readyAt?: ISODateTimeString | null;
   /** True when "entregue" was set by the system (table closed), not by a person. */
   autoDelivered?: boolean;
+  /** Out-of-the-ordinary customer cart (see assessCartRisk): the team confirms it with the table. */
+  riskFlags?: Array<"big_quantity" | "high_value" | "rapid_orders">;
+  riskReviewedAt?: ISODateTimeString | null;
+  riskReviewedBy?: string | null;
   tableId: string;
   tableNumber: number;
   sessionId: string;

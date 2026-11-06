@@ -114,6 +114,12 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Sensitive team actions (people, access, data cleanup). Written only by the server, never deleted.
+    match /auditLog/{entryId} {
+      allow read: if resource.data.restaurantId is string && isAdminForRestaurant(resource.data.restaurantId);
+      allow create, update, delete: if false;
+    }
+
     match /dailyMetrics/{metricId} {
       allow read: if resource.data.restaurantId is string && isStaffForRestaurant(resource.data.restaurantId);
       allow create, update, delete: if false;

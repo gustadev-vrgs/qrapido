@@ -77,9 +77,31 @@ export function cartTotal(items: ResolvedItem[], serviceFeePercent: number): num
   return money(subtotal + money(subtotal * serviceFeePercent / 100));
 }
 
+export const RISK_FLAGS = ["big_quantity", "high_value", "rapid_orders"] as const;
+export type RiskFlag = (typeof RISK_FLAGS)[number];
+
+/** Carts within this window count as "seguidos" (in a row). */
+const RAPID_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Flags a customer's cart that is out of the ordinary for the table, so the team
+ * confirms it before cooking (someone with the code outside the restaurant, a prank,
+ * a typo like 30 instead of 3). The order still goes through: nobody is blocked.
+ */
+export function assessCartRisk(input: { items: ResolvedItem[]; peopleCount: number; recentCartAt: string[]; nowMs: number; serviceFeePercent: number }): RiskFlag[] {
+  const people = Math.max(1, Math.floor(input.peopleCount || 1));
+  const flags: RiskFlag[] = [];
+  const units = input.items.reduce((sum, item) => sum + item.quantity, 0);
+  if (input.items.some((item) => item.quantity > Math.max(6, people * 2)) || units > Math.max(12, people * 4)) flags.push("big_quantity");
+  if (cartTotal(input.items, input.serviceFeePercent) > Math.max(250, people * 100)) flags.push("high_value");
+  const recent = input.recentCartAt.filter((at) => input.nowMs - new Date(at).getTime() < RAPID_WINDOW_MS).length;
+  if (recent >= 3) flags.push("rapid_orders");
+  return flags;
+}
+
 export interface WriteCartOptions {
   restaurantId: string;
-  session: { id: string; tableId: string; tableNumber: number; sessionToken: string; customerName: string | null; completedOrdersCount: number };
+  session: { id: string; tableId: string; tableNumber: number; sessionToken: string; customerName: string | null; completedOrdersCount: number; peopleCount?: number; recentCartAt?: string[] };
   items: ResolvedItem[];
   serviceFeePercent: number;
   customerName: string | null;
@@ -116,6 +138,8 @@ export function writeCartOrders(tx: Tx, db: Db, options: WriteCartOptions): Cart
   const groupCode = `M${session.tableNumber}-${String(sequence).padStart(2, "0")}`;
   const dateKey = toRestaurantDateKey(new Date(nowMs));
   const byStaff = actor.type === "staff";
+  // Orders typed by the team are already confirmed with the table.
+  const riskFlags = byStaff ? [] : assessCartRisk({ items, peopleCount: session.peopleCount ?? 1, recentCartAt: session.recentCartAt ?? [], nowMs, serviceFeePercent });
   const groups = (["kitchen", "ready"] as const).map((station) => ({ station, items: items.filter((item) => item.station === station) })).filter((group) => group.items.length > 0);
 
   const created = groups.map((group, index) => {
@@ -136,16 +160,18 @@ export function writeCartOrders(tx: Tx, db: Db, options: WriteCartOptions): Cart
       // The table quota counts carts, not the internal split.
       quotaCounted: index === 0,
       ...(byStaff ? { createdByStaffId: actor.id } : {}),
+      ...(riskFlags.length ? { riskFlags, riskReviewedAt: null } : {}),
       createdAt: now, updatedAt: now
     });
     const who = byStaff ? "pela equipe" : "pelo cliente";
-    tx.set(db.collection("orderEvents").doc(), { restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: actor.type, actorId: actor.id, message: ready ? `Pedido de pronta entrega criado ${who}` : `Pedido criado ${who}`, metadata: { orderCode, station: group.station }, createdAt: now });
+    tx.set(db.collection("orderEvents").doc(), { restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "order_created", actorType: actor.type, actorId: actor.id, message: ready ? `Pedido de pronta entrega criado ${who}` : `Pedido criado ${who}`, metadata: { orderCode, station: group.station, ...(riskFlags.length ? { riskFlags } : {}) }, createdAt: now });
     tx.set(db.collection("adminAlerts").doc(), { restaurantId, orderId: orderRef.id, tableId: session.tableId, sessionId: session.id, type: "new_order", message: `Novo pedido ${orderCode}`, read: false, createdAt: now, updatedAt: now });
     return { orderId: orderRef.id, orderCode, station: group.station, subtotal, serviceFee, total };
   });
 
   const primary = created[0];
-  tx.update(db.collection("tableSessions").doc(session.id), { completedOrdersCount: sequence, lastActivityAt: now, updatedAt: now });
+  const recentCartAt = byStaff ? undefined : [...(session.recentCartAt ?? []), now].slice(-5);
+  tx.update(db.collection("tableSessions").doc(session.id), { completedOrdersCount: sequence, lastActivityAt: now, ...(recentCartAt ? { recentCartAt } : {}), updatedAt: now });
   return {
     orderId: primary.orderId,
     orderCode: primary.orderCode,

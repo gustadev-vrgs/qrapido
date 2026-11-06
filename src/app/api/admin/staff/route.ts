@@ -5,6 +5,7 @@ import { getFirebaseAdminAuth } from "@/lib/firebase/admin";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { ADMIN_ROLES, logAdminFailure, requireStaffRequest, type VerifiedStaffRequest } from "@/lib/server/admin-auth";
 import { classifyServerError, withApiErrors } from "@/lib/server/api-errors";
+import { writeAudit } from "@/lib/server/audit";
 import { USER_ROLES, type UserRole } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,7 @@ async function change(request: NextRequest): Promise<NextResponse> {
   const restaurantId = staff.staffUser.restaurantId;
   const now = new Date().toISOString();
   const body = parsed.data;
+  const audit = (type: string, message: string, metadata: Record<string, unknown>) => writeAudit(db, { restaurantId, actorId: staff.uid, actorName: staff.staffUser.name ?? null, type, message, metadata });
 
   try {
     if (body.action === "create") {
@@ -79,6 +81,7 @@ async function change(request: NextRequest): Promise<NextResponse> {
       const formerMember = reused && existing.exists && existing.data().restaurantId === restaurantId;
       if (formerMember) await auth.updateUser(uid, { password: body.password, displayName: body.name, disabled: false });
       await ref.set({ uid, name: body.name, email: body.email, role: body.role, restaurantId, isActive: true, createdBy: staff.uid, ...(existing.exists ? {} : { createdAt: now }), updatedAt: now }, { merge: true });
+      await audit("staff_created", `${body.name} entrou na equipe como ${body.role}`, { uid, email: body.email, role: body.role });
       return NextResponse.json({ ok: true, uid, reused, passwordKept: reused && !formerMember }, { status: 201 });
     }
 
@@ -92,6 +95,7 @@ async function change(request: NextRequest): Promise<NextResponse> {
       await auth.updateUser(body.uid, { password: body.password });
       await auth.revokeRefreshTokens?.(body.uid);
       await ref.update({ passwordChangedAt: now, updatedAt: now });
+      await audit("staff_password", `Senha de ${current.name ?? current.email} trocada`, { uid: body.uid });
       return NextResponse.json({ ok: true });
     }
 
@@ -108,6 +112,8 @@ async function change(request: NextRequest): Promise<NextResponse> {
     // Deactivated people are logged out of every device on the next token refresh.
     if (body.isActive === false) await auth.revokeRefreshTokens?.(body.uid);
     if (body.isActive !== undefined) await auth.updateUser(body.uid, { disabled: !body.isActive }).catch(() => undefined);
+    const changes = [body.role && body.role !== current.role ? `função ${current.role} → ${body.role}` : null, body.isActive === false ? "acesso tirado" : body.isActive === true && current.isActive !== true ? "acesso devolvido" : null, body.name && body.name !== current.name ? "nome alterado" : null].filter(Boolean);
+    if (changes.length) await audit("staff_updated", `${current.name ?? current.email}: ${changes.join(", ")}`, { uid: body.uid, before: { role: current.role, isActive: current.isActive }, after: patch });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const failure = error as { status?: number; code?: string };
