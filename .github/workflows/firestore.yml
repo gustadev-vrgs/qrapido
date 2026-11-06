@@ -1,0 +1,51 @@
+name: Firestore
+
+# Publica as regras e os índices do Firestore sozinho quando a pasta firestore/
+# muda na main (o mesmo que "npm run firebase:deploy", sem precisar de terminal).
+# Também dá para rodar à mão: Actions → Firestore → Run workflow.
+#
+# Precisa do segredo FIREBASE_DEPLOY_KEY (Settings → Secrets and variables → Actions)
+# com o .json de uma conta de serviço que só pode mexer em regras e índices.
+# Sem o segredo, o job termina avisando o que falta, sem erro.
+on:
+  push:
+    branches: [main]
+    paths: ["firestore/**", "firebase.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-deploy
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_DEPLOY_KEY: ${{ secrets.FIREBASE_DEPLOY_KEY }}
+    steps:
+      - name: Falta a chave
+        if: env.FIREBASE_DEPLOY_KEY == ''
+        run: echo "::warning title=Regras não publicadas::Crie o segredo FIREBASE_DEPLOY_KEY (veja o README, passo 3) ou rode 'npm run firebase:deploy' à mão."
+      - uses: actions/checkout@v4
+        if: env.FIREBASE_DEPLOY_KEY != ''
+      - uses: actions/setup-node@v4
+        if: env.FIREBASE_DEPLOY_KEY != ''
+        with:
+          node-version: 22
+      - name: Publicar regras e índices
+        if: env.FIREBASE_DEPLOY_KEY != ''
+        run: |
+          key="$RUNNER_TEMP/firebase-deploy-key.json"
+          umask 077
+          printf '%s' "$FIREBASE_DEPLOY_KEY" > "$key"
+          project="$(jq -r '.project_id // empty' "$key")"
+          if [ -z "$project" ]; then echo "::error::O segredo FIREBASE_DEPLOY_KEY não parece um .json de conta de serviço (sem project_id)."; exit 1; fi
+          # --non-interactive: índices que existem no console e não estão no arquivo NÃO são apagados.
+          GOOGLE_APPLICATION_CREDENTIALS="$key" npx --yes firebase-tools@13 deploy --only firestore --project "$project" --non-interactive
+      - name: Apagar a chave do disco
+        if: always() && env.FIREBASE_DEPLOY_KEY != ''
+        run: rm -f "$RUNNER_TEMP/firebase-deploy-key.json"

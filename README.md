@@ -42,6 +42,13 @@ npm run firebase:deploy -- --project SEU_PROJECT_ID
 
 Rode de novo sempre que `firestore/` mudar (as regras e os índices fazem parte do projeto e são grátis no plano Spark).
 
+**Automático (recomendado):** o GitHub publica sozinho as regras e os índices quando `firestore/` muda na `main` (workflow `.github/workflows/firestore.yml`). Configure uma vez:
+1. [Google Cloud → IAM → Contas de serviço](https://console.cloud.google.com/iam-admin/serviceaccounts) (projeto do Firebase) → **Criar conta de serviço**, nome `github-deploy-firestore`.
+2. Papéis: **Administrador de regras do Firebase** (Firebase Rules Admin), **Administrador de índices do Cloud Datastore** (Cloud Datastore Index Admin) e **Consumidor do Service Usage** (Service Usage Consumer). Nada além disso: essa chave não lê nem altera dados.
+3. Na conta criada → **Chaves** → **Adicionar chave** → JSON (baixa um .json).
+4. GitHub → Settings → Secrets and variables → Actions → **New repository secret**: nome `FIREBASE_DEPLOY_KEY`, valor = conteúdo inteiro do .json. Depois apague o .json do computador.
+5. Teste em Actions → **Firestore** → **Run workflow**.
+
 **Custo zero (plano Spark):** o projeto não usa nada que exija o plano pago. Por isso não há TTL automático: os registros temporários de segurança (`publicRateLimits`, `sessionAccessGrants`, `orderIdempotency`) são apagados em Diagnóstico → **Limpar dados vencidos** (uma vez por mês basta).
 
 ### 4. Cadastrar o administrador (só o primeiro)
