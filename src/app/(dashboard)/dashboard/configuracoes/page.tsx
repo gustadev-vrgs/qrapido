@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { PurgeTestData, SettingsSection, Switch, ToggleRow } from "@/components/settings/settings-parts";
@@ -11,11 +11,8 @@ import {
   AppSkeleton,
   AppTextInput,
 } from "@/components/ui/app-design-system";
-import { RestaurantsService } from "@/lib/data/services/restaurants-service";
-import { SettingsService } from "@/lib/data/services/settings-service";
-import { refreshCustomerMenu, useAdminApi } from "@/lib/hooks/use-admin-api";
+import { useAdminApi } from "@/lib/hooks/use-admin-api";
 import { useAdminAuth } from "@/lib/hooks/use-admin-auth";
-import { describeFirebaseError } from "@/lib/data/errors";
 import type {
   BusinessHours,
   PaymentMethod,
@@ -73,49 +70,47 @@ export default function ConfiguracoesPage(): JSX.Element {
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantForm>(EMPTY_RESTAURANT);
   const [saved, setSaved] = useState("");
-  const [restaurantDocumentId, setRestaurantDocumentId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
 
-  const settingsService = useMemo(() => new SettingsService({ scope: "admin" }), []);
-  const restaurantsService = useMemo(() => new RestaurantsService({ scope: "admin" }), []);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let alive = true;
     const loadSettings = async () => {
       if (!user?.restaurantId) {
         setIsLoading(false);
         return;
       }
       setIsLoading(true);
+      setLoadError(null);
       try {
-        const [[found], doc] = await Promise.all([
-          settingsService.listByRestaurant(user.restaurantId),
-          restaurantsService.getByRestaurantId(user.restaurantId),
-        ]);
-        const nextSettings = found ? { ...found, businessHours: { ...DEFAULT_BUSINESS_HOURS, ...found.businessHours } } : null;
+        const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("O servidor demorou para responder. Confira a internet e tente de novo.")), 20_000));
+        const data = await Promise.race([api<{ restaurant: Omit<RestaurantForm, "legalName" | "document"> & { legalName: string | null; document: string | null } | null; settings: RestaurantSettings | null }>("/api/admin/settings"), timeout]);
+        if (!alive) return;
+        const nextSettings = data.settings ? { ...data.settings, businessHours: { ...DEFAULT_BUSINESS_HOURS, ...data.settings.businessHours } } : null;
         const nextRestaurant: RestaurantForm = {
-          name: resolveRestaurantDisplayName(doc?.name),
-          phone: doc?.phone ?? "",
-          address: doc?.address ?? "",
-          legalName: doc?.legalName ?? "",
-          document: doc?.document ?? "",
+          name: resolveRestaurantDisplayName(data.restaurant?.name),
+          phone: data.restaurant?.phone ?? "",
+          address: data.restaurant?.address ?? "",
+          legalName: data.restaurant?.legalName ?? "",
+          document: data.restaurant?.document ?? "",
         };
         setSettings(nextSettings);
         setRestaurant(nextRestaurant);
         setSaved(snapshot(nextRestaurant, nextSettings));
-        setRestaurantDocumentId(doc?.id ?? null);
-      } catch {
+      } catch (failure) {
+        if (!alive) return;
         setSettings(null);
-        setRestaurantDocumentId(null);
-        setRestaurant(EMPTY_RESTAURANT);
-        appToast.error("Falha ao carregar", "Não foi possível carregar as configurações do restaurante.");
+        setLoadError(failure instanceof Error ? failure.message : "Não foi possível carregar as configurações.");
       } finally {
-        setIsLoading(false);
+        if (alive) setIsLoading(false);
       }
     };
     void loadSettings();
-  }, [restaurantsService, settingsService, user?.restaurantId, reloadKey]);
+    return () => { alive = false; };
+  }, [api, user?.restaurantId, reloadKey]);
 
   const isDirty = settings !== null && saved !== "" && snapshot(restaurant, settings) !== saved;
 
@@ -181,11 +176,6 @@ export default function ConfiguracoesPage(): JSX.Element {
 
     setIsSaving(true);
     try {
-      // The restaurant document id must be the restaurantId (Firestore rules).
-      if (restaurantDocumentId !== user.restaurantId) {
-        await api("/api/admin/operations/repair", {});
-        setRestaurantDocumentId(user.restaurantId);
-      }
       const cleanRestaurant: RestaurantForm = {
         name,
         phone: restaurant.phone.trim().slice(0, 20),
@@ -193,30 +183,25 @@ export default function ConfiguracoesPage(): JSX.Element {
         legalName: restaurant.legalName.trim().slice(0, 120),
         document: restaurant.document.trim(),
       };
-      await restaurantsService.update(user.restaurantId, {
-        name: cleanRestaurant.name,
-        phone: cleanRestaurant.phone,
-        address: cleanRestaurant.address,
-        legalName: cleanRestaurant.legalName || null,
-        document: cleanRestaurant.document || null,
+      await api("/api/admin/settings", {
+        restaurant: { ...cleanRestaurant, legalName: cleanRestaurant.legalName || null, document: cleanRestaurant.document || null },
+        settings: {
+          acceptedPaymentMethods: settings.acceptedPaymentMethods,
+          pixKey: settings.pixKey ?? null,
+          pixReceiverName: settings.pixReceiverName ?? null,
+          pixReceiverCity: settings.pixReceiverCity ?? null,
+          pixInstructions: settings.pixInstructions ?? null,
+          defaultSessionDurationMinutes: settings.defaultSessionDurationMinutes,
+          antiSpamWindowSeconds: settings.antiSpamWindowSeconds,
+          maxOrdersPerWindow: settings.maxOrdersPerWindow,
+          requireCustomerName: settings.requireCustomerName,
+          allowCustomerNotes: settings.allowCustomerNotes,
+          serviceFeePercent: settings.serviceFeePercent,
+          waiterCallEnabled: settings.waiterCallEnabled,
+          billRequestEnabled: settings.billRequestEnabled,
+          businessHours: settings.businessHours,
+        },
       });
-      await settingsService.update(settings.id, {
-        acceptedPaymentMethods: settings.acceptedPaymentMethods,
-        pixKey: settings.pixKey,
-        pixReceiverName: settings.pixReceiverName ?? null,
-        pixReceiverCity: settings.pixReceiverCity ?? null,
-        pixInstructions: settings.pixInstructions ?? null,
-        defaultSessionDurationMinutes: settings.defaultSessionDurationMinutes,
-        antiSpamWindowSeconds: settings.antiSpamWindowSeconds,
-        maxOrdersPerWindow: settings.maxOrdersPerWindow,
-        requireCustomerName: settings.requireCustomerName,
-        allowCustomerNotes: settings.allowCustomerNotes,
-        serviceFeePercent: settings.serviceFeePercent,
-        waiterCallEnabled: settings.waiterCallEnabled,
-        billRequestEnabled: settings.billRequestEnabled,
-        businessHours: settings.businessHours,
-      });
-      await refreshCustomerMenu(api);
       setRestaurant(cleanRestaurant);
       setSaved(snapshot(cleanRestaurant, settings));
       window.dispatchEvent(new CustomEvent(RESTAURANT_NAME_UPDATED_EVENT, { detail: name }));
@@ -224,7 +209,7 @@ export default function ConfiguracoesPage(): JSX.Element {
     } catch (failure) {
       appToast.error(
         "Falha ao salvar",
-        failure instanceof Error && failure.name !== "FirebaseError" && !("code" in failure) ? failure.message : describeFirebaseError(failure),
+        failure instanceof Error ? failure.message : "Tente novamente.",
       );
     } finally {
       setIsSaving(false);
@@ -243,6 +228,18 @@ export default function ConfiguracoesPage(): JSX.Element {
       <section className="space-y-4" aria-busy="true" aria-label="Carregando configurações">
         <AppSkeleton className="h-52" />
         <AppSkeleton className="h-80" />
+      </section>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <section className="space-y-4">
+        <AppEmptyState
+          title="Não foi possível abrir as configurações"
+          description={loadError}
+          action={<AppActionButton onClick={() => setReloadKey((key) => key + 1)}>Tentar de novo</AppActionButton>}
+        />
       </section>
     );
   }
