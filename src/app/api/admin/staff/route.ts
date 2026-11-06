@@ -15,7 +15,8 @@ const password = z.string().min(8, "A senha precisa de pelo menos 8 caracteres."
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create"), name: z.string().trim().min(2).max(80), email: z.string().trim().toLowerCase().email().max(120), password, role }).strict(),
   z.object({ action: z.literal("update"), uid: z.string().min(1).max(128), name: z.string().trim().min(2).max(80).optional(), role: role.optional(), isActive: z.boolean().optional() }).strict(),
-  z.object({ action: z.literal("password"), uid: z.string().min(1).max(128), password }).strict()
+  z.object({ action: z.literal("password"), uid: z.string().min(1).max(128), password }).strict(),
+  z.object({ action: z.literal("delete"), uid: z.string().min(1).max(128) }).strict()
 ]);
 
 interface AdminAuth {
@@ -23,6 +24,7 @@ interface AdminAuth {
   getUserByEmail(email: string): Promise<{ uid: string }>;
   updateUser(uid: string, input: { password?: string; displayName?: string; disabled?: boolean }): Promise<unknown>;
   revokeRefreshTokens?(uid: string): Promise<void>;
+  deleteUser(uid: string): Promise<void>;
 }
 type Db = any;
 
@@ -96,6 +98,16 @@ async function change(request: NextRequest): Promise<NextResponse> {
       await auth.revokeRefreshTokens?.(body.uid);
       await ref.update({ passwordChangedAt: now, updatedAt: now });
       await audit("staff_password", `Senha de ${current.name ?? current.email} trocada`, { uid: body.uid });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (body.action === "delete") {
+      // Only people whose access was already taken away: removing someone is a second, deliberate step.
+      if (body.uid === staff.uid) throw fail("Você não pode excluir a sua própria conta.", 400);
+      if (current.isActive === true) throw fail("Tire o acesso da pessoa antes de excluir.", 409, "still_active");
+      await auth.deleteUser(body.uid).catch((error: { code?: string }) => { if (error.code !== "auth/user-not-found") throw error; });
+      await ref.delete();
+      await audit("staff_deleted", `${current.name ?? current.email} foi excluído(a) da equipe`, { uid: body.uid, email: current.email ?? null, role: current.role });
       return NextResponse.json({ ok: true });
     }
 

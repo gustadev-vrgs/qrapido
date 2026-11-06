@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useRef, useState } from "react";
-import { Camera, ChevronDown, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Camera, ChevronDown, Copy, Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { AppActionButton, AppFormField, AppSelect, AppTextInput, AppTextarea } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
@@ -65,6 +65,25 @@ export function ItemEditor({ item, categories, defaultCategoryId, nextSortOrder,
   const api = useAdminApi();
   const service = useMemo(() => new MenuService({ scope: "admin" }), []);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [managing, setManaging] = useState<"delete" | "duplicate" | null>(null);
+
+  /** Delete or duplicate go through the server (the browser is not allowed to delete). */
+  const manage = async (action: "delete_item" | "duplicate_item") => {
+    if (!item) return;
+    setManaging(action === "delete_item" ? "delete" : "duplicate");
+    try {
+      await api("/api/admin/menu/manage", { action, itemId: item.id });
+      if (action === "delete_item") appToast.success("Item excluído", `"${item.name}" saiu do cardápio. Os pedidos antigos continuam com o nome e o preço.`);
+      else appToast.success("Item duplicado", `"${item.name} (cópia)" foi criado escondido. Edite e mostre no cardápio quando quiser.`);
+      onSaved();
+      onClose();
+    } catch (failure) {
+      appToast.error(action === "delete_item" ? "Não foi possível excluir" : "Não foi possível duplicar", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setManaging(null);
+    }
+  };
   const [form, setForm] = useState({
     name: item?.name ?? "",
     categoryId: item?.categoryId ?? defaultCategoryId ?? categories[0]?.id ?? "",
@@ -283,7 +302,23 @@ export function ItemEditor({ item, categories, defaultCategoryId, nextSortOrder,
           ) : null}
         </section>
 
-        <div className="flex justify-end gap-2 border-t border-[hsl(var(--border))] pt-4">
+        {item && confirmDelete ? (
+          <div className="space-y-3 rounded-[var(--radius-md)] border border-[hsl(var(--danger)/0.4)] bg-[hsl(var(--danger)/0.06)] p-3">
+            <p className="text-sm">Excluir <strong>{item.name}</strong> do cardápio? A foto também é apagada. Os pedidos já feitos continuam com o nome e o preço. Se for só por um tempo, use “Esconder do cardápio” em Mais ajustes.</p>
+            <div className="flex justify-end gap-2">
+              <AppActionButton variant="secondary" onClick={() => setConfirmDelete(false)}>Voltar</AppActionButton>
+              <AppActionButton variant="destructive" className="gap-2 bg-[hsl(var(--danger))] text-white hover:bg-[hsl(var(--danger)/0.9)]" disabled={managing !== null} onClick={() => void manage("delete_item")}>{managing === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Excluir de vez</AppActionButton>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--border))] pt-4">
+          {item ? (
+            <div className="mr-auto flex gap-1">
+              <AppActionButton variant="ghost" className="gap-2 px-3 text-[hsl(var(--danger))]" disabled={managing !== null || saving} onClick={() => setConfirmDelete(true)}><Trash2 className="h-4 w-4" />Excluir</AppActionButton>
+              <AppActionButton variant="ghost" className="gap-2 px-3" disabled={managing !== null || saving} onClick={() => void manage("duplicate_item")}>{managing === "duplicate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}Duplicar</AppActionButton>
+            </div>
+          ) : null}
           <AppActionButton variant="secondary" onClick={onClose}>Cancelar</AppActionButton>
           <AppActionButton className="min-w-32" disabled={saving || processing || categories.length === 0} onClick={() => void save()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{item ? "Salvar" : "Criar item"}</AppActionButton>
         </div>

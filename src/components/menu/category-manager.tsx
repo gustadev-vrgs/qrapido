@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Loader2, PencilLine, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Loader2, PencilLine, Plus, Trash2 } from "lucide-react";
 
-import { AppActionButton, AppTextInput } from "@/components/ui/app-design-system";
+import { AppActionButton, AppSelect, AppTextInput } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { MenuService } from "@/lib/data/services/menu-service";
@@ -28,6 +28,7 @@ export function CategoryManager({ categories, itemCount, restaurantId, onClose, 
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<{ category: MenuCategory; items: "move" | "delete"; moveTo: string } | null>(null);
 
   const run = async (key: string, action: () => Promise<unknown>, success?: string) => {
     setBusy(key);
@@ -59,6 +60,52 @@ export function CategoryManager({ categories, itemCount, restaurantId, onClose, 
     void run(`move-${ordered[index].id}`, () => Promise.all(next.map((category, position) => (category.sortOrder === position ? Promise.resolve() : service.updateCategory(category.id, { sortOrder: position })))));
   };
 
+  const startRemove = (category: MenuCategory) => {
+    const other = ordered.find((item) => item.id !== category.id);
+    setRemoving({ category, items: other ? "move" : "delete", moveTo: other?.id ?? "" });
+  };
+
+  const confirmRemove = () => {
+    if (!removing) return;
+    const count = itemCount[removing.category.id] ?? 0;
+    const body = { action: "delete_category", categoryId: removing.category.id, items: count === 0 ? "none" : removing.items, ...(count && removing.items === "move" ? { moveTo: removing.moveTo } : {}) };
+    void run(`remove-${removing.category.id}`, () => api("/api/admin/menu/manage", body), `Categoria "${removing.category.name}" excluída`).then(() => setRemoving(null));
+  };
+
+  if (removing) {
+    const count = itemCount[removing.category.id] ?? 0;
+    const others = ordered.filter((item) => item.id !== removing.category.id);
+    return (
+      <AppModal title={`Excluir "${removing.category.name}"?`} onClose={() => setRemoving(null)}>
+        {count === 0 ? <p className="text-sm">A categoria está vazia e sai do cardápio. Não dá para desfazer.</p> : (
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm">Ela tem <strong>{count} item(ns)</strong>. O que fazer com eles?</legend>
+            {others.length ? (
+              <label className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[hsl(var(--border-strong))] p-3 text-sm">
+                <input type="radio" name="items" className="mt-1" checked={removing.items === "move"} onChange={() => setRemoving({ ...removing, items: "move" })} />
+                <span className="min-w-0 flex-1 space-y-2">
+                  <span className="block font-medium">Mover para outra categoria</span>
+                  <AppSelect aria-label="Categoria de destino" value={removing.moveTo} disabled={removing.items !== "move"} onChange={(event) => setRemoving({ ...removing, moveTo: event.target.value })} className="h-9">
+                    {others.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </AppSelect>
+                </span>
+              </label>
+            ) : null}
+            <label className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[hsl(var(--border-strong))] p-3 text-sm">
+              <input type="radio" name="items" className="mt-1" checked={removing.items === "delete"} onChange={() => setRemoving({ ...removing, items: "delete" })} />
+              <span><span className="block font-medium text-[hsl(var(--danger))]">Excluir os itens junto</span><span className="text-[hsl(var(--foreground-muted))]">Os pedidos já feitos continuam com nome e preço.</span></span>
+            </label>
+          </fieldset>
+        )}
+        <p className="text-xs text-[hsl(var(--foreground-muted))]">Se for só por um tempo, use o olho para esconder em vez de excluir.</p>
+        <div className="flex justify-end gap-2">
+          <AppActionButton variant="secondary" onClick={() => setRemoving(null)}>Voltar</AppActionButton>
+          <AppActionButton variant="destructive" className="gap-2 bg-[hsl(var(--danger))] text-white hover:bg-[hsl(var(--danger)/0.9)]" disabled={busy !== null} onClick={confirmRemove}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Excluir categoria</AppActionButton>
+        </div>
+      </AppModal>
+    );
+  }
+
   return (
     <AppModal title="Categorias do cardápio" onClose={onClose}>
       <ul className="divide-y divide-[hsl(var(--border))] rounded-[var(--radius-md)] border border-[hsl(var(--border))]">
@@ -80,6 +127,7 @@ export function CategoryManager({ categories, itemCount, restaurantId, onClose, 
                 <button type="button" aria-label="Descer" disabled={index === ordered.length - 1 || busy !== null} onClick={() => move(index, 1)} className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))] disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
                 <button type="button" aria-label="Renomear" onClick={() => setEditing({ id: category.id, name: category.name })} className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))]"><PencilLine className="h-4 w-4" /></button>
                 <button type="button" aria-label={category.isActive ? "Esconder do cardápio" : "Mostrar no cardápio"} disabled={busy !== null} onClick={() => void run(category.id, () => service.updateCategory(category.id, { isActive: !category.isActive }), category.isActive ? "Categoria escondida" : "Categoria visível")} className="rounded-lg p-2 hover:bg-[hsl(var(--surface-muted))]">{category.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</button>
+                <button type="button" aria-label={`Excluir ${category.name}`} disabled={busy !== null} onClick={() => startRemove(category)} className="rounded-lg p-2 text-[hsl(var(--danger))] hover:bg-[hsl(var(--danger)/0.1)]"><Trash2 className="h-4 w-4" /></button>
               </>
             )}
           </li>

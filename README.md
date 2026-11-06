@@ -68,9 +68,9 @@ npm run seed:staff-admin -- --uid <UID> --email <EMAIL> --name "<NOME>" --restau
 | Cozinha | Fila de comandas com tempo de espera, "Pronto", "Acabou algo?" e impressão da comanda (botão ou automática no aparelho da impressora) | todos |
 | Mesas | Abrir mesa, código, conta, fechar conta (inclusive dividida em mais de uma forma), lançar pedido, QR Code, histórico | admin, gerente, atendente |
 | Caixa | Fechamento do dia: recebido por forma de pagamento, mesas em aberto, cortesias e cancelamentos; imprimível | admin, gerente, atendente |
-| Pedidos | Todos os pedidos do dia, busca e cancelamento | todos |
-| Cardápio | Categorias, itens, opções, prato do dia, foto, esgotado | admin, gerente |
-| Equipe | Cadastrar pessoas, função, senha e tirar acesso | admin, gerente (só admin cria admin) |
+| Pedidos | Todos os pedidos do dia, busca, cancelamento, tirar item de um pedido (com motivo, enquanto a conta está aberta) e excluir pedido entregue ou cancelado | todos (tirar item: admin, gerente, atendente; excluir: só admin) |
+| Cardápio | Categorias e itens (criar, editar, esconder, duplicar, excluir), opções, prato do dia, foto, esgotado | admin, gerente |
+| Equipe | Cadastrar pessoas, função, senha, tirar acesso e excluir quem já está sem acesso | admin, gerente (só admin cria admin) |
 | Relatórios | Faturamento, mais vendidos, pedidos, mesas e atendimentos; planilhas CSV | admin, gerente |
 | Configurações | Restaurante, dados do recibo, pagamentos, horários, atendimento na mesa; **Dados de teste** (só admin) | admin, gerente |
 | Diagnóstico | Verifica servidor, regras, dados e índices | admin, gerente |
