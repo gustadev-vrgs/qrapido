@@ -23,6 +23,8 @@ export interface ReceiptDoc {
   courtesy: boolean;
   issuer: { name: string; legalName: string | null; document: string | null; address: string | null; phone: string | null };
   closedByName: string | null;
+  /** Who opened the table (the attendant), so staff can tell whose table it was. */
+  openedByName?: string | null;
   publicToken: string;
   createdAt: string;
 }

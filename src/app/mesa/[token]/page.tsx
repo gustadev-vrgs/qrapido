@@ -17,7 +17,7 @@ import { describeOrderItem, groupRuleLabel, resolveChoices } from "@/lib/utils/m
 import { formatCurrency } from "@/lib/utils/formatters";
 
 type LoadState = { kind: "loading" } | { kind: "error"; title: string; message: string } | { kind: "ready"; data: PublicTableData };
-type Panel = "none" | "cart" | "sent" | "orders" | "waiter" | "code";
+type Panel = "none" | "cart" | "sent" | "orders" | "waiter" | "code" | "closed" | "bill";
 
 const PAYMENT_LABELS: Record<string, string> = { pix: "PIX", cash: "Dinheiro", debit_card: "Débito", credit_card: "Crédito" };
 const CUSTOMER_METHODS = ["pix", "cash", "debit_card", "credit_card"] as const;
@@ -75,6 +75,7 @@ export default function PublicMesaPage(): JSX.Element {
   const [calling, setCalling] = useState(false);
   const [notice, setNotice] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
 
   const visible = usePageVisible();
   const data = load.kind === "ready" ? load.data : null;
@@ -131,13 +132,24 @@ export default function PublicMesaPage(): JSX.Element {
   }, [visible, fetchTable]);
 
   const activeOrders = orders.filter((order) => OPEN.has(order.status));
+  // The team closed the bill: thank the customer once (per receipt) and offer the receipt.
+  const billClosed = Boolean(receiptUrl) && access !== "authorized";
   useEffect(() => {
-    if ((access !== "authorized" && orders.length === 0) || !visible) return;
+    if (!billClosed || !receiptUrl) return;
+    const key = `qrapido:receipt-seen:${receiptUrl}`;
+    if (readStored<string>(key, "")) return;
+    writeStored(key, "1");
+    setPanel("closed");
+  }, [billClosed, receiptUrl]);
+  useEffect(() => {
+    // A phone that was authorized here (csrf kept) still checks after the bill is closed,
+    // even after reopening the page: that is how it finds the receipt.
+    if ((access !== "authorized" && orders.length === 0 && !csrf) || !visible) return;
     void fetchOrders();
     // Faster while something is on the way, so "Pronto, já vai" shows up quickly.
     const id = window.setInterval(() => void fetchOrders(), panel === "orders" || activeOrders.length ? 10_000 : 30_000);
     return () => window.clearInterval(id);
-  }, [access, fetchOrders, orders.length, panel, activeOrders.length, visible]);
+  }, [access, csrf, fetchOrders, orders.length, panel, activeOrders.length, visible]);
 
   // Drop cart lines that left the menu and refresh prices.
   useEffect(() => {
@@ -256,6 +268,15 @@ export default function PublicMesaPage(): JSX.Element {
     return (selected.optionGroups ?? []).reduce((sum, group) => sum + group.options.filter((option) => picked.some((choice) => choice.groupId === group.id && choice.optionId === option.id)).reduce((acc, option) => acc + option.price, 0), 0);
   })();
 
+  /** "−" on the menu card: takes one unit off the most recently added line of that dish. */
+  function removeOne(item: PublicMenuItem): void {
+    setCart((current) => {
+      const index = current.map((line) => line.menuItemId).lastIndexOf(item.id);
+      if (index < 0) return current;
+      return current.map((line, position) => (position === index ? { ...line, quantity: line.quantity - 1 } : line)).filter((line) => line.quantity > 0);
+    });
+  }
+
   function changeLine(index: number, delta: number): void {
     setCart((current) => current.map((line, position) => (position === index ? { ...line, quantity: Math.min(20, line.quantity + delta) } : line)).filter((line) => line.quantity > 0));
   }
@@ -367,10 +388,13 @@ export default function PublicMesaPage(): JSX.Element {
         <AppSurface variant="strong" className="overflow-hidden p-0">
           <div className="flex items-start justify-between gap-3 bg-[hsl(var(--primary))] px-4 py-4 text-[hsl(var(--primary-foreground))]">
             <div className="min-w-0"><h1 className="truncate text-2xl">{loaded.restaurantName ?? "Cardápio"}</h1><p className="text-sm opacity-90">{loaded.table.label}</p></div>
-            <span className="shrink-0 rounded-full bg-[hsl(var(--primary-foreground)/0.16)] px-3 py-1 text-xs font-semibold">{canOrder ? "Pedidos liberados" : access === "needs_code" ? "Mesa aberta" : access === "expired" ? "Pausado" : "Só cardápio"}</span>
+            <span className="shrink-0 rounded-full bg-[hsl(var(--primary-foreground)/0.16)] px-3 py-1 text-xs font-semibold">{canOrder ? "Pedidos liberados" : billClosed ? "Conta fechada" : access === "needs_code" ? "Mesa aberta" : access === "expired" ? "Pausado" : "Só cardápio"}</span>
           </div>
           <div className="px-4 pb-4 empty:hidden">
-            {access === "no_session" ? (
+            {access === "no_session" && billClosed ? (
+              <p className="mt-3 text-sm">Sua conta foi fechada. Obrigado pela visita e volte sempre!</p>
+            ) : null}
+            {access === "no_session" && !billClosed ? (
               <div className="mt-3 space-y-2 text-sm">
                 <p>Esta mesa ainda não foi aberta. Você já pode olhar o cardápio e montar o carrinho; chame um atendente para abrir a mesa.</p>
                 <AppActionButton variant="secondary" className="gap-2" disabled={refreshing} onClick={() => void fetchTable(true)}>{refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}Já abriram? Atualizar</AppActionButton>
@@ -391,7 +415,7 @@ export default function PublicMesaPage(): JSX.Element {
             {canOrder && loaded.settings.allowWaiterCall ? (
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <AppActionButton variant="secondary" className="gap-2" onClick={() => setPanel("waiter")}><Bell className="h-4 w-4" />Chamar garçom</AppActionButton>
-                {loaded.settings.billRequestEnabled ? <AppActionButton variant="secondary" className="gap-2" disabled={calling} onClick={() => void callWaiter("fazer pagamento")}><ReceiptText className="h-4 w-4" />Pedir a conta</AppActionButton> : null}
+                {loaded.settings.billRequestEnabled ? <AppActionButton variant="secondary" className="gap-2" disabled={calling} onClick={() => setPanel("bill")}><ReceiptText className="h-4 w-4" />Pedir a conta</AppActionButton> : null}
               </div>
             ) : null}
           </div>
@@ -400,12 +424,18 @@ export default function PublicMesaPage(): JSX.Element {
         {receiptUrl && !canOrder ? (
           <a href={receiptUrl} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--success)/0.45)] bg-[hsl(var(--success)/0.08)] p-3">
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--success))] text-white"><ReceiptText className="h-5 w-5" /></span>
-            <span className="min-w-0 flex-1"><span className="block font-semibold">Conta fechada. Obrigado!</span><span className="block text-sm text-[hsl(var(--foreground-muted))]">Toque para ver ou salvar o comprovante.</span></span>
+            <span className="min-w-0 flex-1"><span className="block font-semibold">Seu recibo</span><span className="block text-sm text-[hsl(var(--foreground-muted))]">Toque para ver o recibo e baixar em PDF ou imagem.</span></span>
             <ChevronRight className="h-5 w-5 text-[hsl(var(--foreground-muted))]" />
           </a>
         ) : null}
 
-        {activeOrders.length ? (
+        {billClosed && orders.length ? (
+          <button type="button" onClick={() => setPanel("orders")} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-3 text-left">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]"><ShoppingBag className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1"><span className="block font-semibold">Seus pedidos</span><span className="block text-sm text-[hsl(var(--foreground-muted))]">Ver o que a mesa pediu</span></span>
+            <ChevronRight className="h-5 w-5 text-[hsl(var(--foreground-muted))]" />
+          </button>
+        ) : activeOrders.length ? (
           <button type="button" onClick={() => setPanel("orders")} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-3 text-left">
             <span className={cn("inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", activeOrders.some((order) => order.status === "ready") ? "bg-[hsl(var(--success)/0.14)] text-[hsl(var(--success))]" : "bg-[hsl(var(--gema)/0.2)] text-[hsl(var(--warning))]")}>{activeOrders.some((order) => order.status === "ready") ? <HandPlatter className="h-5 w-5" /> : <ChefHat className="h-5 w-5" />}</span>
             <span className="min-w-0 flex-1">
@@ -442,7 +472,7 @@ export default function PublicMesaPage(): JSX.Element {
             const count = inCart(item.id);
             return (
               <AppSurface key={item.id} className={cn("relative overflow-hidden p-0", count ? "border-[hsl(var(--primary)/0.5)]" : "")}>
-                <button type="button" className="flex w-full gap-3 p-3 pr-16 text-left" onClick={() => openItem(item)}>
+                <button type="button" className={cn("flex w-full gap-3 p-3 text-left", count ? "pr-32" : "pr-16")} onClick={() => openItem(item)}>
                   <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl"><ItemImage item={item} emoji={emojiFor(item)} /></div>
                   <div className="min-w-0 flex-1 space-y-1">
                     <h2 className="text-base leading-tight">{item.dailySpecial ? <span className="mr-1.5 inline-block rounded-full bg-[hsl(var(--gema))] px-2 py-0.5 align-middle text-xs font-bold text-[hsl(217_28%_15%)]">Hoje</span> : null}{item.name}</h2>
@@ -450,10 +480,16 @@ export default function PublicMesaPage(): JSX.Element {
                     <div className="flex items-center gap-3 pt-1 text-sm"><strong className="num text-[hsl(var(--primary))]">{formatCurrency(item.price)}</strong>{item.preparationTimeMinutes ? <span className="inline-flex items-center gap-1 text-xs text-[hsl(var(--foreground-muted))]"><Clock3 className="h-3 w-3" />{item.preparationTimeMinutes} min</span> : null}</div>
                   </div>
                 </button>
-                {/* One tap adds one; tapping the card opens quantity and notes. */}
-                <button type="button" aria-label={`Adicionar ${item.name}`} onClick={() => { if ((item.optionGroups ?? []).some((group) => group.min > 0)) { openItem(item); return; } addLine(item, 1, ""); setNotice(`${item.name} no carrinho`); }} className="absolute bottom-3 right-3 inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full bg-[hsl(var(--primary))] px-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-md">
-                  {count ? <span className="num">{count}</span> : null}<Plus className="h-5 w-5" />
-                </button>
+                {/* "+" adds one (or opens the choices when the dish needs them); once in the cart, "−" takes one off. */}
+                <div className="absolute bottom-3 right-3 flex items-center rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-md">
+                  {count ? (
+                    <>
+                      <button type="button" aria-label={`Tirar um ${item.name}`} onClick={() => removeOne(item)} className="inline-flex h-11 w-11 items-center justify-center rounded-full"><Minus className="h-5 w-5" /></button>
+                      <span className="num min-w-5 text-center text-sm font-bold" aria-live="polite" aria-label={`${count} no carrinho`}>{count}</span>
+                    </>
+                  ) : null}
+                  <button type="button" aria-label={`Adicionar ${item.name}`} onClick={() => { if ((item.optionGroups ?? []).some((group) => group.min > 0)) { openItem(item); return; } addLine(item, 1, ""); setNotice(`${item.name} no carrinho`); }} className="inline-flex h-11 w-11 items-center justify-center rounded-full"><Plus className="h-5 w-5" /></button>
+                </div>
               </AppSurface>
             );
           })}
@@ -568,7 +604,13 @@ export default function PublicMesaPage(): JSX.Element {
                   </AppActionButton>
                 </>
               ) : null}
-              <button type="button" className="w-full text-center text-sm text-[hsl(var(--foreground-muted))]" onClick={() => { setCart([]); setPanel("none"); }}>Esvaziar carrinho</button>
+              {confirmEmpty ? (
+                <div className="flex items-center justify-center gap-3 text-sm">
+                  <span>Tirar tudo do carrinho?</span>
+                  <button type="button" className="font-semibold text-[hsl(var(--danger))]" onClick={() => { setCart([]); setConfirmEmpty(false); setPanel("none"); }}>Sim, esvaziar</button>
+                  <button type="button" className="text-[hsl(var(--foreground-muted))]" onClick={() => setConfirmEmpty(false)}>Não</button>
+                </div>
+              ) : <button type="button" className="w-full text-center text-sm text-[hsl(var(--foreground-muted))]" onClick={() => setConfirmEmpty(true)}>Esvaziar carrinho</button>}
             </div>
           )}
         </Sheet>
@@ -608,7 +650,35 @@ export default function PublicMesaPage(): JSX.Element {
             ))}
           </div>
           {orders.length ? <p className="mt-3 text-sm">Total da mesa: <strong className="num">{formatCurrency(tableTotal)}</strong></p> : null}
-          {orders.length && canOrder && loaded.settings.billRequestEnabled && loaded.settings.allowWaiterCall ? <AppActionButton variant="secondary" className="mt-3 w-full gap-2" disabled={calling} onClick={() => void callWaiter("fazer pagamento")}><ReceiptText className="h-4 w-4" />Pedir a conta</AppActionButton> : null}
+          {orders.length && canOrder && loaded.settings.billRequestEnabled && loaded.settings.allowWaiterCall ? <AppActionButton variant="secondary" className="mt-3 w-full gap-2" disabled={calling} onClick={() => setPanel("bill")}><ReceiptText className="h-4 w-4" />Pedir a conta</AppActionButton> : null}
+        </Sheet>
+      ) : null}
+
+      {panel === "closed" && receiptUrl ? (
+        <Sheet title="Conta fechada" onClose={() => setPanel("none")}>
+          <div className="space-y-3 text-center">
+            <CheckCircle2 className="mx-auto h-14 w-14 text-[hsl(var(--success))]" />
+            <p className="text-lg font-semibold">Obrigado pela visita!</p>
+            <p className="text-sm text-[hsl(var(--foreground-muted))]">Sua conta foi fechada. O recibo fica disponível aqui e dá para baixar em PDF ou imagem.</p>
+            <a href={receiptUrl} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[hsl(var(--primary))] font-semibold text-[hsl(var(--primary-foreground))]"><ReceiptText className="h-5 w-5" />Ver e baixar o recibo</a>
+            <button type="button" className="text-sm text-[hsl(var(--foreground-muted))]" onClick={() => setPanel("none")}>Agora não</button>
+          </div>
+        </Sheet>
+      ) : null}
+
+      {panel === "bill" ? (
+        <Sheet title="Pedir a conta" onClose={() => setPanel("none")}>
+          <div className="space-y-3">
+            {orders.length ? (
+              <div className="rounded-[var(--radius-md)] bg-[hsl(var(--surface-muted))] p-3 text-sm">
+                <div className="flex justify-between"><span>Pedidos da mesa</span><span className="num">{orders.filter((order) => order.status !== "cancelled").length}</span></div>
+                <div className="flex justify-between text-base font-semibold"><span>Total até agora</span><span className="num">{formatCurrency(tableTotal)}</span></div>
+              </div>
+            ) : <p className="text-sm text-[hsl(var(--foreground-muted))]">Esta mesa ainda não tem pedidos.</p>}
+            {cartCount > 0 ? <p className="rounded-xl bg-[hsl(var(--gema)/0.15)] p-3 text-sm">Ainda há {cartCount} item(ns) no carrinho que não foram enviados e não entram na conta.</p> : null}
+            <p className="text-sm text-[hsl(var(--foreground-muted))]">Um atendente vem até a mesa para fechar a conta. O pagamento é feito com ele ou no caixa.</p>
+            <AppActionButton className="h-12 w-full gap-2" disabled={calling} onClick={() => void callWaiter("fazer pagamento")}>{calling ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />}Chamar para fechar a conta</AppActionButton>
+          </div>
         </Sheet>
       ) : null}
 

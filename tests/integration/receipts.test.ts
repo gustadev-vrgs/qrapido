@@ -46,9 +46,12 @@ test("fechar a conta emite comprovante numerado com itens, taxa e pagamentos", a
   assert.equal(receipt.payments.length, 2);
   assert.equal(receipt.issuer.document, "12.345.678/0001-90");
   assert.equal(receipt.courtesy, false);
+  assert.equal(receipt.openedByName, "Admin", "quem abriu a mesa aparece no recibo");
+  assert.equal(receipt.closedByName, "Admin");
   const session = fakeDb.all("tableSessions")[0];
   assert.equal(session.receiptNumber, 1);
   assert.equal(session.receiptUrl, closed.receipt.url);
+  assert.equal(session.closedByName, "Admin", "o Caixa mostra quem fechou");
 
   // The table's phone sees the receipt after the bill is closed.
   const listed = await json(await myOrders(phone.request("/api/public/orders")));

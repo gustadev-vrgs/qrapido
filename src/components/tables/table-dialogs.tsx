@@ -12,6 +12,7 @@ import { TablesService } from "@/lib/data/services/tables-service";
 import { AdminApiError, useAdminApi } from "@/lib/hooks/use-admin-api";
 import type { PaymentMethod, Table } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { printReceipt } from "@/lib/utils/print-receipt";
 import { formatCurrency } from "@/lib/utils/formatters";
 import { createQrDataUrl } from "@/lib/utils/qr";
 import { buildPublicTableUrl, describePublicUrlProblem, resolvePublicTableUrl } from "@/lib/utils/public-url";
@@ -329,7 +330,7 @@ export function ReceiptReady({ table, receipt, onClose }: { table: Table; receip
         <p className="text-sm text-[hsl(var(--foreground-muted))]">Comprovante nº <strong className="num text-[hsl(var(--foreground))]">{String(receipt.number).padStart(6, "0")}</strong> (não fiscal). O cliente pode escanear para guardar no celular, ou você imprime.</p>
         <div className="mx-auto w-fit rounded-2xl bg-white p-3">{qr ? <Image src={qr} alt="QR Code do recibo" width={180} height={180} unoptimized /> : <div className="h-[180px] w-[180px] animate-pulse rounded-xl bg-neutral-100" />}</div>
         <div className="flex flex-wrap justify-center gap-2">
-          <AppActionButton className="gap-2" onClick={() => window.open(`${receipt.url}&print=1`, "_blank", "noopener")}><Printer className="h-4 w-4" />Imprimir recibo</AppActionButton>
+          <AppActionButton className="gap-2" onClick={() => printReceipt(receipt.url)}><Printer className="h-4 w-4" />Imprimir recibo</AppActionButton>
           <AppActionButton variant="secondary" className="gap-2" onClick={() => { void navigator.clipboard?.writeText(absolute).then(() => appToast.success("Link copiado")).catch(() => appToast.info("Link do recibo", absolute)); }}><Copy className="h-4 w-4" />Copiar link</AppActionButton>
         </div>
         <AppActionButton variant="ghost" className="w-full" onClick={onClose}>Pronto</AppActionButton>

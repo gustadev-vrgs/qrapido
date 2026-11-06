@@ -83,6 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         maxOrdersAllowed: orderLimit ?? 0,
         completedOrdersCount: 0,
         openedByStaffId: staff.staffUser.id,
+        openedByName: staff.staffUser.name ?? null,
         notes: parsed.data.notes?.trim() || null,
         accessCodeHash: attendanceCode.hash,
         accessCodeSalt: attendanceCode.salt,

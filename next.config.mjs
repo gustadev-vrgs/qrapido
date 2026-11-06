@@ -27,6 +27,12 @@ const contentSecurityPolicy = [
   "object-src 'none'"
 ].join("; ");
 
+/** The receipt page may be framed by the panel itself, to print one receipt without leaving the screen. */
+const receiptHeaders = [
+  { key: "Content-Security-Policy", value: contentSecurityPolicy.replace("frame-ancestors 'none'", "frame-ancestors 'self'") },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" }
+];
+
 const securityHeaders = [
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Frame-Options", value: "DENY" },
@@ -41,7 +47,8 @@ const nextConfig = {
   typedRoutes: true,
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // Later entries win for the same header, so /recibo keeps everything else and only relaxes framing to 'self'.
+    return [{ source: "/:path*", headers: securityHeaders }, { source: "/recibo/:path*", headers: receiptHeaders }];
   }
 };
 

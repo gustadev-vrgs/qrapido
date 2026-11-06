@@ -107,14 +107,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           restaurantId: staff.staffUser.restaurantId, number, sessionId: sessionId as string, tableId: tableSnap.id, tableNumber: Number(table.number ?? 0), tableLabel: String(table.label ?? `Mesa ${table.number}`),
           openedAt: sessionSnap.data().startedAt ?? null, closedAt: now, ...totals, payments, courtesy: payments.length === 0,
           issuer: { name: String(restaurant.name ?? "Restaurante"), legalName: restaurant.legalName ?? null, document: restaurant.document ?? null, address: restaurant.address || null, phone: restaurant.phone || null },
-          closedByName: staff.staffUser.name ?? null, publicToken, createdAt: now
+          closedByName: staff.staffUser.name ?? null, openedByName: typeof sessionSnap.data().openedByName === "string" ? sessionSnap.data().openedByName : null, publicToken, createdAt: now
         };
         tx.set(receiptRef, doc);
         tx.set(restaurantRef, { receiptSeq: number, updatedAt: now }, { merge: true });
         receipt = { id: receiptRef.id, number, url: receiptPath(receiptRef.id, publicToken) };
       }
       if (sessionBelongs && sessionSnap.data().status !== "closed") {
-        tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closedDateKey: toRestaurantDateKey(new Date(now)), closedBy: staff.staffUser.id, closeReason: reason, staffAccessCode: null, billTotal, paidWith, payments, ...(receipt ? { receiptId: receipt.id, receiptNumber: receipt.number, receiptUrl: receipt.url } : {}), updatedAt: now });
+        tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closedDateKey: toRestaurantDateKey(new Date(now)), closedBy: staff.staffUser.id, closedByName: staff.staffUser.name ?? null, closeReason: reason, staffAccessCode: null, billTotal, paidWith, payments, ...(receipt ? { receiptId: receipt.id, receiptNumber: receipt.number, receiptUrl: receipt.url } : {}), updatedAt: now });
       }
       const openGrants = (grantsSnap?.docs ?? []).filter((doc: Db) => !doc.data().revokedAt);
       openGrants.forEach((grant: Db) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
