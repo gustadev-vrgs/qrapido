@@ -104,7 +104,7 @@ export const menuItemSchema = baseEntitySchema.extend({
   description: z.string().max(600),
   price: moneySchema,
   // Either an external link or a photo uploaded to the restaurant (served by /api/public/menu-image).
-  imageUrl: z.string().max(500).refine((value) => value.startsWith("/api/public/menu-image/") || /^https?:\/\//.test(value), "Link de imagem inválido").nullable(),
+  imageUrl: z.string().max(500).refine((value) => value.startsWith("/api/public/menu-image/") || /^\/cardapio-exemplo\/[a-z0-9-]+\.jpg$/.test(value) || /^https?:\/\//.test(value), "Link de imagem inválido").nullable(),
   preparationTimeMinutes: z.number().int().min(0).max(180),
   isActive: z.boolean(),
   isAvailable: z.boolean(),

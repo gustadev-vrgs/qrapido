@@ -51,6 +51,21 @@ export default function CardapioPage(): JSX.Element {
 
   useEffect(() => { void load(); }, [load]);
 
+  const [addingSample, setAddingSample] = useState(false);
+  const addSample = async () => {
+    setAddingSample(true);
+    try {
+      const result = await api<{ createdItems: number; createdCategories: number }>("/api/admin/menu/sample", {});
+      if (result.createdItems) appToast.success("Cardápio de exemplo adicionado", `${result.createdItems} itens com foto. Toque em um item para mudar preço, nome ou foto.`);
+      else appToast.info("Nada novo para adicionar", "Os itens de exemplo já estão no seu cardápio.");
+      await load();
+    } catch (failure) {
+      appToast.error("Não foi possível adicionar", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setAddingSample(false);
+    }
+  };
+
   const toggleAvailable = async (item: MenuItem) => {
     const next = !item.isAvailable;
     setToggling(item.id);
@@ -102,10 +117,18 @@ export default function CardapioPage(): JSX.Element {
         </div>
       </div>
 
+      {!loading && categories.length > 0 && items.length === 0 ? (
+        <AppSurface className="flex flex-wrap items-center gap-3 border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary-soft))] p-4">
+          <Sparkles className="h-5 w-5 text-[hsl(var(--primary))]" />
+          <p className="min-w-0 flex-1 text-sm">Ainda sem itens. Quer começar com 5 pratos feitos e bebidas, já com fotos? Depois é só ajustar.</p>
+          <AppActionButton className="gap-2" disabled={addingSample} onClick={() => void addSample()}>{addingSample ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Usar cardápio de exemplo</AppActionButton>
+        </AppSurface>
+      ) : null}
+
       {loading ? (
         <div className="space-y-3">{[0, 1, 2].map((index) => <AppSkeleton key={index} className="h-24" />)}</div>
       ) : categories.length === 0 ? (
-        <AppEmptyState icon={UtensilsCrossed} title="Comece pelas categorias" description="Crie as seções do cardápio (ex.: Pratos feitos, Bebidas) e depois cadastre os itens." action={<AppActionButton className="gap-2" onClick={() => setManagingCategories(true)}><Plus className="h-4 w-4" />Criar categorias</AppActionButton>} />
+        <AppEmptyState icon={UtensilsCrossed} title="Monte o seu cardápio" description="Comece com o cardápio de exemplo (5 pratos feitos e bebidas, com fotos) e ajuste preços e nomes, ou crie tudo do zero." action={<div className="flex flex-wrap justify-center gap-2"><AppActionButton className="gap-2" disabled={addingSample} onClick={() => void addSample()}>{addingSample ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Usar cardápio de exemplo</AppActionButton><AppActionButton variant="secondary" className="gap-2" onClick={() => setManagingCategories(true)}><Plus className="h-4 w-4" />Criar do zero</AppActionButton></div>} />
       ) : sections.length === 0 ? (
         <AppEmptyState title="Nada encontrado" description="Tente outra busca ou outro filtro." />
       ) : (
