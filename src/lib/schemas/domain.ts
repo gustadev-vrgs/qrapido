@@ -37,7 +37,10 @@ export const restaurantSchema = baseEntitySchema.extend({
   address: z.string().max(180),
   phone: z.string().max(20),
   logoUrl: z.string().url().nullable(),
-  isActive: z.boolean()
+  isActive: z.boolean(),
+  legalName: z.string().trim().max(120).nullable().optional(),
+  // CNPJ (14 digits) or CPF (11), with or without punctuation.
+  document: z.string().trim().max(20).regex(/^[\d./-]*$/).nullable().optional()
 });
 
 export const staffUserSchema = baseEntitySchema.extend({

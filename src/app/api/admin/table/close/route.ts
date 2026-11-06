@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAdminFirestore } from "@/lib/firebase/admin-firestore";
 import { FLOOR_ROLES, logAdminFailure, requireStaffRequest } from "@/lib/server/admin-auth";
 import { classifyServerError } from "@/lib/server/api-errors";
+import { newReceiptToken, receiptLines, receiptPath, type ReceiptDoc } from "@/lib/server/receipts";
 import { toRestaurantDateKey } from "@/lib/utils/date-key";
 
 const payloadSchema = z.object({
@@ -55,14 +56,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const sessionId: string | null = table.currentSessionGroupId ?? null;
 
       // Equality-only queries (no composite index); filtering happens here.
-      const [sessionSnap, ordersSnap, grantsSnap, callsSnap] = sessionId
+      const restaurantRef = db.collection("restaurants").doc(staff.staffUser.restaurantId);
+      const [sessionSnap, ordersSnap, grantsSnap, callsSnap, restaurantSnap] = sessionId
         ? await Promise.all([
           tx.get(db.collection("tableSessions").doc(sessionId)),
           tx.get(db.collection("orders").where("sessionId", "==", sessionId)),
           tx.get(db.collection("sessionAccessGrants").where("sessionId", "==", sessionId)),
-          tx.get(db.collection("waiterCalls").where("sessionId", "==", sessionId))
+          tx.get(db.collection("waiterCalls").where("sessionId", "==", sessionId)),
+          tx.get(restaurantRef)
         ])
-        : [null, null, null, null];
+        : [null, null, null, null, null];
 
       const ownOrders = (ordersSnap?.docs ?? []).filter((doc: Db) => doc.data().restaurantId === staff.staffUser.restaurantId);
       const inKitchen = ownOrders.filter((doc: Db) => KITCHEN_PENDING.has(doc.data().status));
@@ -92,8 +95,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       const sessionBelongs = sessionSnap?.exists && sessionSnap.data().restaurantId === staff.staffUser.restaurantId;
+      // Non-fiscal receipt ("comprovante"), numbered per restaurant. Only for attendances with something consumed.
+      let receipt: { id: string; number: number; url: string } | null = null;
+      if (sessionBelongs && sessionSnap.data().status !== "closed" && ownOrders.some((doc: Db) => doc.data().status !== "cancelled")) {
+        const restaurant = restaurantSnap?.exists ? restaurantSnap.data() : {};
+        const number = Number(restaurant.receiptSeq ?? 0) + 1;
+        const receiptRef = db.collection("receipts").doc();
+        const totals = receiptLines(ownOrders.map((doc: Db) => doc.data()));
+        const publicToken = newReceiptToken();
+        const doc: ReceiptDoc = {
+          restaurantId: staff.staffUser.restaurantId, number, sessionId: sessionId as string, tableId: tableSnap.id, tableNumber: Number(table.number ?? 0), tableLabel: String(table.label ?? `Mesa ${table.number}`),
+          openedAt: sessionSnap.data().startedAt ?? null, closedAt: now, ...totals, payments, courtesy: payments.length === 0,
+          issuer: { name: String(restaurant.name ?? "Restaurante"), legalName: restaurant.legalName ?? null, document: restaurant.document ?? null, address: restaurant.address || null, phone: restaurant.phone || null },
+          closedByName: staff.staffUser.name ?? null, publicToken, createdAt: now
+        };
+        tx.set(receiptRef, doc);
+        tx.set(restaurantRef, { receiptSeq: number, updatedAt: now }, { merge: true });
+        receipt = { id: receiptRef.id, number, url: receiptPath(receiptRef.id, publicToken) };
+      }
       if (sessionBelongs && sessionSnap.data().status !== "closed") {
-        tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closedDateKey: toRestaurantDateKey(new Date(now)), closedBy: staff.staffUser.id, closeReason: reason, staffAccessCode: null, billTotal, paidWith, payments, updatedAt: now });
+        tx.update(sessionSnap.ref, { status: "closed", closedAt: now, closedDateKey: toRestaurantDateKey(new Date(now)), closedBy: staff.staffUser.id, closeReason: reason, staffAccessCode: null, billTotal, paidWith, payments, ...(receipt ? { receiptId: receipt.id, receiptNumber: receipt.number, receiptUrl: receipt.url } : {}), updatedAt: now });
       }
       const openGrants = (grantsSnap?.docs ?? []).filter((doc: Db) => !doc.data().revokedAt);
       openGrants.forEach((grant: Db) => tx.update(grant.ref, { revokedAt: now, revocationReason: "attendance_closed", updatedAt: now }));
@@ -111,7 +132,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         message: sessionBelongs ? "Atendimento encerrado e acessos revogados" : "Mesa liberada (não havia atendimento válido vinculado)",
         metadata: { reason, paidWith, payments, billTotal, revokedGrantCount: openGrants.length, autoDelivered: toDeliver.length, forcedKitchen: inKitchen.length, recovered: !sessionBelongs }, createdAt: now
       });
-      return { replay: alreadyFree, recovered: !sessionBelongs, autoDelivered: toDeliver.length, billTotal, paidWith, payments };
+      return { replay: alreadyFree, recovered: !sessionBelongs, autoDelivered: toDeliver.length, billTotal, paidWith, payments, receipt };
     });
     return NextResponse.json({ ok: true, ...result, requestId: staff.requestId });
   } catch (error) {
