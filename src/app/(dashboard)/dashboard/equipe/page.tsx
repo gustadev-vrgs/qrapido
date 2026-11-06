@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Copy, KeyRound, Loader2, Plus, RefreshCw, UserCheck, UserX, Users } from "lucide-react";
+import { Copy, KeyRound, Loader2, Plus, RefreshCw, Trash2, UserCheck, UserX, Users } from "lucide-react";
 
 import { AppActionButton, AppEmptyState, AppFormField, AppSkeleton, AppSurface, AppTextInput } from "@/components/ui/app-design-system";
 import { AppModal } from "@/components/ui/app-modal";
@@ -105,6 +105,22 @@ export default function EquipePage(): JSX.Element {
     }
   };
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const removeMember = async (member: Member) => {
+    setBusy(member.uid);
+    try {
+      await api("/api/admin/staff", { action: "delete", uid: member.uid });
+      appToast.success(`${member.name} saiu da equipe`, "O login dessa pessoa foi apagado.");
+      setEditing(null);
+      setConfirmDelete(false);
+      await load();
+    } catch (failure) {
+      appToast.error("Não foi possível excluir", failure instanceof Error ? failure.message : "Tente novamente.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const changePassword = async (member: Member) => {
     setBusy(member.uid);
     try {
@@ -193,7 +209,7 @@ export default function EquipePage(): JSX.Element {
       ) : null}
 
       {editing ? (
-        <AppModal title={editing.name} onClose={() => setEditing(null)}>
+        <AppModal title={editing.name} onClose={() => { setEditing(null); setConfirmDelete(false); }}>
           <p className="text-sm text-[hsl(var(--foreground-muted))]">{editing.email}</p>
           {editing.isMe ? <p className="rounded-[var(--radius-md)] bg-[hsl(var(--surface-muted))] p-3 text-sm">Este é o seu acesso. Para mudar a sua função, peça a outro administrador.</p> : (
             <>
@@ -202,11 +218,25 @@ export default function EquipePage(): JSX.Element {
                 <p className="text-sm font-medium">Nova senha</p>
                 <div className="flex gap-2"><AppTextInput className="num" value={newPassword} maxLength={64} onChange={(event) => setNewPassword(event.target.value)} /><AppActionButton variant="secondary" className="gap-2" disabled={busy === editing.uid || newPassword.length < 8} onClick={() => void changePassword(editing)}><KeyRound className="h-4 w-4" />Trocar</AppActionButton></div>
               </div>
-              <div className="flex justify-end border-t border-[hsl(var(--border))] pt-4">
-                {editing.isActive
-                  ? <AppActionButton variant="destructive" className="gap-2" disabled={busy === editing.uid} onClick={() => void update(editing, { isActive: false }, `${editing.name} ficou sem acesso`)}><UserX className="h-4 w-4" />Tirar o acesso</AppActionButton>
-                  : <AppActionButton variant="success" className="gap-2" disabled={busy === editing.uid} onClick={() => void update(editing, { isActive: true }, `${editing.name} voltou a ter acesso`)}><UserCheck className="h-4 w-4" />Devolver o acesso</AppActionButton>}
-              </div>
+              {confirmDelete && !editing.isActive ? (
+                <div className="space-y-3 rounded-[var(--radius-md)] border border-[hsl(var(--danger)/0.4)] bg-[hsl(var(--danger)/0.06)] p-3">
+                  <p className="text-sm">Excluir <strong>{editing.name}</strong> da equipe? O login ({editing.email}) é apagado e não dá para desfazer. Os pedidos e o histórico continuam com o nome dessa pessoa.</p>
+                  <div className="flex justify-end gap-2">
+                    <AppActionButton variant="secondary" onClick={() => setConfirmDelete(false)}>Voltar</AppActionButton>
+                    <AppActionButton variant="destructive" className="gap-2 bg-[hsl(var(--danger))] text-white hover:bg-[hsl(var(--danger)/0.9)]" disabled={busy === editing.uid} onClick={() => void removeMember(editing)}>{busy === editing.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Excluir de vez</AppActionButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--border))] pt-4">
+                  {editing.isActive
+                    ? <AppActionButton variant="destructive" className="gap-2" disabled={busy === editing.uid} onClick={() => void update(editing, { isActive: false }, `${editing.name} ficou sem acesso`)}><UserX className="h-4 w-4" />Tirar o acesso</AppActionButton>
+                    : <>
+                        <AppActionButton variant="ghost" className="mr-auto gap-2 text-[hsl(var(--danger))]" disabled={busy === editing.uid} onClick={() => setConfirmDelete(true)}><Trash2 className="h-4 w-4" />Excluir da equipe</AppActionButton>
+                        <AppActionButton variant="success" className="gap-2" disabled={busy === editing.uid} onClick={() => void update(editing, { isActive: true }, `${editing.name} voltou a ter acesso`)}><UserCheck className="h-4 w-4" />Devolver o acesso</AppActionButton>
+                      </>}
+                </div>
+              )}
+              {editing.isActive ? <p className="text-xs text-[hsl(var(--foreground-muted))]">Para excluir alguém da equipe, primeiro tire o acesso.</p> : null}
             </>
           )}
         </AppModal>

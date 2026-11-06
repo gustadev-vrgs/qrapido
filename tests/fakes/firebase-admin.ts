@@ -211,6 +211,10 @@ export const fakeAuth = {
     if (!user) throw Object.assign(new Error("no user"), { code: "auth/user-not-found" });
     this.users.set(uid, { ...user, ...input });
   },
+  async deleteUser(uid: string): Promise<void> {
+    if (!this.users.has(uid)) throw Object.assign(new Error("no user"), { code: "auth/user-not-found" });
+    this.users.delete(uid);
+  },
   async revokeRefreshTokens(uid: string): Promise<void> {
     const user = this.users.get(uid);
     if (user) user.tokensRevokedAt = Date.now();
