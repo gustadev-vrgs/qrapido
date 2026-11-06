@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { LogIn } from "lucide-react";
+import { Eye, EyeOff, KeyRound, LogIn } from "lucide-react";
 import { sendPasswordResetEmail, signInWithEmailAndPassword } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 
@@ -38,6 +38,7 @@ const firestoreErrorMap: Record<string, string> = {
 
 export function AdminLoginForm(): JSX.Element {
   const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { isAuthenticated, isLoading, authError, clearAuthError } = useAdminAuth();
 
@@ -170,17 +171,29 @@ export function AdminLoginForm(): JSX.Element {
       </AppFormField>
 
       <AppFormField label="Senha" error={errors.password?.message}>
-        <AppTextInput
-          type="password"
-          autoComplete="current-password"
-          placeholder="Digite sua senha"
-          {...register("password", {
-            onChange: () => {
-              handleFieldEdit();
-              clearErrors("password");
-            }
-          })}
-        />
+        <div className="relative">
+          <AppTextInput
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            placeholder="Digite sua senha"
+            className="pr-12"
+            {...register("password", {
+              onChange: () => {
+                handleFieldEdit();
+                clearErrors("password");
+              }
+            })}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((value) => !value)}
+            aria-label={showPassword ? "Esconder a senha" : "Mostrar a senha"}
+            aria-pressed={showPassword}
+            className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-[var(--radius-md)] text-[hsl(var(--foreground-muted))] hover:text-[hsl(var(--foreground))]"
+          >
+            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+          </button>
+        </div>
       </AppFormField>
 
       {submitError ? <p className="rounded-xl border border-[hsl(var(--danger)/0.35)] bg-[hsl(var(--danger)/0.1)] px-3 py-2 text-sm text-[hsl(var(--danger))]">{submitError}</p> : null}
@@ -199,14 +212,18 @@ export function AdminLoginForm(): JSX.Element {
         )}
       </AppActionButton>
 
-      <div className="text-center text-sm">
-        {resetState === "sent" ? (
-          <p className="text-[hsl(var(--foreground-muted))]">Se este e-mail tiver acesso, chega em instantes uma mensagem para criar uma nova senha. Confira também o spam.</p>
-        ) : (
-          <button type="button" className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline disabled:opacity-60" disabled={resetState === "sending"} onClick={() => void handlePasswordReset()}>
-            {resetState === "sending" ? "Enviando..." : "Esqueci minha senha"}
-          </button>
-        )}
+      <div className="flex gap-3 rounded-[var(--radius-md)] bg-[hsl(var(--surface-muted))] p-3 text-sm">
+        <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--foreground-muted))]" aria-hidden="true" />
+        <div className="space-y-1">
+          <p><strong>Esqueceu a senha?</strong> Fale com o administrador do restaurante: ele cria uma senha nova para você em <strong>Equipe</strong>.</p>
+          {resetState === "sent" ? (
+            <p className="text-[hsl(var(--foreground-muted))]">Se este e-mail tiver acesso, chega em instantes uma mensagem para criar uma nova senha. Confira também o spam.</p>
+          ) : (
+            <button type="button" className="text-[hsl(var(--primary))] underline-offset-2 hover:underline disabled:opacity-60" disabled={resetState === "sending"} onClick={() => void handlePasswordReset()}>
+              {resetState === "sending" ? "Enviando..." : "Sou o administrador: receber e-mail para trocar a senha"}
+            </button>
+          )}
+        </div>
       </div>
     </form>
   );

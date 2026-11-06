@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
-import { CheckCircle2, CircleAlert, ExternalLink, Eraser, Loader2, RefreshCw, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, Database, ExternalLink, Eraser, Loader2, RefreshCw, Server, ShieldCheck, Stethoscope, Wrench, XCircle } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-import { AppActionButton, AppSectionCard, AppSurface } from "@/components/ui/app-design-system";
+import { AppActionButton, AppSurface } from "@/components/ui/app-design-system";
+import { cn } from "@/lib/utils/cn";
 import { describeFirebaseError } from "@/lib/data/errors";
 import { getClientFirestore } from "@/lib/firebase/firestore";
 import { useAdminApi } from "@/lib/hooks/use-admin-api";
@@ -29,6 +31,35 @@ function Row({ check }: { check: Check }): JSX.Element {
       </div>
     </li>
   );
+}
+
+type Status = "loading" | "ok" | "problem";
+
+/** A check group that starts closed: the header says if everything is fine; details open on demand. */
+function Section({ icon: Icon, title, description, status, summary, action, children }: { icon: LucideIcon; title: string; description: string; status: Status; summary: string; action?: React.ReactNode; children: React.ReactNode }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const StatusIcon = status === "loading" ? Loader2 : status === "ok" ? CheckCircle2 : XCircle;
+  return (
+    <AppSurface className={cn("overflow-hidden p-0", status === "problem" ? "border-[hsl(var(--danger)/0.45)]" : "")}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex w-full items-center gap-3 p-4 text-left hover:bg-[hsl(var(--surface-muted))]">
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--surface-muted))]"><Icon className="h-5 w-5 text-[hsl(var(--foreground-muted))]" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">{title}</span>
+          <span className="block text-sm text-[hsl(var(--foreground-muted))]">{description}</span>
+        </span>
+        <span className={cn("hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold sm:inline-flex", status === "ok" ? "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]" : status === "problem" ? "bg-[hsl(var(--danger)/0.1)] text-[hsl(var(--danger))]" : "bg-[hsl(var(--surface-muted))] text-[hsl(var(--foreground-muted))]")}><StatusIcon className={cn("h-3.5 w-3.5", status === "loading" ? "animate-spin" : "")} />{summary}</span>
+        <StatusIcon className={cn("h-5 w-5 shrink-0 sm:hidden", status === "ok" ? "text-[hsl(var(--success))]" : status === "problem" ? "text-[hsl(var(--danger))]" : "animate-spin")} aria-label={summary} />
+        <ChevronDown className={cn("h-5 w-5 shrink-0 text-[hsl(var(--foreground-muted))] transition-transform", open ? "rotate-180" : "")} aria-hidden="true" />
+      </button>
+      {open ? <div className="space-y-3 border-t border-[hsl(var(--border))] p-4">{action ? <div className="flex justify-end">{action}</div> : null}{children}</div> : null}
+    </AppSurface>
+  );
+}
+
+function statusOf(checks: Check[]): { status: Status; summary: string } {
+  if (!checks.length || checks.some((check) => check.ok === null)) return { status: "loading", summary: "Verificando" };
+  const bad = checks.filter((check) => !check.ok).length;
+  return bad ? { status: "problem", summary: `${bad} com problema` } : { status: "ok", summary: "Tudo certo" };
 }
 
 export default function DiagnosticoPage(): JSX.Element {
@@ -60,7 +91,17 @@ export default function DiagnosticoPage(): JSX.Element {
     }
 
     // 2. Firestore rules as seen by this browser (the panel reads Firestore directly).
-    const db = getClientFirestore();
+    let db: ReturnType<typeof getClientFirestore>;
+    try {
+      db = getClientFirestore();
+    } catch (error) {
+      // Missing NEXT_PUBLIC_FIREBASE_* variables: report it instead of spinning forever.
+      setRules([{ label: "Configuração do Firebase no site", ok: false, detail: error instanceof Error ? error.message : "Variáveis NEXT_PUBLIC_FIREBASE_* ausentes." }]);
+      setIssues(null);
+      setIssuesError("Sem a configuração do Firebase no site, os dados não podem ser verificados.");
+      setRunning(false);
+      return;
+    }
     const restaurantId = user.restaurantId;
     const probes: Array<[string, () => Promise<unknown>]> = [
       ["Seu cadastro em staffUsers", () => getDoc(doc(db, "staffUsers", firebaseUser?.uid ?? "-"))],
@@ -118,23 +159,37 @@ export default function DiagnosticoPage(): JSX.Element {
   };
 
   const fixable = (issues ?? []).some((issue) => ["RESTAURANT_DOC_MISSING", "SETTINGS_MISSING", "TABLE_QR_INVALID"].includes(issue.code));
+  const serverStatus = statusOf(server);
+  const rulesStatus = statusOf(rules);
+  const dataStatus: { status: Status; summary: string } = issuesError ? { status: "problem", summary: "Falhou" } : issues === null ? { status: "loading", summary: "Verificando" } : issues.some((issue) => issue.severity === "error") ? { status: "problem", summary: `${issues.length} pendência(s)` } : issues.length ? { status: "ok", summary: `${issues.length} aviso(s)` } : { status: "ok", summary: "Tudo certo" };
+  const overall = [serverStatus, rulesStatus, dataStatus];
+  const problems = overall.filter((item) => item.status === "problem").length;
+  const checking = overall.some((item) => item.status === "loading");
 
   return (
     <section className="space-y-4">
-      <AppSurface className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
-        <p>Logado como <strong>{user?.name}</strong> ({user?.role}) · restaurante <code>{user?.restaurantId}</code> · UID <code className="break-all">{firebaseUser?.uid}</code></p>
+      <AppSurface className={cn("flex flex-wrap items-center gap-4 p-5", checking ? "" : problems ? "border-[hsl(var(--danger)/0.45)] bg-[hsl(var(--danger)/0.04)]" : "border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.05)]")}>
+        <span className={cn("inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl", checking ? "bg-[hsl(var(--surface-muted))]" : problems ? "bg-[hsl(var(--danger))] text-white" : "bg-[hsl(var(--success))] text-white")}>{checking ? <Loader2 className="h-6 w-6 animate-spin" /> : problems ? <XCircle className="h-6 w-6" /> : <Stethoscope className="h-6 w-6" />}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-semibold">{checking ? "Verificando o sistema..." : problems ? `${problems} ${problems === 1 ? "parte precisa" : "partes precisam"} de atenção` : "Tudo funcionando"}</p>
+          <p className="text-sm text-[hsl(var(--foreground-muted))]">{checking ? "Leva alguns segundos." : problems ? "Toque na parte em vermelho para ver o que fazer." : "Toque em uma parte para ver os detalhes."}</p>
+        </div>
         <AppActionButton variant="secondary" className="gap-2" disabled={running} onClick={() => void run()}>{running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}Verificar de novo</AppActionButton>
+        <details className="w-full text-xs text-[hsl(var(--foreground-muted))]">
+          <summary className="cursor-pointer">Dados para o suporte</summary>
+          <p className="mt-1 break-all">Logado como <strong>{user?.name}</strong> ({user?.role}) · restaurante <code>{user?.restaurantId}</code> · UID <code>{firebaseUser?.uid}</code></p>
+        </details>
       </AppSurface>
 
-      <AppSectionCard title="1. Servidor (Vercel)" description="Necessário para o QR Code, abrir/encerrar mesas e receber pedidos.">
+      <Section icon={Server} title="Servidor (Vercel)" description="QR Code, abrir e fechar mesas, receber pedidos." {...serverStatus}>
         <ul className="space-y-2">{server.map((check) => <Row key={check.label} check={check} />)}</ul>
-      </AppSectionCard>
+      </Section>
 
-      <AppSectionCard title="2. Regras do Firestore (painel)" description="O painel lê o banco direto do navegador; se as regras não estiverem publicadas, aparece erro de permissão.">
+      <Section icon={ShieldCheck} title="Regras do Firestore" description="O que este navegador consegue ler no banco." {...rulesStatus}>
         <ul className="space-y-2">{rules.map((check) => <Row key={check.label} check={check} />)}</ul>
-      </AppSectionCard>
+      </Section>
 
-      <AppSectionCard title="3. Dados do restaurante" description="Cadastros que faltam e mesas com QR Code inválido." action={fixable ? <AppActionButton className="gap-2" disabled={repairing} onClick={() => void repair()}>{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}Corrigir automaticamente</AppActionButton> : null}>
+      <Section icon={Database} title="Dados do restaurante" description="Cadastros que faltam e mesas com QR Code inválido." {...dataStatus} action={fixable ? <AppActionButton className="gap-2" disabled={repairing} onClick={() => void repair()}>{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}Corrigir automaticamente</AppActionButton> : null}>
         {issuesError ? <p className="text-sm text-[hsl(var(--danger))]">{issuesError}</p> : null}
         {issues === null && !issuesError ? <p className="text-sm text-[hsl(var(--foreground-muted))]">Verificando...</p> : null}
         {issues?.length === 0 ? <p className="flex items-center gap-2 text-sm text-[hsl(var(--success))]"><CheckCircle2 className="h-4 w-4" />Tudo certo com os dados.</p> : null}
@@ -146,11 +201,12 @@ export default function DiagnosticoPage(): JSX.Element {
             </li>
           ))}
         </ul>
-      </AppSectionCard>
+      </Section>
 
-      <AppSectionCard title="4. Limpeza" description="Apaga registros temporários de segurança que já venceram (limites de tentativas, acessos antigos de celulares). No plano gratuito o Firebase não apaga sozinho; use uma vez por mês." action={<AppActionButton variant="secondary" className="gap-2" disabled={cleaning} onClick={() => void cleanup()}>{cleaning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}Limpar dados vencidos</AppActionButton>}>
-        <p className="text-sm text-[hsl(var(--foreground-muted))]">Não mexe em pedidos, mesas, cardápio nem relatórios.</p>
-      </AppSectionCard>
+      <Section icon={Eraser} title="Limpeza de dados vencidos" description="Registros temporários de segurança que já venceram. Use uma vez por mês." status="ok" summary="Manual">
+        <p className="text-sm text-[hsl(var(--foreground-muted))]">Apaga limites de tentativas, acessos antigos de celulares e registros contra pedido duplicado que já venceram. No plano gratuito o Firebase não apaga sozinho. Não mexe em pedidos, mesas, cardápio nem relatórios.</p>
+        <AppActionButton variant="secondary" className="gap-2" disabled={cleaning} onClick={() => void cleanup()}>{cleaning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}Limpar dados vencidos</AppActionButton>
+      </Section>
     </section>
   );
 }
